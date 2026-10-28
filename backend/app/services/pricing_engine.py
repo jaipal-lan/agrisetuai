@@ -1,0 +1,102 @@
+"""Server-side pricing engine (PRD section 7 & 8).
+
+Produces a fully itemised, auditable quote. Clients never compute fees; they only
+display the server's breakdown. The same function powers the admin "simulate"
+preview and live order quoting, so previews match real charges exactly.
+"""
+from dataclasses import asdict, dataclass
+from decimal import Decimal
+
+from app.core.money import money
+from app.models.pricing import PricingRule
+
+
+@dataclass
+class QuoteInput:
+    product_value: Decimal       # price_per_unit * quantity
+    billable_kg: Decimal         # chargeable weight for transport
+    route_km: Decimal            # road distance pickup -> destination
+    include_inspection: bool = True
+    include_packing: bool = True
+
+
+@dataclass
+class Quote:
+    currency: str
+    rule_version: int
+    product_value: str
+    packing_fee: str
+    inspection_fee: str
+    transport_charge: str
+    service_fee: str
+    service_fee_payer: str
+    tax: str
+    buyer_total: str
+    seller_payable: str
+    breakdown: dict
+
+    def to_json(self) -> dict:
+        return asdict(self)
+
+
+def _transport(rule: PricingRule, inp: QuoteInput) -> Decimal:
+    raw = (
+        inp.billable_kg * Decimal(str(rule.rate_per_kg))
+        + inp.route_km * Decimal(str(rule.rate_per_km))
+        + Decimal(str(rule.fixed_pickup_fee))
+    )
+    charge = max(Decimal(str(rule.min_transport_charge)), raw)
+    if rule.max_transport_charge is not None:
+        charge = min(charge, Decimal(str(rule.max_transport_charge)))
+    return money(charge)
+
+
+def compute(rule: PricingRule, inp: QuoteInput) -> Quote:
+    product_value = money(inp.product_value)
+    packing = money(rule.packing_fee) if inp.include_packing else money(0)
+    inspection = money(rule.inspection_fee) if inp.include_inspection else money(0)
+    transport = _transport(rule, inp)
+
+    service_fee = money(
+        product_value * Decimal(str(rule.service_fee_pct)) / Decimal("100")
+        + Decimal(str(rule.service_fee_flat))
+    )
+    payer = rule.service_fee_payer
+
+    # Tax applies to platform-charged services the buyer pays for.
+    taxable = transport + inspection + packing
+    if payer == "buyer":
+        taxable += service_fee
+    tax = money(taxable * Decimal(str(rule.tax_pct)) / Decimal("100"))
+
+    buyer_total = product_value + packing + inspection + transport + tax
+    seller_payable = product_value
+    if payer == "buyer":
+        buyer_total += service_fee
+    else:  # seller pays the service fee -> deducted from their proceeds
+        seller_payable -= service_fee
+
+    return Quote(
+        currency=rule.currency,
+        rule_version=rule.version,
+        product_value=str(product_value),
+        packing_fee=str(packing),
+        inspection_fee=str(inspection),
+        transport_charge=str(transport),
+        service_fee=str(service_fee),
+        service_fee_payer=payer,
+        tax=str(tax),
+        buyer_total=str(money(buyer_total)),
+        seller_payable=str(money(seller_payable)),
+        breakdown={
+            "billable_kg": str(inp.billable_kg),
+            "route_km": str(inp.route_km),
+            "rate_per_kg": str(rule.rate_per_kg),
+            "rate_per_km": str(rule.rate_per_km),
+            "fixed_pickup_fee": str(rule.fixed_pickup_fee),
+            "min_transport_charge": str(rule.min_transport_charge),
+            "service_fee_pct": str(rule.service_fee_pct),
+            "service_fee_flat": str(rule.service_fee_flat),
+            "tax_pct": str(rule.tax_pct),
+        },
+    )
