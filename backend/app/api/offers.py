@@ -139,6 +139,19 @@ def create_offer(
     return _offer_json(offer, db)
 
 
+@router.get("")
+def my_offers(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """All negotiation threads where the caller is the buyer or the seller."""
+    from sqlalchemy import or_
+
+    rows = db.scalars(
+        select(Offer)
+        .where(or_(Offer.buyer_id == user.id, Offer.seller_id == user.id))
+        .order_by(Offer.created_at.desc())
+    )
+    return [_offer_json(o, db) for o in rows]
+
+
 @router.get("/{offer_id}")
 def get_offer(offer_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     offer = db.get(Offer, offer_id)

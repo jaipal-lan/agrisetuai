@@ -21,9 +21,14 @@ app = FastAPI(
     description="AI farming advisory + verified farm-to-marketplace (MVP core).",
 )
 
+_dev_origins = [
+    f"http://{host}:{port}"
+    for host in ("localhost", "127.0.0.1")
+    for port in (3000, 3001, 3002)
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000"],
+    allow_origins=_dev_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
