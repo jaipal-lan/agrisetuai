@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     auth_secret: str = ""
     currency: str = "INR"
     superadmin_phone: str = "919999999998"
+    # Run `alembic upgrade head` on startup. Keep true for dev; set false in
+    # production and run migrations from the deploy pipeline instead.
+    auto_migrate: bool = True
 
     # OTP
     otp_ttl_seconds: int = 300

@@ -43,7 +43,10 @@ Ordered by dependency and PRD risk-gating.
       (Inspection submit exists on the order page; no offline queue yet.)
 
 ### Phase B — harden the core
-- [ ] Real migrations (Alembic) instead of `create_all`; PostgreSQL + PostGIS.
+- [x] Real migrations (Alembic) instead of `create_all`. Baseline revision
+      `0be45af65a74` creates all 30 tables; app runs `alembic upgrade head` on
+      startup behind `AUTO_MIGRATE`. `psycopg` driver installed for PostgreSQL;
+      `render_as_batch` on for SQLite ALTERs. PostGIS geo columns still to add.
 - [x] RFQ-initiated negotiation (seller offers into a buyer RFQ). Buyer posts an
       RFQ; sellers browse open RFQs and offer in; accept marks the RFQ matched and
       creates a listing-less order that still prices/packs (commodity + mandal are
@@ -75,7 +78,6 @@ organic claims, APMC/e-NAM market-access rules, payment/escrow structure,
 consumer-protection terms, privacy/data-protection. None of these are code tasks.
 
 ## Known simplifications in the current build
-- `create_all` on startup (dev/SQLite); production needs Alembic migrations.
 - Payment provider is a mock with the same idempotent, ledger-backed shape as a
   real one, to keep the swap isolated.
 - Transport distance (`route_km`) is passed in, not yet computed from a maps API.

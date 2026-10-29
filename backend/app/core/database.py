@@ -31,8 +31,23 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    # Import models so they register on Base.metadata, then create tables.
-    # Real deployments use migrations; metadata.create_all is fine for dev/SQLite.
+    # Fallback schema creation (dev/tests). Prefer run_migrations() — it is the
+    # source of truth and matches production.
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+
+
+def run_migrations() -> None:
+    """Run `alembic upgrade head` programmatically against settings.database_url."""
+    import os
+
+    from alembic import command
+    from alembic.config import Config
+
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    cfg = Config(os.path.join(backend_dir, "alembic.ini"))
+    # Resolve script location absolutely so it works regardless of cwd.
+    cfg.set_main_option("script_location", os.path.join(backend_dir, "migrations"))
+    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    command.upgrade(cfg, "head")

@@ -14,7 +14,7 @@ from app.api import (
     rfqs,
 )
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import run_migrations
 
 app = FastAPI(
     title="AgriSetuAI",
@@ -42,8 +42,10 @@ for module in (auth, locations, catalog, listings, rfqs, offers, orders, agents,
 
 @app.on_event("startup")
 def _startup() -> None:
-    # Dev/SQLite convenience: ensure tables exist. Prod uses migrations.
-    init_db()
+    # Bring the schema to head via Alembic. In production set AUTO_MIGRATE=false
+    # and run migrations from the deploy pipeline instead.
+    if settings.auto_migrate:
+        run_migrations()
 
 
 @app.get("/api/health")

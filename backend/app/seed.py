@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.database import SessionLocal, init_db
+from app.core.database import SessionLocal, run_migrations
 from app.core.rbac import Role
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import utcnow
@@ -116,7 +116,7 @@ def seed_pricing(db: Session) -> None:
 
 
 def main() -> None:
-    init_db()
+    run_migrations()
     db = SessionLocal()
     try:
         mandals = seed_locations(db)
