@@ -13,10 +13,11 @@ from app.models.common import (
     ListingStatus,
     OfferStatus,
     OrderStatus,
+    RFQStatus,
     ensure_aware,
     utcnow,
 )
-from app.models.marketplace import Listing, Offer, OfferVersion
+from app.models.marketplace import RFQ, Listing, Offer, OfferVersion
 from app.models.order import Order, OrderLine
 from app.models.user import User
 from app.services import audit
@@ -261,6 +262,7 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
         raise HTTPException(status.HTTP_409_CONFLICT, "Offer has expired")
 
     listing = db.get(Listing, offer.listing_id) if offer.listing_id else None
+    rfq = db.get(RFQ, offer.rfq_id) if offer.rfq_id else None
     accepted_qty = qty(latest.quantity)
 
     if listing is not None:
@@ -273,6 +275,11 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
         if qty(fresh.available_qty) <= 0:
             fresh.status = ListingStatus.SOLD_OUT
 
+    # Commodity/mandal come from the listing (listing offers) or the RFQ (RFQ offers),
+    # so the order is self-contained for pricing and packing without the source row.
+    commodity_id = listing.commodity_id if listing else (rfq.commodity_id if rfq else None)
+    mandal_id = listing.mandal_id if listing else (rfq.destination_mandal_id if rfq else None)
+
     # Snapshot the exact accepted terms into the order (immutable record).
     accepted_terms = {
         "offer_version_id": latest.id,
@@ -281,6 +288,8 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
         "quantity": str(accepted_qty),
         "unit": latest.unit,
         "grade_spec_id": latest.grade_spec_id,
+        "commodity_id": commodity_id,
+        "mandal_id": mandal_id,
         "delivery_terms": latest.delivery_terms,
         "inspection_conditions": latest.inspection_conditions,
     }
@@ -309,6 +318,8 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
 
     offer.status = OfferStatus.ACCEPTED
     offer.accepted_version_id = latest.id
+    if rfq is not None:
+        rfq.status = RFQStatus.MATCHED
     audit.record(
         db,
         actor_id=user.id,

@@ -148,8 +148,7 @@ def confirm_quote(
     db: Session = Depends(get_db),
 ):
     """Lock the server-computed quote onto a CONFIRMED order and move to PAYMENT_PENDING."""
-    from app.api.pricing import active_rule_for
-    from app.models.catalog import Commodity
+    from app.api.pricing import active_rule_for, order_pricing_context
     from app.services.pricing_engine import QuoteInput, compute
 
     order = _get_order(order_id, db)
@@ -161,13 +160,7 @@ def confirm_quote(
 
     terms = order.accepted_terms
     product_value = D(terms["price_per_unit"]) * D(terms["quantity"])
-    line = order.lines[0] if order.lines else None
-    listing = db.get(Listing, line.listing_id) if line and line.listing_id else None
-    mandal_id = listing.mandal_id if listing else None
-    handling_class = None
-    if listing:
-        commodity = db.get(Commodity, listing.commodity_id)
-        handling_class = commodity.handling_class if commodity else None
+    mandal_id, handling_class = order_pricing_context(db, order)
 
     rule = active_rule_for(db, mandal_id=mandal_id, handling_class=handling_class)
     if not rule:
@@ -257,11 +250,12 @@ def packing_complete(
     line = order.lines[0] if order.lines else None
     listing = db.get(Listing, line.listing_id) if line and line.listing_id else None
 
+    commodity_id = (listing.commodity_id if listing else None) or terms.get("commodity_id")
     lot = Lot(
         public_id=gen_lot(),
         source_listing_id=listing.id if listing else None,
         seller_id=order.seller_id,
-        commodity_id=listing.commodity_id if listing else 0,
+        commodity_id=commodity_id,
         quantity=D(terms["quantity"]),
         grade_spec_id=terms.get("grade_spec_id"),
         seal_ref=gen_lot(),

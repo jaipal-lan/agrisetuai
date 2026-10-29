@@ -17,12 +17,14 @@ function Nav() {
 
   const staff = user && ["superadmin", "finance", "mandal_manager"].includes(user.role);
   const seller = user && ["farmer", "fpo"].includes(user.role);
+  const buyer = user && ["buyer_household", "buyer_business"].includes(user.role);
 
   return (
     <nav className="nav">
       <Link href="/" className="brand">{t("app_name")}</Link>
       <Link href="/">{t("marketplace")}</Link>
       {seller && <Link href="/sell">{t("sell")}</Link>}
+      {(buyer || seller) && <Link href="/requests">{t("requests")}</Link>}
       {user && <Link href="/offers">{t("my_offers")}</Link>}
       {user && <Link href="/orders">{t("my_orders")}</Link>}
       {staff && <Link href="/admin">{t("admin")}</Link>}

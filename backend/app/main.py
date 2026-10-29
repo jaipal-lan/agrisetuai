@@ -11,6 +11,7 @@ from app.api import (
     offers,
     orders,
     pricing,
+    rfqs,
 )
 from app.core.config import settings
 from app.core.database import init_db
@@ -35,7 +36,7 @@ app.add_middleware(
 )
 
 API = "/api"
-for module in (auth, locations, catalog, listings, offers, orders, agents, pricing, admin):
+for module in (auth, locations, catalog, listings, rfqs, offers, orders, agents, pricing, admin):
     app.include_router(module.router, prefix=API)
 
 

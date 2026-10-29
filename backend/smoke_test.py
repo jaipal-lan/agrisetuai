@@ -228,6 +228,57 @@ def run():
     oj = client.get(f"/api/orders/{order_id}", headers=hdr(buyer)).json()
     check("settled order kept rule version 1", oj["quote"]["rule_version"] == 1)
 
+    print("\n== RFQ-initiated negotiation (buyer posts, seller offers in) ==")
+    r = client.post("/api/rfqs", headers=hdr(buyer), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id,
+        "requested_qty": 200, "target_price": 23, "destination_mandal_id": mandal_id,
+    })
+    check("buyer creates RFQ", r.status_code == 201)
+    rfq = r.json()
+    check("RFQ starts open", rfq["status"] == "open")
+
+    # Seller browses open RFQs and offers in.
+    open_rfqs = client.get("/api/rfqs", params={"commodity_id": paddy["id"]}).json()
+    check("RFQ appears in seller search", any(x["id"] == rfq["id"] for x in open_rfqs))
+
+    # A buyer cannot offer into an RFQ (seller-only endpoint).
+    r = client.post(f"/api/rfqs/{rfq['id']}/offers", headers=hdr(buyer),
+                    json={"price_per_unit": 24, "quantity": 200})
+    check("buyer blocked from offering into RFQ", r.status_code == 403)
+
+    r = client.post(f"/api/rfqs/{rfq['id']}/offers", headers=hdr(farmer),
+                    json={"price_per_unit": 24, "quantity": 200})
+    check("seller offers into RFQ", r.status_code == 201)
+    rfq_offer = r.json()
+    check("RFQ offer proposed by seller", rfq_offer["versions"][0]["proposer_role"] == "seller")
+
+    # Seller cannot accept their own proposal; buyer accepts.
+    r = client.post(f"/api/offers/{rfq_offer['id']}/accept", headers=hdr(farmer))
+    check("seller cannot accept own RFQ offer", r.status_code == 409)
+    r = client.post(f"/api/offers/{rfq_offer['id']}/accept", headers=hdr(buyer))
+    check("buyer accepts RFQ offer", r.status_code == 200)
+    rfq_order = r.json()["order"]
+    rfq_order_id = rfq_order["id"]
+    check("RFQ order has commodity snapshot", rfq_order["accepted_terms"]["commodity_id"] == paddy["id"])
+
+    rfq_now = client.get(f"/api/rfqs/{rfq['id']}").json()
+    check("RFQ marked matched after accept", rfq_now["status"] == "matched")
+
+    # The RFQ-based order (no listing) still runs the full lifecycle & prices.
+    client.post(f"/api/orders/{rfq_order_id}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
+    client.post(f"/api/agent/orders/{rfq_order_id}/inspection", headers=hdr(agent),
+                json={"gross_weight": 200, "tare_weight": 0, "outcome": "pass"})
+    client.post(f"/api/orders/{rfq_order_id}/buyer-approve", headers=hdr(buyer))
+    r = client.post(f"/api/orders/{rfq_order_id}/confirm-quote", headers=hdr(buyer), json={"route_km": 30})
+    check("RFQ order prices without a listing", r.json()["status"] == "payment_pending"
+          and r.json()["quote"]["product_value"] == "4800.00")  # 24 * 200
+    r = client.post(f"/api/orders/{rfq_order_id}/pay",
+                    headers={**hdr(buyer), "Idempotency-Key": "rfq-pay-1"})
+    check("RFQ order paid", r.json()["status"] == "paid")
+
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger balanced across both orders", acct["balanced"] is True)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

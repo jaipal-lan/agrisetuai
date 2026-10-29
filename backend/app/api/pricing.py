@@ -150,6 +150,28 @@ def publish_rule(rule_id: int, user=Depends(_superadmin), db: Session = Depends(
     return _rule_json(rule)
 
 
+def order_pricing_context(db: Session, order: Order) -> tuple[int | None, str | None]:
+    """Resolve (mandal_id, handling_class) for an order.
+
+    Prefers the commodity/mandal snapshotted into accepted_terms (works for both
+    listing- and RFQ-based orders); falls back to the source listing.
+    """
+    terms = order.accepted_terms or {}
+    commodity_id = terms.get("commodity_id")
+    mandal_id = terms.get("mandal_id")
+    if commodity_id is None:
+        line = order.lines[0] if order.lines else None
+        listing = db.get(Listing, line.listing_id) if line and line.listing_id else None
+        if listing:
+            commodity_id = listing.commodity_id
+            mandal_id = listing.mandal_id
+    handling_class = None
+    if commodity_id:
+        commodity = db.get(Commodity, commodity_id)
+        handling_class = commodity.handling_class if commodity else None
+    return mandal_id, handling_class
+
+
 def active_rule_for(db: Session, *, mandal_id: int | None, handling_class: str | None) -> PricingRule | None:
     """Most specific published rule: prefer mandal+class match, then class, then global."""
     published = list(db.scalars(select(PricingRule).where(PricingRule.status == "published")))
@@ -192,14 +214,7 @@ def quote_for_order(
     product_value = D(terms["price_per_unit"]) * D(terms["quantity"])
     billable_kg = D(terms["quantity"]) if terms["unit"] == "kg" else D(terms["quantity"])
 
-    line = order.lines[0] if order.lines else None
-    listing = db.get(Listing, line.listing_id) if line and line.listing_id else None
-    mandal_id = listing.mandal_id if listing else None
-    handling_class = None
-    if listing:
-        commodity = db.get(Commodity, listing.commodity_id)
-        handling_class = commodity.handling_class if commodity else None
-
+    mandal_id, handling_class = order_pricing_context(db, order)
     rule = active_rule_for(db, mandal_id=mandal_id, handling_class=handling_class)
     if not rule:
         raise HTTPException(status.HTTP_409_CONFLICT, "No published pricing rule applies")

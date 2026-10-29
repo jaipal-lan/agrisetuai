@@ -36,14 +36,18 @@ The auditable managed-marketplace spine, with a passing end-to-end smoke test
 
 Ordered by dependency and PRD risk-gating.
 
-### Phase A — frontend surfaces (in progress)
-- [ ] Next.js PWA: Telugu/English toggle, OTP login, buyer browse + offer,
-      farmer listing management, order timeline, admin pricing/KPIs.
+### Phase A — frontend surfaces
+- [x] Next.js PWA: Telugu/English toggle, OTP login, buyer browse + offer,
+      farmer listing management, RFQ requests, order timeline, admin pricing/KPIs.
 - [ ] Field-agent PWA view: job list, inspection capture, offline draft queue.
+      (Inspection submit exists on the order page; no offline queue yet.)
 
 ### Phase B — harden the core
 - [ ] Real migrations (Alembic) instead of `create_all`; PostgreSQL + PostGIS.
-- [ ] RFQ-initiated negotiation (seller offers into a buyer RFQ).
+- [x] RFQ-initiated negotiation (seller offers into a buyer RFQ). Buyer posts an
+      RFQ; sellers browse open RFQs and offer in; accept marks the RFQ matched and
+      creates a listing-less order that still prices/packs (commodity + mandal are
+      snapshotted into accepted_terms).
 - [ ] Partial-quantity acceptance + partial refund without corrupting history.
 - [ ] Dispute workflow + support tickets; refund ledger paths.
 - [ ] Media uploads (object storage, signed URLs, type/size + malware scan).
