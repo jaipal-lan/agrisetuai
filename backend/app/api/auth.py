@@ -173,8 +173,6 @@ def patch_me(body: MePatch, user: User = Depends(get_current_user), db: Session 
             ap.languages = body.languages
         if body.service_mandals is not None:
             ap.service_mandals = body.service_mandals
-        if body.submit_kyc:
-            ap.verification_status = "pending"
     user.onboarding_complete = True
     audit.record(db, actor_id=user.id, action="user.onboard", object_type="user",
                  object_id=user.id, new_values={"submit_kyc": body.submit_kyc})

@@ -28,19 +28,21 @@ export default function Admin() {
   const [carriers, setCarriers] = useState([]);
   const [newCarrier, setNewCarrier] = useState({ name: "", code: "", contact_phone: "" });
   const [reports, setReports] = useState(null);
+  const [kyc, setKyc] = useState([]);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setC = (k, v) => setNewCarrier((c) => ({ ...c, [k]: v }));
 
   async function load() {
     try {
-      const [k, l, r, c, cr, rep] = await Promise.all([
+      const [k, l, r, c, cr, rep, kq] = await Promise.all([
         api("/admin/kpis"),
         api("/admin/ledger/accounts"),
         api("/pricing/rules"),
         api("/catalog/commodities"),
         api("/carriers"),
         api("/admin/reports"),
+        api("/admin/kyc"),
       ]);
       setKpis(k);
       setLedger(l);
@@ -48,6 +50,7 @@ export default function Admin() {
       setCommodities(c);
       setCarriers(cr);
       setReports(rep);
+      setKyc(kq);
     } catch (e) {
       setErr(e.message);
     }
@@ -76,6 +79,16 @@ export default function Admin() {
     setErr(null);
     try {
       await api(`/carriers/${id}`, { method: "PATCH", body: patch });
+      load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function kycDecide(userId, approve) {
+    setErr(null);
+    try {
+      await api(`/admin/kyc/${userId}/decision`, { method: "POST", body: { approve } });
       load();
     } catch (e) {
       setErr(e.message);
@@ -274,6 +287,31 @@ export default function Admin() {
             ))}
           </div>
         </>
+      )}
+
+      <h2>KYC approval queue {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>
+      {kyc.length === 0 ? (
+        <p className="muted">No pending verifications.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Phone</th><th>Role</th><th>Details</th><th></th></tr>
+          </thead>
+          <tbody>
+            {kyc.map((u) => (
+              <tr key={u.user_id}>
+                <td>{u.name || "—"}</td>
+                <td>{u.phone}</td>
+                <td>{u.kind}</td>
+                <td className="muted">{u.village || u.buyer_type || ""}</td>
+                <td>
+                  <button className="ghost" onClick={() => kycDecide(u.user_id, true)}>Approve</button>{" "}
+                  <button className="ghost" onClick={() => kycDecide(u.user_id, false)}>Reject</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       <h2>Transport couriers</h2>

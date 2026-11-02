@@ -341,6 +341,21 @@ def run():
                        headers={"x-webhook-signature": _pay.sign(body)})
     check("valid-signature webhook runs (unknown order -> 404)", good.status_code == 404)
 
+    print("\n== Reorder + admin KYC queue ==")
+    r = client.post(f"/api/orders/{order_id}/reorder", headers=hdr(buyer))
+    check("buyer reorders -> new offer", r.json().get("reorderable") is True and r.json().get("offer_id"))
+    myoffers = client.get("/api/offers", headers=hdr(buyer)).json()
+    check("reorder offer appears in buyer's offers", any(o["id"] == r.json()["offer_id"] for o in myoffers))
+
+    q = client.get("/api/admin/kyc", headers=hdr(superadmin)).json()
+    check("new farmer appears in KYC queue", any(x["phone"] == "919000000031" for x in q))
+    target = next(x for x in q if x["phone"] == "919000000031")
+    d = client.post(f"/api/admin/kyc/{target['user_id']}/decision", headers=hdr(superadmin),
+                    json={"approve": True})
+    check("admin approves KYC", d.json()["verification_status"] == "verified")
+    q2 = client.get("/api/admin/kyc", headers=hdr(superadmin)).json()
+    check("approved user leaves pending queue", not any(x["user_id"] == target["user_id"] for x in q2))
+
     print("\n== Pricing admin (draft/simulate/publish) ==")
     r = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin), json={
         "handling_class": "dry_grain", "rate_per_kg": 1.0, "rate_per_km": 10,

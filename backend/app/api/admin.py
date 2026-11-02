@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,7 +16,8 @@ from app.models.location import District, Mandal, State
 from app.models.marketplace import Listing, Offer, RFQ
 from app.models.order import Inspection, Order
 from app.models.support import Dispute, SupportTicket
-from app.models.user import AgentProfile, User
+from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
+from app.services import audit, notify
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -126,6 +128,56 @@ def ledger_accounts(user=Depends(_staff), db: Session = Depends(get_db)):
         "net_balance": str(money(net)),
         "balanced": money(net) == money(0),
     }
+
+
+@router.get("/kyc")
+def kyc_queue(status_filter: str = "pending", user=Depends(_staff), db: Session = Depends(get_db)):
+    """Users awaiting KYC verification (farmers, buyers, agents)."""
+    out = []
+    # Agents are onboarded via training/performance, not KYC verification.
+    for model, kind in ((FarmerProfile, "farmer"), (BuyerProfile, "buyer")):
+        for p in db.scalars(select(model).where(model.verification_status == status_filter)):
+            u = db.get(User, p.user_id)
+            if not u:
+                continue
+            out.append({
+                "user_id": u.id, "name": u.name, "phone": u.phone, "role": u.role,
+                "kind": kind, "verification_status": p.verification_status,
+                "village": getattr(p, "village", None),
+                "buyer_type": getattr(p, "buyer_type", None),
+            })
+    return out
+
+
+class KycDecision(BaseModel):
+    approve: bool
+    reason: str | None = None
+
+
+@router.post("/kyc/{user_id}/decision")
+def kyc_decision(user_id: int, body: KycDecision,
+                 actor=Depends(require_roles(Role.SUPERADMIN, Role.MANDAL_MANAGER)),
+                 db: Session = Depends(get_db)):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    new_status = "verified" if body.approve else "rejected"
+    updated = False
+    for prof in (target.farmer_profile, target.buyer_profile):
+        if prof is not None:
+            prof.verification_status = new_status
+            updated = True
+    if not updated:
+        raise HTTPException(status.HTTP_409_CONFLICT, "User has no verifiable profile")
+    notify.send(db, user_id=target.id,
+                title="KYC " + ("approved" if body.approve else "rejected"),
+                body=("Your account is verified." if body.approve
+                      else f"Verification was not approved. {body.reason or ''}".strip()),
+                object_type="user", object_id=target.id)
+    audit.record(db, actor_id=actor.id, action="kyc.decision", object_type="user",
+                 object_id=target.id, new_values={"status": new_status}, reason=body.reason)
+    db.commit()
+    return {"user_id": target.id, "verification_status": new_status}
 
 
 @router.get("/audit-logs")

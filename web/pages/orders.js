@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
 import { api, getUser } from "../lib/api";
@@ -7,10 +8,30 @@ import { useI18n } from "../lib/i18n";
 
 export default function Orders() {
   const { t } = useI18n();
+  const router = useRouter();
   const [me, setMe] = useState(null);
   const [orders, setOrders] = useState([]);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState(null);
+
+  const isBuyer = me && ["buyer_household", "buyer_business"].includes(me.role);
+
+  async function reorder(id, commodityId) {
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await api(`/orders/${id}/reorder`, { method: "POST" });
+      if (r.reorderable) {
+        router.push(`/offers?focus=${r.offer_id}`);
+      } else {
+        setMsg(r.reason || "That lot is unavailable — showing other offerings.");
+        if (r.commodity_id) setTimeout(() => router.push(`/product/${r.commodity_id}`), 1000);
+      }
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
 
   useEffect(() => { setMe(getUser()); }, []);
   usePoll(() => {
@@ -33,6 +54,7 @@ export default function Orders() {
     <div>
       <h1>{t("my_orders")}</h1>
       {err && <div className="error">{err}</div>}
+      {msg && <div className="ok">{msg}</div>}
       {loading ? (
         <p className="muted">{t("loading")}</p>
       ) : orders.length === 0 ? (
@@ -55,7 +77,13 @@ export default function Orders() {
                 <td>₹{o.accepted_terms.price_per_unit}/kg</td>
                 <td>{o.accepted_terms.quantity} {o.accepted_terms.unit}</td>
                 <td><span className="badge grey">{o.status.replace(/_/g, " ")}</span></td>
-                <td><Link href={`/order/${o.id}`}>Open →</Link></td>
+                <td>
+                  <Link href={`/order/${o.id}`}>Open →</Link>
+                  {isBuyer && ["completed", "settled", "delivered_pending_acceptance"].includes(o.status) && (
+                    <> · <a role="button" style={{ cursor: "pointer" }}
+                           onClick={() => reorder(o.id, o.accepted_terms?.commodity_id)}>Reorder</a></>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

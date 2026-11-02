@@ -132,6 +132,52 @@ def get_order(order_id: int, user=Depends(get_current_user), db: Session = Depen
     return _order_json(order, db, user)
 
 
+@router.post("/{order_id}/reorder")
+def reorder(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Buy the same product again: re-open a negotiation on the source listing at
+    the previous terms. If that lot is gone, point the buyer to the product page."""
+    from datetime import timedelta
+    from app.core.money import qty as _qty
+    from app.models.common import OfferStatus, utcnow
+    from app.models.marketplace import Offer, OfferVersion
+    from app.services import notify
+
+    order = _get_order(order_id, db)
+    _require_party(order, user, buyer=True)
+    terms = order.accepted_terms or {}
+    line = order.lines[0] if order.lines else None
+    listing = db.get(Listing, line.listing_id) if line and line.listing_id else None
+
+    if not listing or listing.status != "open":
+        return {"reorderable": False, "commodity_id": terms.get("commodity_id"),
+                "reason": "The original lot is no longer available."}
+
+    want = _qty(terms.get("quantity") or 0)
+    avail = _qty(listing.available_qty)
+    if avail <= _qty(0):
+        return {"reorderable": False, "commodity_id": listing.commodity_id,
+                "reason": "This lot is sold out."}
+    want = min(want, avail)  # clamp to what's left
+
+    offer = Offer(listing_id=listing.id, buyer_id=user.id, seller_id=listing.seller_id,
+                  status=OfferStatus.OPEN)
+    db.add(offer)
+    db.flush()
+    now = utcnow()
+    db.add(OfferVersion(
+        offer_id=offer.id, version_no=1, proposer_role="buyer", proposer_id=user.id,
+        price_per_unit=D(terms.get("price_per_unit") or listing.asking_price),
+        quantity=want, unit=listing.unit,
+        grade_spec_id=terms.get("grade_spec_id") or listing.grade_spec_id,
+        expires_at=now + timedelta(hours=48), created_at=now,
+    ))
+    notify.send(db, user_id=listing.seller_id, title="Repeat offer received",
+                body=f"A returning buyer re-ordered {want} {listing.unit}.",
+                object_type="offer", object_id=offer.id)
+    db.commit()
+    return {"reorderable": True, "offer_id": offer.id}
+
+
 # --- AgriSetu Verified Lot Certificate ------------------------------------
 
 # Attributes a physical field inspection can establish vs. those that need a lab.
