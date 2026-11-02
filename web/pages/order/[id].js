@@ -15,7 +15,7 @@ function Quote({ q }) {
       {line("Product value", q.product_value)}
       {line("Packing", q.packing_fee)}
       {line("Inspection", q.inspection_fee)}
-      {line("Transport", q.transport_charge)}
+      {line(q.route_km_source ? `Transport (${q.route_km_source} distance)` : "Transport", q.transport_charge)}
       {line(`Service fee (${q.service_fee_payer})`, q.service_fee)}
       {line("Tax", q.tax)}
       <div className="quote-line total"><span>Buyer pays</span><span>₹{q.buyer_total}</span></div>
@@ -33,7 +33,7 @@ export default function OrderDetail() {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [agentId, setAgentId] = useState("3");
-  const [routeKm, setRouteKm] = useState("40");
+  const [routeKm, setRouteKm] = useState("");
   const [gross, setGross] = useState("");
   const [outcome, setOutcome] = useState("pass");
 
@@ -177,10 +177,17 @@ export default function OrderDetail() {
       {isBuyer && s === "confirmed" && (
         <Action>
           <h3>Confirm quote</h3>
-          <label>Route distance (km)</label>
-          <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal" />
+          <label>Route distance (km) — leave blank to compute from mandal location</label>
+          <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal"
+                 placeholder="auto" />
           <div style={{ marginTop: 12 }}>
-            <button disabled={busy} onClick={() => act(`/orders/${id}/confirm-quote`, { route_km: Number(routeKm) })}>
+            <button
+              disabled={busy}
+              onClick={() =>
+                act(`/orders/${id}/confirm-quote`,
+                    routeKm.trim() === "" ? {} : { route_km: Number(routeKm) })
+              }
+            >
               Lock quote
             </button>
           </div>

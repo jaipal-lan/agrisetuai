@@ -287,18 +287,27 @@ def refund_order(
     q = order.quote
     buyer_total = money(order.buyer_total)
     ratio = amount / buyer_total
-    def share(key, fallback="0"):
-        return money(money(q.get(key, fallback)) * ratio)
-
-    legs = [
-        Leg("cash_clearing", LedgerDirection.CREDIT, amount, "refund to buyer"),
-        Leg("seller_payable", LedgerDirection.DEBIT, share("seller_payable"), "reverse seller"),
-        Leg("platform_revenue", LedgerDirection.DEBIT, share("service_fee"), "reverse service fee"),
-        Leg("transport_payable", LedgerDirection.DEBIT, share("transport_charge"), "reverse transport"),
-        Leg("agent_fee_payable", LedgerDirection.DEBIT, share("inspection_fee"), "reverse inspection"),
-        Leg("packing_revenue", LedgerDirection.DEBIT, share("packing_fee"), "reverse packing"),
-        Leg("tax_payable", LedgerDirection.DEBIT, share("tax"), "reverse tax"),
+    # (ledger account, quote key, memo). seller_payable is first and largest, so
+    # it carries any sub-paisa rounding residual below.
+    debit_spec = [
+        ("seller_payable", "seller_payable", "reverse seller"),
+        ("platform_revenue", "service_fee", "reverse service fee"),
+        ("transport_payable", "transport_charge", "reverse transport"),
+        ("agent_fee_payable", "inspection_fee", "reverse inspection"),
+        ("packing_revenue", "packing_fee", "reverse packing"),
+        ("tax_payable", "tax", "reverse tax"),
     ]
+    shares = {acct: money(money(q.get(qkey, "0")) * ratio) for acct, qkey, _ in debit_spec}
+    # Independently rounded shares can drift a paisa from the credited amount;
+    # absorb the residual into the largest leg so debits == credit exactly.
+    residual = amount - sum(shares.values())
+    if residual != money(0):
+        biggest = max(shares, key=lambda k: shares[k])
+        shares[biggest] = money(shares[biggest] + residual)
+
+    legs = [Leg("cash_clearing", LedgerDirection.CREDIT, amount, "refund to buyer")]
+    legs += [Leg(acct, LedgerDirection.DEBIT, shares[acct], memo)
+             for acct, _, memo in debit_spec]
     legs = [l for l in legs if money(l.amount) != money(0)]
     ledger.post(db, txn_group=f"refund:{order.public_id}:{idem[:8]}", legs=legs, order_id=order.id, currency=q["currency"])
 

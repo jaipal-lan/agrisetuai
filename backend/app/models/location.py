@@ -1,4 +1,6 @@
-from sqlalchemy import ForeignKey, String
+from decimal import Decimal
+
+from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -33,5 +35,10 @@ class Mandal(Base):
     name: Mapped[str] = mapped_column(String(80))
     # Whether the platform currently serves this mandal (agents/logistics present).
     serviceable: Mapped[bool] = mapped_column(default=True)
+    # Centroid coordinates (WGS84). Plain decimal columns — no PostGIS dependency;
+    # the distance service reads these for haversine routing. Nullable so a mandal
+    # without coordinates degrades to the configured default distance.
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
 
     district: Mapped[District] = relationship(back_populates="mandals")

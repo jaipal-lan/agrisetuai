@@ -34,6 +34,7 @@ const STRINGS = {
     status: "స్థితి",
     per_kg: "/కేజీ",
     loading: "లోడ్ అవుతోంది…",
+    agent_jobs: "ఏజెంట్ పనులు",
   },
   en: {
     app_name: "AgriSetuAI",
@@ -67,6 +68,7 @@ const STRINGS = {
     status: "Status",
     per_kg: "/kg",
     loading: "Loading…",
+    agent_jobs: "Agent jobs",
   },
 };
 

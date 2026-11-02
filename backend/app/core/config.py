@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     media_dir: str = "./var/media"
     media_max_bytes: int = 8 * 1024 * 1024
 
+    # Logistics / routing. "haversine" computes straight-line distance between
+    # mandal coordinates and scales it by road_distance_factor; swap in an
+    # external maps/routing provider later behind the same distance service.
+    distance_provider: str = "haversine"
+    road_distance_factor: float = 1.3
+    default_route_km: float = 40.0
+
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7
 

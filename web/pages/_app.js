@@ -43,6 +43,7 @@ function Nav() {
   const seller = user && ["farmer", "fpo"].includes(user.role);
   const buyer = user && ["buyer_household", "buyer_business"].includes(user.role);
   const advisor = user && ["agronomist", "superadmin", "mandal_manager", "field_agent"].includes(user.role);
+  const agent = user && ["field_agent", "mandal_manager", "superadmin"].includes(user.role);
 
   async function doLogout() {
     try {
@@ -60,6 +61,7 @@ function Nav() {
       {seller && <Link href="/sell">{t("sell")}</Link>}
       {(buyer || seller) && <Link href="/requests">{t("requests")}</Link>}
       {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
+      {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
       <Link href="/insights">{t("insights")}</Link>
       {user && <Link href="/offers">{t("my_offers")}</Link>}
       {user && <Link href="/orders">{t("my_orders")}</Link>}

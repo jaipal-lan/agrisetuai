@@ -39,22 +39,32 @@ Ordered by dependency and PRD risk-gating.
 ### Phase A — frontend surfaces
 - [x] Next.js PWA: Telugu/English toggle, OTP login, buyer browse + offer,
       farmer listing management, RFQ requests, order timeline, admin pricing/KPIs.
-- [ ] Field-agent PWA view: job list, inspection capture, offline draft queue.
-      (Inspection submit exists on the order page; no offline queue yet.)
+- [x] Field-agent PWA view (`web/pages/agent.js`): assigned-job list, inspection
+      capture, and an **offline draft queue** (localStorage) that flushes on
+      reconnect. The backend dedupes on `client_draft_id`, so re-sync never
+      duplicates an inspection. Job list is cached for offline viewing.
 
 ### Phase B — harden the core
 - [x] Real migrations (Alembic) instead of `create_all`. Baseline revision
       `0be45af65a74` creates all 30 tables; app runs `alembic upgrade head` on
       startup behind `AUTO_MIGRATE`. `psycopg` driver installed for PostgreSQL;
-      `render_as_batch` on for SQLite ALTERs. PostGIS geo columns still to add.
+      `render_as_batch` on for SQLite ALTERs. Mandal lat/long geo columns added
+      (`73d2bb5c72e5`) as plain decimals — no PostGIS dependency; add PostGIS
+      spatial indexes only if proximity queries at scale need them.
 - [x] RFQ-initiated negotiation (seller offers into a buyer RFQ). Buyer posts an
       RFQ; sellers browse open RFQs and offer in; accept marks the RFQ matched and
       creates a listing-less order that still prices/packs (commodity + mandal are
       snapshotted into accepted_terms).
-- [ ] Partial-quantity acceptance + partial refund without corrupting history.
-- [ ] Dispute workflow + support tickets; refund ledger paths.
+- [x] Partial-quantity acceptance (inspection `pass_with_adjustment` proposes a
+      new quantity; buyer confirms the accepted qty, reserved stock is adjusted,
+      original is preserved) + partial refund. Proportional refund splits the
+      original quote legs and absorbs sub-paisa rounding into the largest leg so
+      the ledger stays balanced to the paisa.
+- [x] Dispute workflow + support tickets; refund ledger paths.
 - [ ] Media uploads (object storage, signed URLs, type/size + malware scan).
-- [ ] Rate limiting on OTP; fraud checks; session revocation.
+      (Local media router + optional ClamAV scan exist; object storage + signed
+      URLs still to wire for production.)
+- [x] Rate limiting on OTP; session revocation (token_version). Fraud checks TBD.
 
 ### Phase C — payments for real
 - [ ] Marketplace-capable provider (split settlement, seller payouts, webhooks).
@@ -62,15 +72,23 @@ Ordered by dependency and PRD risk-gating.
 - [ ] Signed webhook verification + reconciliation jobs + exception queue.
 
 ### Phase D — logistics & ops
-- [ ] Configurable distance source (maps/routing provider), serviceability.
+- [x] Configurable distance source + serviceability (`app/services/distance.py`,
+      `/logistics/*`). Default `haversine` provider computes `route_km` from mandal
+      centroids × `road_distance_factor`; confirm-quote resolves distance
+      server-side (origin = produce mandal, destination = buyer mandal) unless an
+      explicit override is passed. The quote records `route_km_source`. Swap in an
+      external maps/routing provider behind `route_km_between` without touching
+      pricing/order code.
 - [ ] Carrier assignment, milestone tracking fallback (no false GPS promises).
 - [ ] Mandal dashboards, agent performance, logistics control tower.
 
 ### Phase E — AI advisory (controlled, parallel)
-- [ ] Crop-image triage returning **likelihoods with uncertainty**, not diagnosis.
-- [ ] Reviewed knowledge base (crop/region/season/source-date) + agronomist
+- [x] Crop triage returning **likelihoods with uncertainty**, not diagnosis
+      (`app/services/advisory_engine.py`; keyword-matched for now — image model
+      still to add).
+- [x] Reviewed knowledge base (crop/region/season/source-date) + agronomist
       escalation. **No model-invented pesticide doses** — label-sourced only.
-- [ ] Weather/calendar, market prices, scheme cards (with source + last-checked).
+- [x] Weather/calendar, market prices, scheme cards (with source + last-checked).
 
 ### Launch gates (PRD section 18 — require professional review)
 Food-business licensing (FSSAI), packaged-goods labelling, pesticide advisory,

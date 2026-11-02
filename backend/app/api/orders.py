@@ -227,7 +227,10 @@ def buyer_approve(
 # --- Confirmation (snapshot quote) ---------------------------------------
 
 class ConfirmBody(BaseModel):
-    route_km: float = 0
+    # Omit route_km (or send null) to let the server compute it from mandal
+    # coordinates. An explicit value is treated as a manual override.
+    route_km: float | None = None
+    to_mandal_id: int | None = None
 
 
 @router.post("/{order_id}/confirm-quote")
@@ -240,6 +243,7 @@ def confirm_quote(
 ):
     """Lock the server-computed quote onto a CONFIRMED order and move to PAYMENT_PENDING."""
     from app.api.pricing import active_rule_for, order_pricing_context
+    from app.services import distance
     from app.services.pricing_engine import QuoteInput, compute
 
     order = _get_order(order_id, db)
@@ -257,10 +261,19 @@ def confirm_quote(
     if not rule:
         raise HTTPException(status.HTTP_409_CONFLICT, "No published pricing rule applies")
 
+    # Resolve the billable distance server-side: origin = the produce's mandal,
+    # destination = the buyer's delivery mandal (defaults to the order mandal).
+    to_mandal_id = body.to_mandal_id or terms.get("destination_mandal_id") or mandal_id
+    route = distance.route_km_between(
+        db, mandal_id, to_mandal_id, override=body.route_km,
+    )
+
     quote = compute(rule, QuoteInput(
-        product_value=product_value, billable_kg=D(terms["quantity"]), route_km=D(body.route_km),
+        product_value=product_value, billable_kg=D(terms["quantity"]), route_km=route.route_km,
     ))
-    order.quote = quote.to_json()
+    qjson = quote.to_json()
+    qjson["route_km_source"] = route.source
+    order.quote = qjson
     order.pricing_rule_version = rule.version
     order.buyer_total = money(quote.buyer_total)
     order.seller_payable = money(quote.seller_payable)

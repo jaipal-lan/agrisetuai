@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal, run_migrations
+from app.core.money import D
 from app.core.rbac import Role
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import utcnow
@@ -26,18 +27,31 @@ def _get_or_create(db: Session, model, defaults=None, **keys):
 
 
 def seed_locations(db: Session) -> dict:
+    # (latitude, longitude) centroids let the distance service compute route_km.
     data = {
-        "Andhra Pradesh": ("AP", {"Guntur": ["Tenali", "Mangalagiri"], "Krishna": ["Gudivada"]}),
-        "Telangana": ("TG", {"Nalgonda": ["Miryalaguda"], "Karimnagar": ["Huzurabad"]}),
+        "Andhra Pradesh": ("AP", {
+            "Guntur": [("Tenali", 16.2430, 80.6400), ("Mangalagiri", 16.4300, 80.5500)],
+            "Krishna": [("Gudivada", 16.4333, 80.9950)],
+        }),
+        "Telangana": ("TG", {
+            "Nalgonda": [("Miryalaguda", 16.8716, 79.5650)],
+            "Karimnagar": [("Huzurabad", 18.1950, 79.4050)],
+        }),
     }
     mandals: dict[str, Mandal] = {}
     for state_name, (code, districts) in data.items():
         state, _ = _get_or_create(db, State, name=state_name, code=code)
         for dname, mnames in districts.items():
             district, _ = _get_or_create(db, District, name=dname, state_id=state.id)
-            for mname in mnames:
-                m, _ = _get_or_create(db, Mandal, name=mname, district_id=district.id,
-                                      defaults={"serviceable": True})
+            for mname, lat, lon in mnames:
+                m, created = _get_or_create(
+                    db, Mandal, name=mname, district_id=district.id,
+                    defaults={"serviceable": True, "latitude": D(lat), "longitude": D(lon)},
+                )
+                # Backfill coordinates for mandals seeded before this column existed.
+                if m.latitude is None:
+                    m.latitude = D(lat)
+                    m.longitude = D(lon)
                 mandals[mname] = m
     return mandals
 

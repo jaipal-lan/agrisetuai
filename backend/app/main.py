@@ -10,6 +10,7 @@ from app.api import (
     insights,
     listings,
     locations,
+    logistics,
     lots,
     media,
     offers,
@@ -48,7 +49,7 @@ app.add_middleware(
 API = "/api"
 for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
-    pricing, admin, advisory, insights, lots, media, support,
+    pricing, admin, advisory, insights, lots, media, support, logistics,
 ):
     app.include_router(module.router, prefix=API)
 

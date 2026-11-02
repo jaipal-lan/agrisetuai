@@ -168,6 +168,19 @@ def run():
     # buyer_total = 12000 + 500 + 300 + 1030 + 240 (+0 tax) = 14070
     check("buyer total 14070.00", q["buyer_total"] == "14070.00")
     check("seller payable 12000.00", q["seller_payable"] == "12000.00")
+    check("explicit route_km recorded as override", q.get("route_km_source") == "override")
+
+    print("\n== Logistics / distance routing ==")
+    two = client.get("/api/locations/mandals", params={"district_id": 1}).json()
+    check("district has two mandals with coords", len(two) >= 2)
+    a_id, b_id = two[0]["id"], two[1]["id"]
+    d = client.get("/api/logistics/distance", headers=hdr(buyer),
+                   params={"from_mandal_id": a_id, "to_mandal_id": b_id}).json()
+    check("haversine distance computed between mandals", d["source"] == "haversine")
+    check("computed distance is positive", float(d["route_km"]) > 1)
+    svc = client.get("/api/logistics/serviceability", headers=hdr(buyer),
+                     params={"mandal_id": a_id}).json()
+    check("mandal serviceable with coordinates", svc["serviceable"] and svc["has_coordinates"])
 
     r = client.post(f"/api/orders/{order_id}/pay",
                     headers={**hdr(buyer), "Idempotency-Key": "pay-1"})
@@ -269,9 +282,12 @@ def run():
     client.post(f"/api/agent/orders/{rfq_order_id}/inspection", headers=hdr(agent),
                 json={"gross_weight": 200, "tare_weight": 0, "outcome": "pass"})
     client.post(f"/api/orders/{rfq_order_id}/buyer-approve", headers=hdr(buyer))
-    r = client.post(f"/api/orders/{rfq_order_id}/confirm-quote", headers=hdr(buyer), json={"route_km": 30})
+    # No route_km -> the server computes it from mandal coordinates.
+    r = client.post(f"/api/orders/{rfq_order_id}/confirm-quote", headers=hdr(buyer), json={})
+    rq = r.json()["quote"]
     check("RFQ order prices without a listing", r.json()["status"] == "payment_pending"
-          and r.json()["quote"]["product_value"] == "4800.00")  # 24 * 200
+          and rq["product_value"] == "4800.00")  # 24 * 200
+    check("RFQ route_km auto-computed", rq.get("route_km_source") in ("haversine", "default"))
     r = client.post(f"/api/orders/{rfq_order_id}/pay",
                     headers={**hdr(buyer), "Idempotency-Key": "rfq-pay-1"})
     check("RFQ order paid", r.json()["status"] == "paid")
