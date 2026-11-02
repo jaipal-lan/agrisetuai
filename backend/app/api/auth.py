@@ -210,3 +210,18 @@ def notifications(user: User = Depends(get_current_user), db: Session = Depends(
         }
         for n in rows
     ]
+
+
+@router.post("/notifications/read")
+def mark_notifications_read(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Mark all of the caller's notifications as read (clears the bell badge)."""
+    now = utcnow().isoformat()
+    rows = db.scalars(
+        select(Notification).where(Notification.user_id == user.id, Notification.read_at.is_(None))
+    )
+    n = 0
+    for row in rows:
+        row.read_at = now
+        n += 1
+    db.commit()
+    return {"ok": True, "marked": n}

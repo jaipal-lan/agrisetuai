@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
 const NEXT = {
@@ -25,10 +26,8 @@ export default function Transport() {
       setErr(e.message);
     }
   }
-  useEffect(() => {
-    setMe(getUser());
-    load();
-  }, []);
+  useEffect(() => { setMe(getUser()); }, []);
+  usePoll(load, 15000);
 
   async function milestone(orderId, event) {
     setBusy(true);

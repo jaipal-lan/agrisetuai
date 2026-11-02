@@ -287,6 +287,18 @@ def run():
     check("ledger still balanced after settlement", acct["balanced"] is True)
     check("seller_payable cleared to 0", acct["accounts"].get("seller_payable") == "0.00")
 
+    print("\n== Alerting (notifications) ==")
+    notes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
+    titles = " ".join(n["title"] for n in notes)
+    check("seller alerted on new offer", "New offer received" in titles)
+    check("seller alerted on payment", "Payment received" in titles)
+    check("seller alerted on settlement", "paid" in titles.lower())
+    unread = sum(1 for n in notes if not n["read_at"])
+    check("farmer has unread alerts", unread > 0)
+    client.post("/api/auth/notifications/read", headers=hdr(farmer))
+    notes2 = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
+    check("mark-read clears unread", all(n["read_at"] for n in notes2))
+
     print("\n== Pricing admin (draft/simulate/publish) ==")
     r = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin), json={
         "handling_class": "dry_grain", "rate_per_kg": 1.0, "rate_per_km": 10,

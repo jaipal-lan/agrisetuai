@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
 import { api, getUser } from "../../lib/api";
+import { usePoll } from "../../lib/hooks";
 import { useI18n } from "../../lib/i18n";
 
 function Quote({ q }) {
@@ -89,10 +90,7 @@ export default function OrderDetail() {
       setErr(e.message);
     }
   }
-  useEffect(() => {
-    if (id) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  usePoll(() => { if (id) load(); }, 12000, [id]);
 
   useEffect(() => {
     const role = me?.role;

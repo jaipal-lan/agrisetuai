@@ -1,32 +1,74 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
-import { api, getUser, logout } from "../lib/api";
+import { api, getToken, getUser, logout } from "../lib/api";
 import { I18nProvider, useI18n } from "../lib/i18n";
 import "../styles/globals.css";
 
+// ---- Toasts -------------------------------------------------------------
+const ToastCtx = createContext({ addToast: () => {} });
+export const useToast = () => useContext(ToastCtx);
+
+function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([]);
+  const addToast = useCallback((msg, kind = "info") => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((t) => [...t, { id, msg, kind }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+  }, []);
+  return (
+    <ToastCtx.Provider value={{ addToast }}>
+      {children}
+      <div className="toast-wrap">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`} onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>
+            🔔 {t.msg}
+          </div>
+        ))}
+      </div>
+    </ToastCtx.Provider>
+  );
+}
+
 function Bell() {
+  const router = useRouter();
+  const { addToast } = useToast();
   const [count, setCount] = useState(0);
+  const seen = useRef(null); // highest notification id already seen
+
   useEffect(() => {
     let alive = true;
     async function tick() {
+      if (!getToken() || (typeof document !== "undefined" && document.hidden)) return;
       try {
         const rows = await api("/auth/notifications");
-        if (alive) setCount(rows.filter((n) => !n.read_at).length);
+        if (!alive) return;
+        setCount(rows.filter((n) => !n.read_at).length);
+        const maxId = rows.length ? Math.max(...rows.map((n) => n.id)) : 0;
+        if (seen.current === null) {
+          seen.current = maxId; // first load: don't toast history
+        } else if (maxId > seen.current) {
+          rows.filter((n) => n.id > seen.current && !n.read_at)
+            .forEach((n) => addToast(n.title));
+          seen.current = maxId;
+        }
       } catch {}
     }
     tick();
-    const id = setInterval(tick, 20000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+    const id = setInterval(tick, 15000);
+    return () => { alive = false; clearInterval(id); };
+  }, [addToast]);
+
+  async function open() {
+    try { await api("/auth/notifications/read", { method: "POST" }); } catch {}
+    setCount(0);
+    router.push("/support");
+  }
   return (
-    <Link href="/support" className="pill" aria-label="notifications">
+    <button className="pill" aria-label="notifications" onClick={open}>
       🔔{count > 0 ? <span className="bell-badge">{count}</span> : null}
-    </Link>
+    </button>
   );
 }
 
@@ -91,10 +133,12 @@ function Nav() {
 export default function App({ Component, pageProps }) {
   return (
     <I18nProvider>
-      <Nav />
-      <div className="container">
-        <Component {...pageProps} />
-      </div>
+      <ToastProvider>
+        <Nav />
+        <div className="container">
+          <Component {...pageProps} />
+        </div>
+      </ToastProvider>
     </I18nProvider>
   );
 }

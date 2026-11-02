@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
 // Offline-first inspection capture for field agents. Drafts are held in
@@ -237,6 +238,8 @@ export default function AgentJobs() {
       window.removeEventListener("offline", goOffline);
     };
   }, [loadJobs, sync, refreshQueueCount]);
+
+  usePoll(() => { if (online) loadJobs(); }, 20000, [online]);
 
   async function packingComplete(orderId) {
     setBusy(true);

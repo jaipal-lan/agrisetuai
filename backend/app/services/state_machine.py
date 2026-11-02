@@ -9,6 +9,44 @@ from sqlalchemy.orm import Session
 from app.models.common import OrderStatus as S
 from app.models.common import utcnow
 from app.models.order import Order, OrderStatusEvent
+from app.services import notify
+
+# Who to alert when an order reaches a state, and the message.
+# recipient: "buyer" | "seller" | "agent" | "both".
+_ALERTS: dict[S, tuple[str, str, str]] = {
+    S.INSPECTION_ASSIGNED: ("agent", "New inspection job", "You have been assigned an inspection."),
+    S.BUYER_APPROVAL_PENDING: ("buyer", "Inspection done", "Review the verified lot and approve to proceed."),
+    S.PAYMENT_PENDING: ("buyer", "Quote ready", "Your itemised quote is ready — complete payment."),
+    S.PAID: ("seller", "Payment received", "The buyer has paid. Prepare the lot for packing."),
+    S.READY_FOR_PICKUP: ("buyer", "Packed & ready", "Your order is packed and ready for pickup."),
+    S.OUT_FOR_DELIVERY: ("buyer", "Out for delivery", "Your order is out for delivery."),
+    S.DELIVERED_PENDING_ACCEPTANCE: ("buyer", "Delivered", "Please confirm delivery to complete the order."),
+    S.SETTLED: ("seller", "You've been paid", "Settlement complete — your payout has been released."),
+    S.CANCELLED: ("both", "Order cancelled", "This order was cancelled."),
+    S.DISPUTED: ("both", "Dispute opened", "A dispute was opened on this order."),
+    S.REFUNDED: ("buyer", "Refund issued", "A refund was processed for your order."),
+    S.PARTIALLY_REFUNDED: ("buyer", "Partial refund issued", "A partial refund was processed for your order."),
+}
+
+
+def _alert(db: Session, order: Order, to: S) -> None:
+    spec = _ALERTS.get(to)
+    if not spec:
+        return
+    recipient, title, body = spec
+    targets: list[int] = []
+    if recipient in ("buyer", "both") and order.buyer_id:
+        targets.append(order.buyer_id)
+    if recipient in ("seller", "both") and order.seller_id:
+        targets.append(order.seller_id)
+    if recipient == "agent" and order.assigned_agent_id:
+        targets.append(order.assigned_agent_id)
+    for uid in targets:
+        try:
+            notify.send(db, user_id=uid, title=f"{title} · {order.public_id}",
+                        body=body, object_type="order", object_id=order.public_id)
+        except Exception:
+            pass  # a notification must never break a transition
 
 # Allowed transitions. Terminal states map to an empty set.
 TRANSITIONS: dict[S, set[S]] = {
@@ -91,4 +129,5 @@ def transition(
             at=utcnow(),
         )
     )
+    _alert(db, order, to)
     return order

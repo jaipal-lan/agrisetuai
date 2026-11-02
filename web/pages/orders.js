@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
 export default function Orders() {
@@ -11,13 +12,13 @@ export default function Orders() {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    setMe(getUser());
+  useEffect(() => { setMe(getUser()); }, []);
+  usePoll(() => {
     api("/orders")
       .then(setOrders)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, 15000);
 
   if (!me) {
     return (

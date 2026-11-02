@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
 import { api, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
 function OfferCard({ offer, me, onChange }) {
@@ -112,7 +113,6 @@ export default function Offers() {
   const [loading, setLoading] = useState(true);
 
   async function load() {
-    setLoading(true);
     try {
       setOffers(await api("/offers"));
     } catch (e) {
@@ -122,10 +122,8 @@ export default function Offers() {
     }
   }
 
-  useEffect(() => {
-    setMe(getUser());
-    load();
-  }, []);
+  useEffect(() => { setMe(getUser()); }, []);
+  usePoll(load, 15000);
 
   if (!me) {
     return (

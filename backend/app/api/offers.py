@@ -20,7 +20,7 @@ from app.models.common import (
 from app.models.marketplace import RFQ, Listing, Offer, OfferVersion
 from app.models.order import Order, OrderLine
 from app.models.user import User
-from app.services import audit
+from app.services import audit, notify
 
 router = APIRouter(prefix="/offers", tags=["negotiation"])
 
@@ -145,6 +145,9 @@ def create_offer(
         created_at=now,
     )
     db.add(v)
+    notify.send(db, user_id=offer.seller_id, title="New offer received",
+                body=f"A buyer offered ₹{body.price_per_unit}/unit for {qty(body.quantity)} {listing.unit}.",
+                object_type="offer", object_id=offer.id)
     db.commit()
     db.refresh(offer)
     return _offer_json(offer, db)
@@ -230,6 +233,10 @@ def counter(
     )
     db.add(v)
     offer.status = OfferStatus.OPEN  # awaiting the original proposer now
+    other = offer.seller_id if role == "buyer" else offer.buyer_id
+    notify.send(db, user_id=other, title="Counter-offer received",
+                body=f"New terms: ₹{body.price_per_unit}/unit for {qty(body.quantity)}.",
+                object_type="offer", object_id=offer.id)
     db.commit()
     db.refresh(offer)
     return _offer_json(offer, db)
@@ -330,6 +337,10 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
     offer.accepted_version_id = latest.id
     if rfq is not None:
         rfq.status = RFQStatus.MATCHED
+    for uid in (offer.buyer_id, offer.seller_id):
+        notify.send(db, user_id=uid, title="Deal agreed",
+                    body=f"Order {order.public_id} created. Inspection will be scheduled.",
+                    object_type="order", object_id=order.public_id)
     audit.record(
         db,
         actor_id=user.id,
