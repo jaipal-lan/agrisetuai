@@ -79,6 +79,8 @@ def seed_users(db: Session, mandals: dict) -> dict:
         ("919000000003", "Ravi (Farmer)", Role.FARMER),
         ("919000000004", "Lakshmi Traders", Role.BUYER_BUSINESS),
         ("919000000005", "Transport Co", Role.TRANSPORT),
+        ("919000000006", "Dr. Suresh (Agronomist)", Role.AGRONOMIST),
+        ("919000000007", "Support Desk", Role.SUPPORT),
     ]
     users = {}
     for phone, name, role in defs:
@@ -115,6 +117,139 @@ def seed_pricing(db: Session) -> None:
     db.add(rule)
 
 
+def seed_advisory(db: Session) -> None:
+    from app.models.advisory import KnowledgeSource
+
+    items = [
+        {
+            "slug": "paddy-bpt-blast",
+            "crop": "paddy",
+            "title": "Rice blast — scouting & IPM-first management",
+            "title_te": "వరి అగ్గి తెగులు — IPM నిర్వహణ",
+            "keywords": ["blast", "leaf spot", "neck", "lesion", "paddy", "rice", "spots"],
+            "source_name": "State Agriculture Dept / ANGRAU advisory",
+            "source_url": "https://angrau.ac.in/",
+            "reviewed_by": "Dr. Suresh (Senior Agronomy Reviewer)",
+            "reviewed_on": "2026-09-15",
+            "content": {
+                "confidence": "medium",
+                "category": "fungal_disease",
+                "likely_causes": [
+                    {"label": "Rice blast (Magnaporthe oryzae)", "likelihood": "likely", "uncertainty": "medium", "category": "fungal_disease"},
+                    {"label": "Brown spot (nutrient/abiotic stress)", "likelihood": "possible", "uncertainty": "medium", "category": "nutrient"},
+                ],
+                "immediate_steps": [
+                    "Scout 10 random spots; count affected tillers vs healthy.",
+                    "Avoid excess nitrogen; drain and re-flood to reduce humidity in the canopy.",
+                    "Remove and destroy severely affected debris.",
+                ],
+                "ipm_order": [
+                    "Confirm blast vs brown spot (neck/leaf lesions, spindle shape).",
+                    "Balanced nutrition + water management first.",
+                    "Use resistant varieties next season.",
+                    "Only a reviewed, label-consistent fungicide if the economic threshold is crossed — with agronomist escalation.",
+                ],
+                "pesticide": {"label_sourced": False},
+            },
+        },
+        {
+            "slug": "chilli-thrips",
+            "crop": "red chilli",
+            "title": "Chilli thrips & leaf curl — monitoring and IPM",
+            "title_te": "మిర్చి తామర పురుగు — పర్యవేక్షణ",
+            "keywords": ["thrips", "leaf curl", "chilli", "curl", "silvering", "mites"],
+            "source_name": "KVK / State Horticulture advisory",
+            "source_url": "https://krishi.icar.gov.in/",
+            "reviewed_by": "Dr. Suresh (Senior Agronomy Reviewer)",
+            "reviewed_on": "2026-09-20",
+            "content": {
+                "confidence": "medium",
+                "category": "insect_pest",
+                "likely_causes": [
+                    {"label": "Thrips (leaf curl complex)", "likelihood": "likely", "uncertainty": "medium", "category": "insect_pest"},
+                ],
+                "immediate_steps": [
+                    "Install blue sticky traps to monitor thrips numbers.",
+                    "Remove curled, infested shoots; avoid staggered sowing nearby.",
+                ],
+                "pesticide": {"label_sourced": False},
+            },
+        },
+    ]
+    for it in items:
+        defaults = {k: v for k, v in it.items() if k != "slug"}
+        _get_or_create(db, KnowledgeSource, slug=it["slug"], defaults=defaults)
+
+
+def seed_insights(db: Session, mandals: dict) -> None:
+    from app.models.advisory import (
+        CropCalendarTask,
+        MarketPrice,
+        Scheme,
+        WeatherSnapshot,
+    )
+
+    tenali = mandals.get("Tenali")
+    if tenali and not db.scalar(
+        select(WeatherSnapshot).where(WeatherSnapshot.mandal_id == tenali.id)
+    ):
+        db.add(WeatherSnapshot(
+            mandal_id=tenali.id, provider="Pilot IMD-style snapshot",
+            observed_at="2026-11-02T06:00+05:30", forecast_horizon="3d",
+            payload={"rain_prob_pct": 40, "temp_max_c": 31, "temp_min_c": 23,
+                     "wind_kmph": 12, "alert": None},
+        ))
+
+    for row in [
+        ("Guntur Market Yard", "Paddy", "BPT 5204", 2100, 2450, 2300, "₹/qtl"),
+        ("Guntur Market Yard", "Red Chilli", "Teja", 17000, 21000, 19000, "₹/qtl"),
+        ("Tenali", "Toor Dal", None, 9000, 10500, 9800, "₹/qtl"),
+    ]:
+        market, commodity, variety, lo, hi, modal, unit = row
+        if not db.scalar(select(MarketPrice).where(
+            MarketPrice.market == market, MarketPrice.commodity == commodity
+        )):
+            db.add(MarketPrice(
+                market=market, commodity=commodity, variety=variety,
+                min_price=lo, max_price=hi, modal_price=modal, unit=unit,
+                arrivals="moderate", as_of="2026-11-01",
+                source_name="AGMARKNET (pilot sample)", source_url="https://agmarknet.gov.in/",
+            ))
+
+    for crop, window, task, task_te, kind in [
+        ("paddy", "Nursery (June–July)", "Raise nursery; treat seed; 25-30 day seedlings", "నారుమడి", "reviewed"),
+        ("paddy", "Tillering (+30d)", "First top-dressing of N; keep 2-3 cm water", "మొదటి ఎరువు", "reviewed"),
+        ("paddy", "Panicle (+65d)", "Scout for blast/BPH; avoid excess N", "అగ్గి/దోమ పర్యవేక్షణ", "reviewed"),
+    ]:
+        if not db.scalar(select(CropCalendarTask).where(
+            CropCalendarTask.crop == crop, CropCalendarTask.window == window
+        )):
+            db.add(CropCalendarTask(crop=crop, window=window, task=task,
+                                    task_te=task_te, kind=kind,
+                                    source="ANGRAU crop calendar (pilot)"))
+
+    if not db.scalar(select(Scheme).where(Scheme.name.like("PM-KISAN%"))):
+        db.add(Scheme(
+            name="PM-KISAN Samman Nidhi", name_te="పీఎం-కిసాన్",
+            department="Dept. of Agriculture & Farmers Welfare, GoI",
+            eligibility="Landholding farmer families, subject to exclusion criteria.",
+            documents="Aadhaar, land records, bank account",
+            apply_route="Village revenue officer / PM-KISAN portal",
+            deadline=None, source_url="https://pmkisan.gov.in/",
+            last_checked="2026-10-30",
+        ))
+    if not db.scalar(select(Scheme).where(Scheme.name.like("Rythu Bharosa%"))):
+        db.add(Scheme(
+            name="Rythu Bharosa (AP)", name_te="రైతు భరోసా",
+            department="Govt. of Andhra Pradesh — Agriculture",
+            eligibility="Eligible farmer families per state guidelines.",
+            documents="Aadhaar, land/tenancy records, bank account",
+            apply_route="Rythu Bharosa Kendram / state portal",
+            deadline=None, source_url="https://www.ap.gov.in/",
+            last_checked="2026-10-30",
+        ))
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -123,8 +258,10 @@ def main() -> None:
         seed_catalog(db)
         seed_users(db, mandals)
         seed_pricing(db)
+        seed_advisory(db)
+        seed_insights(db, mandals)
         db.commit()
-        print("Seeded locations, catalog, demo users and pricing rule v1.")
+        print("Seeded locations, catalog, demo users, pricing, advisory + insights.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

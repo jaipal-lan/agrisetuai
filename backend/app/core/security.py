@@ -28,13 +28,17 @@ def _sign(payload_b64: str) -> str:
     return _b64e(sig)
 
 
-def issue_token(user_id: int) -> str:
-    payload = {"sub": user_id, "exp": int(time.time()) + settings.token_ttl_seconds}
+def issue_token(user_id: int, token_version: int = 0) -> str:
+    payload = {
+        "sub": user_id,
+        "ver": int(token_version),
+        "exp": int(time.time()) + settings.token_ttl_seconds,
+    }
     payload_b64 = _b64e(json.dumps(payload, separators=(",", ":")).encode())
     return f"{payload_b64}.{_sign(payload_b64)}"
 
 
-def verify_token(token: str) -> int | None:
+def decode_token(token: str) -> dict | None:
     try:
         payload_b64, sig = token.split(".", 1)
     except ValueError:
@@ -47,12 +51,33 @@ def verify_token(token: str) -> int | None:
         return None
     if int(payload.get("exp", 0)) < int(time.time()):
         return None
+    return payload
+
+
+def verify_token(token: str) -> int | None:
+    payload = decode_token(token)
+    if payload is None:
+        return None
     return int(payload["sub"])
 
 
 # --- OTP store ------------------------------------------------------------
 # phone -> (code, expires_at)
 _otp: dict[str, tuple[str, float]] = {}
+# phone -> request timestamps (rate limit)
+_otp_hits: dict[str, list[float]] = {}
+
+
+def otp_rate_ok(phone: str) -> bool:
+    now = time.time()
+    window = settings.otp_window_seconds
+    hits = [t for t in _otp_hits.get(phone, []) if now - t < window]
+    if len(hits) >= settings.otp_max_per_window:
+        _otp_hits[phone] = hits
+        return False
+    hits.append(now)
+    _otp_hits[phone] = hits
+    return True
 
 
 def set_otp(phone: str, code: str) -> None:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.rbac import Role
-from app.core.security import verify_token
+from app.core.security import decode_token
 from app.models.user import User
 
 
@@ -14,12 +14,14 @@ def get_current_user(
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    user_id = verify_token(token)
-    if user_id is None:
+    payload = decode_token(token)
+    if payload is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
-    user = db.get(User, user_id)
+    user = db.get(User, int(payload["sub"]))
     if user is None or user.status != "active":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    if int(payload.get("ver", 0)) != int(user.token_version or 0):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session revoked")
     return user
 
 

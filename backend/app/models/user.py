@@ -16,6 +16,8 @@ class User(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), default="active")  # active|suspended
     consent_at: Mapped[str | None] = mapped_column(String(40))
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Bump to revoke all outstanding sessions (staff leave, logout-all).
+    token_version: Mapped[int] = mapped_column(default=0)
 
     # Optional organisation membership (FPO / business).
     organisation_id: Mapped[int | None] = mapped_column(

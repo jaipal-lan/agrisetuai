@@ -66,6 +66,24 @@ export default function OrderDetail() {
     }
   }
 
+  async function openDispute() {
+    const description = window.prompt("Describe the problem (quality, quantity, delivery…)");
+    if (!description) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      await api("/disputes", {
+        method: "POST",
+        body: { order_id: Number(id), issue_type: "quality", description },
+      });
+      await load();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (err && !order) return <div className="error">{err}</div>;
   if (!order || !me) return <p className="muted">{t("loading")}</p>;
 
@@ -231,13 +249,17 @@ export default function OrderDetail() {
         ))}
       </ul>
 
-      {(isBuyer || isStaff) && !["settled", "cancelled", "refunded"].includes(s) && (
-        <div style={{ marginTop: 20 }}>
+      <div className="row" style={{ marginTop: 20 }}>
+        {(isBuyer || isStaff) && !["settled", "cancelled", "refunded"].includes(s) && (
           <button className="danger" disabled={busy} onClick={() => act(`/orders/${id}/cancel`, { reason_code: "user_cancelled" })}>
             Cancel order
           </button>
-        </div>
-      )}
+        )}
+        {(isBuyer || me.id === order.seller_id) &&
+          ["paid", "packing", "ready_for_pickup", "picked_up", "in_transit", "out_for_delivery", "delivered_pending_acceptance"].includes(s) && (
+            <button className="ghost" disabled={busy} onClick={openDispute}>Report a problem</button>
+          )}
+      </div>
     </div>
   );
 }

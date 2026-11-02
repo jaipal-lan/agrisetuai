@@ -10,8 +10,9 @@ from app.core.deps import get_current_user, require_roles
 from app.core.money import qty
 from app.core.rbac import Role
 from app.core.serializers import public_user
+from app.models.catalog import Commodity
 from app.models.common import ClaimStatus, ListingStatus
-from app.models.marketplace import Listing
+from app.models.marketplace import Listing, ListingMedia
 from app.models.user import User
 
 router = APIRouter(prefix="/listings", tags=["listings"])
@@ -54,7 +55,9 @@ def _serialize(listing: Listing, seller: User | None = None) -> dict:
         "negotiable": listing.negotiable,
         "claim_status": listing.claim_status,
         "mandal_id": listing.mandal_id,
+        "pickup_terms": listing.pickup_terms,
         "status": listing.status,
+        "media": [{"object_key": m.object_key, "media_type": m.media_type} for m in listing.media],
     }
 
 
@@ -106,6 +109,10 @@ def search_listings(
     stmt = select(Listing).where(Listing.status == ListingStatus.OPEN)
     if commodity_id:
         stmt = stmt.where(Listing.commodity_id == commodity_id)
+    if category:
+        stmt = stmt.join(Commodity, Commodity.id == Listing.commodity_id).where(
+            Commodity.category == category
+        )
     if mandal_id:
         stmt = stmt.where(Listing.mandal_id == mandal_id)
     if claim_status:
@@ -172,4 +179,32 @@ def withdraw(listing_id: int, user: User = Depends(_seller), db: Session = Depen
         )
     listing.status = ListingStatus.WITHDRAWN
     db.commit()
+    return _serialize(listing, user)
+
+
+class MediaAttach(BaseModel):
+    object_key: str
+    media_type: str = "image"
+    checksum: str | None = None
+
+
+@router.post("/{listing_id}/media")
+def attach_media(
+    listing_id: int,
+    body: MediaAttach,
+    user: User = Depends(_seller),
+    db: Session = Depends(get_db),
+):
+    listing = _owned(listing_id, user, db)
+    db.add(
+        ListingMedia(
+            listing_id=listing.id,
+            object_key=body.object_key,
+            media_type=body.media_type,
+            checksum=body.checksum,
+            access_class="public",
+        )
+    )
+    db.commit()
+    db.refresh(listing)
     return _serialize(listing, user)

@@ -6,11 +6,14 @@ from app.core.database import get_db
 from app.core.deps import require_roles
 from app.core.money import money
 from app.core.rbac import Role
+from app.models.advisory import CropCase
 from app.models.audit import AuditLog
 from app.models.common import OrderStatus as S
 from app.models.finance import LedgerEntry
-from app.models.marketplace import Listing
-from app.models.order import Order
+from app.models.marketplace import Listing, Offer, RFQ
+from app.models.order import Inspection, Order
+from app.models.support import Dispute, SupportTicket
+from app.models.user import AgentProfile, User
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

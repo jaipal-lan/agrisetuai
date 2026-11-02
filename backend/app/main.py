@@ -3,15 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     admin,
+    advisory,
     agents,
     auth,
     catalog,
+    insights,
     listings,
     locations,
+    lots,
+    media,
     offers,
     orders,
     pricing,
     rfqs,
+    support,
 )
 from app.core.config import settings
 from app.core.database import run_migrations
@@ -22,21 +27,29 @@ app = FastAPI(
     description="AI farming advisory + verified farm-to-marketplace (MVP core).",
 )
 
-_dev_origins = [
-    f"http://{host}:{port}"
-    for host in ("localhost", "127.0.0.1")
-    for port in (3000, 3001, 3002)
-]
+# Allow the web app from localhost and any private-LAN IP (so a phone/tablet on
+# the same Wi-Fi can reach the dev server) on ports 3000-3002.
+_origin_regex = (
+    r"^http://("
+    r"localhost|127\.0\.0\.1|"
+    r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+    r"192\.168\.\d{1,3}\.\d{1,3}|"
+    r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"):(3000|3001|3002)$"
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_dev_origins,
+    allow_origin_regex=_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 API = "/api"
-for module in (auth, locations, catalog, listings, rfqs, offers, orders, agents, pricing, admin):
+for module in (
+    auth, locations, catalog, listings, rfqs, offers, orders, agents,
+    pricing, admin, advisory, insights, lots, media, support,
+):
     app.include_router(module.router, prefix=API)
 
 

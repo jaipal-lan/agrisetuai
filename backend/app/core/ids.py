@@ -31,5 +31,21 @@ def shipment_id() -> str:
     return public_id("SHP", 8)
 
 
+def ticket_id() -> str:
+    return public_id("TCK", 8)
+
+
+def dispute_id() -> str:
+    return public_id("DSP", 8)
+
+
+def case_id() -> str:
+    return public_id("CSE", 8)
+
+
+def quality_id() -> str:
+    return public_id("QTY", 8)
+
+
 def idempotency_key() -> str:
     return secrets.token_hex(16)

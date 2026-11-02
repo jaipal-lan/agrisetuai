@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # OTP
     otp_ttl_seconds: int = 300
     master_otp: str = "123456"  # accepted only in dev_mode
+    otp_max_per_window: int = 8
+    otp_window_seconds: int = 600
+    media_dir: str = "./var/media"
+    media_max_bytes: int = 8 * 1024 * 1024
 
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7

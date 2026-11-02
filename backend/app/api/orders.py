@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.models.common import utcnow
 from app.models.finance import Payment, Payout
 from app.models.marketplace import Listing
 from app.models.order import (
+    Inspection,
     Lot,
     Order,
     OrderLine,
@@ -51,17 +52,42 @@ def _require_party(order: Order, user, *, buyer=False, seller=False):
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted for this order")
 
 
-def _order_json(order: Order, db: Session) -> dict:
-    return {
+def _order_json(order: Order, db: Session, viewer=None) -> dict:
+    inspections = db.scalars(
+        select(Inspection).where(Inspection.order_id == order.id).order_by(Inspection.id)
+    )
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    out = {
         "id": order.id,
         "public_id": order.public_id,
         "buyer_id": order.buyer_id,
         "seller_id": order.seller_id,
+        "assigned_agent_id": order.assigned_agent_id,
         "status": order.status,
         "accepted_terms": order.accepted_terms,
         "quote": order.quote,
         "buyer_total": None if order.buyer_total is None else str(order.buyer_total),
         "seller_payable": None if order.seller_payable is None else str(order.seller_payable),
+        "inspections": [
+            {
+                "id": i.id,
+                "outcome": i.outcome,
+                "net_qty": None if i.net_qty is None else str(i.net_qty),
+                "gross_weight": None if i.gross_weight is None else str(i.gross_weight),
+                "tare_weight": None if i.tare_weight is None else str(i.tare_weight),
+                "checklist": i.checklist,
+                "evidence": i.evidence,
+                "reason_codes": i.reason_codes,
+            }
+            for i in inspections
+        ],
+        "shipment": None
+        if shipment is None
+        else {
+            "public_id": shipment.public_id,
+            "status": shipment.status,
+            "vehicle_class": shipment.vehicle_class,
+        },
         "history": [
             {
                 "from": e.from_status,
@@ -73,6 +99,12 @@ def _order_json(order: Order, db: Session) -> dict:
             for e in order.status_events
         ],
     }
+    # Delivery OTP is only shown to the buyer / staff, never to unrelated roles.
+    if shipment and shipment.proof_of_delivery and viewer is not None:
+        staff = viewer.role in (Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER, Role.TRANSPORT)
+        if staff or viewer.id == order.buyer_id:
+            out["delivery_otp"] = shipment.proof_of_delivery.get("otp")
+    return out
 
 
 def _safe_transition(db, order, to, **kw):
@@ -88,14 +120,14 @@ def my_orders(user=Depends(get_current_user), db: Session = Depends(get_db)):
         select(Order).where(or_(Order.buyer_id == user.id, Order.seller_id == user.id))
         .order_by(Order.created_at.desc())
     )
-    return [_order_json(o, db) for o in rows]
+    return [_order_json(o, db, user) for o in rows]
 
 
 @router.get("/{order_id}")
 def get_order(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     order = _get_order(order_id, db)
     _require_party(order, user)
-    return _order_json(order, db)
+    return _order_json(order, db, user)
 
 
 # --- Inspection assignment & buyer approval ------------------------------
@@ -119,18 +151,77 @@ def assign_inspection(
                  object_type="order", object_id=order.public_id,
                  new_values={"agent_id": body.agent_id})
     db.commit()
-    return _order_json(order, db)
+    return _order_json(order, db, user)
+
+
+class ReassignBody(BaseModel):
+    agent_id: int
+    reason: str
+
+
+@router.post("/{order_id}/reassign-inspection")
+def reassign_inspection(
+    order_id: int,
+    body: ReassignBody,
+    user=Depends(require_roles(Role.MANDAL_MANAGER, Role.SUPERADMIN)),
+    db: Session = Depends(get_db),
+):
+    order = _get_order(order_id, db)
+    if order.status not in (S.INSPECTION_ASSIGNED, S.INSPECTION_IN_PROGRESS, S.INSPECTION_HOLD):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cannot reassign in this state")
+    old = order.assigned_agent_id
+    order.assigned_agent_id = body.agent_id
+    audit.record(
+        db,
+        actor_id=user.id,
+        action="inspection.reassign",
+        object_type="order",
+        object_id=order.public_id,
+        reason=body.reason,
+        old_values={"agent_id": old},
+        new_values={"agent_id": body.agent_id},
+    )
+    db.commit()
+    return _order_json(order, db, user)
+
+
+class ApproveBody(BaseModel):
+    accepted_quantity: float | None = None
 
 
 @router.post("/{order_id}/buyer-approve")
-def buyer_approve(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def buyer_approve(
+    order_id: int,
+    body: ApproveBody | None = Body(default=None),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     order = _get_order(order_id, db)
     _require_party(order, user, buyer=True)
     if order.status != S.BUYER_APPROVAL_PENDING:
         raise HTTPException(status.HTTP_409_CONFLICT, "Order not awaiting buyer approval")
+    terms = dict(order.accepted_terms or {})
+    if terms.get("adjustment_pending"):
+        proposed = D(terms.get("proposed_quantity") or terms["quantity"])
+        accepted = D(body.accepted_quantity) if body and body.accepted_quantity is not None else proposed
+        original = D(terms["quantity"])
+        # Update reserved stock to the accepted net quantity (never overwrite history: keep original).
+        delta = original - accepted
+        for line in order.lines:
+            if line.listing_id:
+                listing = db.get(Listing, line.listing_id, with_for_update=True)
+                if listing and delta != D(0):
+                    listing.reserved_qty = max(D("0"), D(listing.reserved_qty) - delta)
+            line.accepted_quantity = accepted
+            line.quantity = accepted
+        terms["original_quantity"] = str(original)
+        terms["quantity"] = str(accepted)
+        terms["adjustment_pending"] = False
+        terms["adjustment_accepted"] = True
+        order.accepted_terms = terms
     _safe_transition(db, order, S.CONFIRMED, actor_id=user.id, reason_code="buyer_approved")
     db.commit()
-    return _order_json(order, db)
+    return _order_json(order, db, user)
 
 
 # --- Confirmation (snapshot quote) ---------------------------------------
@@ -156,7 +247,7 @@ def confirm_quote(
     if order.status != S.CONFIRMED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Order is not in CONFIRMED state")
     if order.quote is not None:
-        return _order_json(order, db)  # idempotent: already quoted
+        return _order_json(order, db, user)  # idempotent: already quoted
 
     terms = order.accepted_terms
     product_value = D(terms["price_per_unit"]) * D(terms["quantity"])
@@ -175,7 +266,7 @@ def confirm_quote(
     order.seller_payable = money(quote.seller_payable)
     _safe_transition(db, order, S.PAYMENT_PENDING, actor_id=user.id, reason_code="quote_locked")
     db.commit()
-    return _order_json(order, db)
+    return _order_json(order, db, user)
 
 
 # --- Payment (mock provider) ---------------------------------------------
@@ -200,7 +291,7 @@ def pay(
     idem = idempotency_key or gen_idem()
     existing = db.scalar(select(Payment).where(Payment.idempotency_key == idem))
     if existing:
-        return _order_json(order, db)
+        return _order_json(order, db, user)
 
     if order.status != S.PAYMENT_PENDING:
         raise HTTPException(status.HTTP_409_CONFLICT, "Order not awaiting payment")
@@ -232,7 +323,7 @@ def pay(
     audit.record(db, actor_id=user.id, action="order.pay", object_type="order",
                  object_id=order.public_id, new_values={"amount": str(buyer_total)})
     db.commit()
-    return _order_json(order, db)
+    return _order_json(order, db, user)
 
 
 # --- Packing -> lot + package --------------------------------------------
@@ -278,7 +369,7 @@ def packing_complete(
     _safe_transition(db, order, S.PACKING, actor_id=user.id, reason_code="packing_started")
     _safe_transition(db, order, S.READY_FOR_PICKUP, actor_id=user.id, reason_code="lot_sealed")
     db.commit()
-    return {"order": _order_json(order, db), "lot_id": lot.public_id, "qr": pkg.qr_code}
+    return {"order": _order_json(order, db, user), "lot_id": lot.public_id, "qr": pkg.qr_code}
 
 
 # --- Shipment milestones --------------------------------------------------
@@ -288,6 +379,7 @@ _SHIP_FLOW = {
     "in_transit": S.IN_TRANSIT,
     "out_for_delivery": S.OUT_FOR_DELIVERY,
     "delivered": S.DELIVERED_PENDING_ACCEPTANCE,
+    "failed_delivery": S.DISPUTED,
 }
 
 
@@ -315,11 +407,50 @@ def shipment_event(
         db.add(shipment)
         db.flush()
     shipment.status = body.event
+    if body.event == "out_for_delivery":
+        import secrets as _secrets
+        otp = f"{_secrets.randbelow(1_000_000):06d}"
+        shipment.proof_of_delivery = {**(shipment.proof_of_delivery or {}), "otp": otp, "otp_issued": True}
     db.add(ShipmentEvent(shipment_id=shipment.id, event=body.event, actor_id=user.id,
                          evidence_ref=body.evidence_ref, at=utcnow()))
     _safe_transition(db, order, to, actor_id=user.id, reason_code=f"ship_{body.event}")
     db.commit()
-    return {"order": _order_json(order, db), "shipment_id": shipment.public_id}
+    return {"order": _order_json(order, db, user), "shipment_id": shipment.public_id}
+
+
+class ProofBody(BaseModel):
+    otp: str | None = None
+    signature_ref: str | None = None
+    photo_ref: str | None = None
+    recipient_note: str | None = None
+
+
+@router.post("/{order_id}/shipment/proof-of-delivery")
+def proof_of_delivery(
+    order_id: int,
+    body: ProofBody,
+    user=Depends(require_roles(Role.TRANSPORT, Role.MANDAL_MANAGER, Role.SUPERADMIN, Role.FIELD_AGENT)),
+    db: Session = Depends(get_db),
+):
+    order = _get_order(order_id, db)
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    if not shipment:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No shipment yet")
+    expected = (shipment.proof_of_delivery or {}).get("otp")
+    if expected and body.otp and body.otp != expected:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid delivery OTP")
+    shipment.proof_of_delivery = {
+        **(shipment.proof_of_delivery or {}),
+        "otp_ok": bool(expected and body.otp == expected),
+        "signature_ref": body.signature_ref,
+        "photo_ref": body.photo_ref,
+        "recipient_note": body.recipient_note,
+        "captured_by": user.id,
+    }
+    if order.status == S.OUT_FOR_DELIVERY:
+        _safe_transition(db, order, S.DELIVERED_PENDING_ACCEPTANCE, actor_id=user.id, reason_code="pod")
+    db.commit()
+    return {"order": _order_json(order, db, user), "proof": shipment.proof_of_delivery}
 
 
 # --- Buyer acceptance -> settlement --------------------------------------
@@ -364,7 +495,7 @@ def acceptance(order_id: int, user=Depends(get_current_user), db: Session = Depe
     audit.record(db, actor_id=user.id, action="order.settle", object_type="order",
                  object_id=order.public_id, new_values={"seller_payout": str(payable)})
     db.commit()
-    return _order_json(order, db)
+    return _order_json(order, db, user)
 
 
 # --- Cancellation ---------------------------------------------------------
@@ -394,4 +525,4 @@ def cancel(order_id: int, body: CancelBody, user=Depends(get_current_user), db: 
     audit.record(db, actor_id=user.id, action="order.cancel", object_type="order",
                  object_id=order.public_id, reason=body.reason_code)
     db.commit()
-    return _order_json(order, db)
+    return _order_json(order, db, user)

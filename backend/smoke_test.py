@@ -279,6 +279,63 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced across both orders", acct["balanced"] is True)
 
+    print("\n== AI advisory (uncertainty-first, no invented dose) ==")
+    r = client.post("/api/ai/crop-cases", headers=hdr(farmer), json={
+        "crop": "paddy", "growth_stage": "panicle",
+        "notes": "spreading leaf spots and lesions on tillers",
+    })
+    check("crop case created", r.status_code == 201)
+    case = r.json()
+    check("triage matched knowledge source", case["ai_output"]["knowledge_source_id"] is not None)
+    check("triage returns likelihoods (not a diagnosis)",
+          len(case["ai_output"]["likely_causes"]) >= 1)
+    check("no model-invented pesticide dose", case["ai_output"]["pesticide"] in (None, {}) or
+          case["ai_output"]["pesticide"].get("dose") is None)
+    # A vague, unmatched case escalates.
+    r = client.post("/api/ai/crop-cases", headers=hdr(farmer), json={"crop": "dragonfruit", "notes": "weird"})
+    check("low-confidence case escalates", r.json()["escalated"] is True)
+    # Agronomist expert review.
+    agronomist = login(client, "919000000006")
+    r = client.post(f"/api/ai/crop-cases/{case['id']}/expert-review", headers=hdr(agronomist),
+                    json={"note": "Confirmed blast risk; follow IPM.", "approved_advice": "Drain field, avoid excess N."})
+    check("agronomist reviews case", r.json()["status"] == "reviewed")
+
+    print("\n== Insights (prices/schemes with source + disclaimer) ==")
+    prices = client.get("/api/market-prices").json()
+    check("market prices seeded", len(prices) > 0 and "disclaimer" in prices[0])
+    schemes = client.get("/api/schemes").json()
+    check("schemes seeded", any("PM-KISAN" in s["name"] for s in schemes))
+
+    print("\n== Support ticket + dispute + proportional refund ==")
+    r = client.post("/api/tickets", headers=hdr(buyer), json={
+        "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",
+        "order_id": rfq_order_id,
+    })
+    check("buyer opens support ticket", r.status_code == 201)
+    tickets = client.get("/api/tickets", headers=hdr(buyer)).json()
+    check("ticket listed for opener", any(t["id"] == r.json()["id"] for t in tickets))
+
+    # Dispute the paid RFQ order, then finance issues a partial refund.
+    r = client.post("/api/disputes", headers=hdr(buyer), json={
+        "order_id": rfq_order_id, "issue_type": "quality", "description": "Moisture above agreed spec",
+    })
+    check("dispute opened -> order disputed", r.status_code == 201)
+    dj = client.get(f"/api/orders/{rfq_order_id}", headers=hdr(buyer)).json()
+    check("order now disputed", dj["status"] == "disputed")
+
+    r = client.post(f"/api/orders/{rfq_order_id}/refunds",
+                    headers={**hdr(superadmin), "Idempotency-Key": "ref-1"},
+                    json={"amount": 500, "reason_code": "quality_adjustment"})
+    check("partial refund posted", r.json()["order_status"] == "partially_refunded")
+    # Idempotent replay.
+    r2 = client.post(f"/api/orders/{rfq_order_id}/refunds",
+                     headers={**hdr(superadmin), "Idempotency-Key": "ref-1"},
+                     json={"amount": 500})
+    check("refund idempotent", r2.json().get("duplicate") is True)
+
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger still balanced after refund", acct["balanced"] is True)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

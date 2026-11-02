@@ -1,7 +1,16 @@
 """Import all models so they register on Base.metadata."""
+from app.models.advisory import (
+    CropCalendarTask,
+    CropCase,
+    KnowledgeSource,
+    MarketPrice,
+    Reminder,
+    Scheme,
+    WeatherSnapshot,
+)
 from app.models.audit import AuditLog
 from app.models.catalog import Commodity, GradeSpec, Variety
-from app.models.finance import LedgerEntry, Payment, Payout
+from app.models.finance import LedgerEntry, Payment, Payout, Refund
 from app.models.location import District, Mandal, State
 from app.models.marketplace import (
     RFQ,
@@ -22,6 +31,14 @@ from app.models.order import (
     ShipmentEvent,
 )
 from app.models.pricing import PricingRule
+from app.models.support import (
+    ConsentRecord,
+    Dispute,
+    MediaObject,
+    Notification,
+    QualityCase,
+    SupportTicket,
+)
 from app.models.user import (
     AgentProfile,
     BuyerProfile,
@@ -38,6 +55,7 @@ __all__ = [
     "LedgerEntry",
     "Payment",
     "Payout",
+    "Refund",
     "District",
     "Mandal",
     "State",
@@ -61,4 +79,17 @@ __all__ = [
     "FarmerProfile",
     "Organisation",
     "User",
+    "KnowledgeSource",
+    "CropCase",
+    "WeatherSnapshot",
+    "CropCalendarTask",
+    "Reminder",
+    "MarketPrice",
+    "Scheme",
+    "SupportTicket",
+    "Dispute",
+    "ConsentRecord",
+    "Notification",
+    "MediaObject",
+    "QualityCase",
 ]

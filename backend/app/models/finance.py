@@ -54,3 +54,19 @@ class Payout(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), default="pending")
     provider_ref: Mapped[str | None] = mapped_column(String(120))
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+
+
+class Refund(Base, TimestampMixin):
+    """Append-only refund record. Amounts also post to the ledger."""
+
+    __tablename__ = "refunds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    amount: Mapped[float] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(4), default="INR")
+    reason_code: Mapped[str] = mapped_column(String(40))
+    note: Mapped[str | None] = mapped_column(Text)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="posted")

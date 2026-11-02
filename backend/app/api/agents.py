@@ -27,13 +27,13 @@ def _safe(db, order, to, **kw):
 
 @router.get("/jobs")
 def jobs(user=Depends(_agent), db: Session = Depends(get_db)):
-    """Orders assigned to this agent that are in an inspection stage."""
+    """Orders assigned to this agent that need inspection or packing."""
     rows = db.scalars(
         select(Order).where(
             Order.assigned_agent_id == user.id,
             Order.status.in_([
                 S.INSPECTION_ASSIGNED, S.INSPECTION_IN_PROGRESS,
-                S.INSPECTION_HOLD,
+                S.INSPECTION_HOLD, S.PAID, S.PACKING,
             ]),
         )
     )
@@ -43,6 +43,8 @@ def jobs(user=Depends(_agent), db: Session = Depends(get_db)):
             "public_id": o.public_id,
             "status": o.status,
             "accepted_terms": o.accepted_terms,
+            "buyer_id": o.buyer_id,
+            "seller_id": o.seller_id,
         }
         for o in rows
     ]
@@ -120,6 +122,13 @@ def submit_inspection(
 
     if order.status == S.INSPECTION_IN_PROGRESS:
         _safe(db, order, outcome_state, actor_id=user.id, reason_code=f"inspection_{body.outcome}")
+
+    # Quantity adjustment is proposed, never silently written into accepted terms.
+    if body.outcome == InspectionOutcome.PASS_WITH_ADJUSTMENT and net is not None:
+        proposed = dict(order.accepted_terms or {})
+        proposed["proposed_quantity"] = str(net)
+        proposed["adjustment_pending"] = True
+        order.accepted_terms = proposed
 
     # A pass advances automatically to buyer approval (PRD 5 state chain).
     if outcome_state == S.INSPECTION_PASS and order.status == S.INSPECTION_PASS:
