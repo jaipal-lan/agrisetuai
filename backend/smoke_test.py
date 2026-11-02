@@ -360,10 +360,14 @@ def run():
     r = client.post("/api/ai/crop-cases", headers=hdr(farmer), json={
         "crop": "paddy", "growth_stage": "panicle",
         "notes": "spreading leaf spots and lesions on tillers",
+        "media_refs": ["sample/leaf-1.jpg", "sample/leaf-2.jpg"],
     })
     check("crop case created", r.status_code == 201)
     case = r.json()
     check("triage matched knowledge source", case["ai_output"]["knowledge_source_id"] is not None)
+    vp = case["ai_output"].get("visual_prescreen") or {}
+    check("image pre-screen acknowledges photos", vp.get("images_received") == 2)
+    check("image pre-screen is a beta aid, needs expert confirm", vp.get("needs_expert_confirmation") is True)
     check("triage returns likelihoods (not a diagnosis)",
           len(case["ai_output"]["likely_causes"]) >= 1)
     check("no model-invented pesticide dose", case["ai_output"]["pesticide"] in (None, {}) or
@@ -376,6 +380,22 @@ def run():
     r = client.post(f"/api/ai/crop-cases/{case['id']}/expert-review", headers=hdr(agronomist),
                     json={"note": "Confirmed blast risk; follow IPM.", "approved_advice": "Drain field, avoid excess N."})
     check("agronomist reviews case", r.json()["status"] == "reviewed")
+
+    # Agent-as-expert advisory log.
+    r = client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
+        "farmer_phone": "919000000003", "crop": "paddy", "topic": "education",
+        "observation": "Excess nitrogen; dense canopy.", "recommendation": "Skip next urea dose; keep 2-3cm water.",
+        "follow_up_on": "2026-11-20",
+    })
+    check("agent logs advisory", r.status_code == 201 and r.json()["recommendation"])
+    logs = client.get("/api/agent/advisory-logs", headers=hdr(agent)).json()
+    check("advisory log listed for agent", any(l["crop"] == "paddy" for l in logs))
+
+    print("\n== Superadmin GMV reports ==")
+    rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
+    check("report has total GMV", float(rep["total_gmv"]) > 0)
+    check("report breaks down by commodity", len(rep["by_commodity"]) >= 1)
+    check("report breaks down by state", len(rep["by_state"]) >= 1)
 
     print("\n== Insights (prices/schemes with source + disclaimer) ==")
     prices = client.get("/api/market-prices").json()

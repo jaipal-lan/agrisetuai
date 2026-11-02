@@ -1,5 +1,6 @@
 """Import all models so they register on Base.metadata."""
 from app.models.advisory import (
+    AdvisoryLog,
     CropCalendarTask,
     CropCase,
     KnowledgeSource,
@@ -83,6 +84,7 @@ __all__ = [
     "Organisation",
     "User",
     "KnowledgeSource",
+    "AdvisoryLog",
     "CropCase",
     "WeatherSnapshot",
     "CropCalendarTask",

@@ -50,7 +50,8 @@ def _case_json(c: CropCase) -> dict:
 def create_crop_case(
     body: CropCaseCreate, user=Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    result = triage(db, crop=body.crop, notes=body.notes, context=body.context)
+    result = triage(db, crop=body.crop, notes=body.notes, context=body.context,
+                    media_refs=body.media_refs)
     c = CropCase(
         public_id=case_id(),
         farmer_id=user.id,

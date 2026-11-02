@@ -27,24 +27,27 @@ export default function Admin() {
   const [commodities, setCommodities] = useState([]);
   const [carriers, setCarriers] = useState([]);
   const [newCarrier, setNewCarrier] = useState({ name: "", code: "", contact_phone: "" });
+  const [reports, setReports] = useState(null);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setC = (k, v) => setNewCarrier((c) => ({ ...c, [k]: v }));
 
   async function load() {
     try {
-      const [k, l, r, c, cr] = await Promise.all([
+      const [k, l, r, c, cr, rep] = await Promise.all([
         api("/admin/kpis"),
         api("/admin/ledger/accounts"),
         api("/pricing/rules"),
         api("/catalog/commodities"),
         api("/carriers"),
+        api("/admin/reports"),
       ]);
       setKpis(k);
       setLedger(l);
       setRules(r);
       setCommodities(c);
       setCarriers(cr);
+      setReports(rep);
     } catch (e) {
       setErr(e.message);
     }
@@ -248,6 +251,30 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      {reports && (
+        <>
+          <h2>Reports — GMV ₹{reports.total_gmv} · {reports.total_orders} orders</h2>
+          <div className="grid">
+            {[["By commodity", reports.by_commodity], ["By state", reports.by_state],
+              ["By mandal", reports.by_mandal], ["By agent", reports.by_agent]].map(([title, rows]) => (
+              <div className="card" key={title}>
+                <h3 style={{ fontSize: 15 }}>{title}</h3>
+                {rows.length === 0 ? <p className="muted">No data.</p> : (
+                  <table>
+                    <thead><tr><th></th><th>GMV</th><th>Orders</th></tr></thead>
+                    <tbody>
+                      {rows.map((r) => (
+                        <tr key={r.key}><td>{r.key}</td><td>₹{r.gmv}</td><td>{r.orders}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <h2>Transport couriers</h2>
       <table>

@@ -18,8 +18,38 @@ NO_DOSE_NOTE = (
     "The model must not invent a dose."
 )
 
+VISUAL_BETA_NOTE = (
+    "Visual pre-screen is a beta aid, not a diagnosis. A photo cannot confirm a "
+    "pest, disease, residue or deficiency on its own; a field agent or agronomist "
+    "must confirm before any treatment."
+)
 
-def triage(db: Session, *, crop: str, notes: str | None, context: dict | None) -> dict:
+
+def _visual_prescreen(media_refs: list[str] | None, matched: bool) -> dict:
+    """Dummy image pre-screen (no vision model wired yet).
+
+    Acknowledges submitted photos and returns an uncertainty-first visual hint. It
+    never turns an image alone into a diagnosis and always asks for confirmation.
+    """
+    count = len(media_refs or [])
+    if count == 0:
+        return {
+            "images_received": 0,
+            "hint": None,
+            "recommendation": "Add a whole-plant photo, a close-up of the damage, and a healthy comparison for a better pre-screen.",
+            "note": VISUAL_BETA_NOTE,
+        }
+    return {
+        "images_received": count,
+        "hint": "Symptom pattern recorded for review" if matched else "No clear match from the reviewed library",
+        "confidence": "low",  # a stub classifier is never high-confidence
+        "needs_expert_confirmation": True,
+        "note": VISUAL_BETA_NOTE,
+    }
+
+
+def triage(db: Session, *, crop: str, notes: str | None, context: dict | None,
+           media_refs: list[str] | None = None) -> dict:
     crop_key = (crop or "").strip().lower()
     blob = " ".join(
         [
@@ -65,6 +95,7 @@ def triage(db: Session, *, crop: str, notes: str | None, context: dict | None) -
             "confidence": "low",
             "escalate": True,
             "disclaimer": LOW_CONFIDENCE_NOTE,
+            "visual_prescreen": _visual_prescreen(media_refs, matched=False),
             "knowledge_source_id": None,
             "knowledge_version": None,
         }
@@ -107,6 +138,7 @@ def triage(db: Session, *, crop: str, notes: str | None, context: dict | None) -
         "confidence": confidence,
         "escalate": escalate,
         "disclaimer": LOW_CONFIDENCE_NOTE,
+        "visual_prescreen": _visual_prescreen(media_refs, matched=True),
         "knowledge_source_id": src.id,
         "knowledge_version": src.version,
         "source_name": src.source_name,

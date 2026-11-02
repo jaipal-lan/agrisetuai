@@ -107,6 +107,70 @@ function InspectForm({ job, onQueued, onSynced, online }) {
   );
 }
 
+function AdvisoryLog() {
+  const [logs, setLogs] = useState([]);
+  const [form, setForm] = useState({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
+  const [msg, setMsg] = useState(null);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function load() {
+    try { setLogs(await api("/agent/advisory-logs")); } catch {}
+  }
+  useEffect(() => { load(); }, []);
+
+  async function save() {
+    setMsg(null);
+    try {
+      await api("/agent/advisory-logs", { method: "POST", body: {
+        farmer_phone: form.farmer_phone || undefined, crop: form.crop || undefined,
+        topic: "advisory", observation: form.observation || undefined,
+        recommendation: form.recommendation || undefined, follow_up_on: form.follow_up_on || undefined,
+      }});
+      setMsg("Advisory logged.");
+      setForm({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
+      load();
+    } catch (e) { setMsg(e.message); }
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <h2>Advisory & farmer education log</h2>
+      <p className="muted" style={{ fontSize: 13 }}>
+        You are also the local agricultural expert. Record what you advised and any follow-up.
+      </p>
+      <div className="card">
+        <div className="row">
+          <div style={{ flex: 1 }}><label>Farmer phone</label>
+            <input value={form.farmer_phone} onChange={(e) => set("farmer_phone", e.target.value)} inputMode="numeric" /></div>
+          <div style={{ flex: 1 }}><label>Crop</label>
+            <input value={form.crop} onChange={(e) => set("crop", e.target.value)} /></div>
+          <div style={{ flex: 1 }}><label>Follow-up date</label>
+            <input value={form.follow_up_on} onChange={(e) => set("follow_up_on", e.target.value)} placeholder="2026-11-20" /></div>
+        </div>
+        <label>Observation</label>
+        <textarea rows={2} value={form.observation} onChange={(e) => set("observation", e.target.value)} />
+        <label>Recommendation (IPM-first; no invented doses)</label>
+        <textarea rows={2} value={form.recommendation} onChange={(e) => set("recommendation", e.target.value)} />
+        <div style={{ marginTop: 10 }}>
+          <button onClick={save} disabled={!form.observation && !form.recommendation}>Log advisory</button>
+        </div>
+        {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
+      </div>
+      {logs.map((l) => (
+        <div className="card" key={l.id} style={{ marginTop: 10 }}>
+          <div className="between">
+            <b>{l.crop || "general"}</b>
+            <span className="muted" style={{ fontSize: 12 }}>{l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
+          </div>
+          {l.observation && <div style={{ fontSize: 14 }}>{l.observation}</div>}
+          {l.recommendation && <div className="ok" style={{ fontSize: 14, marginTop: 6 }}>→ {l.recommendation}</div>}
+          {l.follow_up_on && <div className="muted" style={{ fontSize: 13 }}>Follow up: {l.follow_up_on}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AgentJobs() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
@@ -247,6 +311,8 @@ export default function AgentJobs() {
           </div>
         ))
       )}
+
+      <AdvisoryLog />
     </div>
   );
 }

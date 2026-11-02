@@ -27,6 +27,26 @@ class KnowledgeSource(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), default="published")
 
 
+class AdvisoryLog(Base, TimestampMixin):
+    """A field agent's advisory / farmer-education record from a visit.
+
+    Field agents double as local agricultural experts; this logs observations,
+    recommendations and follow-ups so advice is auditable and trackable.
+    """
+
+    __tablename__ = "advisory_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    farmer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    listing_id: Mapped[int | None] = mapped_column(ForeignKey("listings.id"))
+    crop: Mapped[str | None] = mapped_column(String(40))
+    topic: Mapped[str] = mapped_column(String(40), default="advisory")  # advisory|education|follow_up
+    observation: Mapped[str | None] = mapped_column(Text)
+    recommendation: Mapped[str | None] = mapped_column(Text)
+    follow_up_on: Mapped[str | None] = mapped_column(String(40))
+
+
 class CropCase(Base, TimestampMixin):
     __tablename__ = "crop_cases"
 

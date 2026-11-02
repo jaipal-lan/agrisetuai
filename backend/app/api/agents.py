@@ -3,13 +3,17 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+
 from app.core.database import get_db
 from app.core.deps import require_roles
 from app.core.money import qty
 from app.core.rbac import Role
+from app.models.advisory import AdvisoryLog
 from app.models.common import InspectionOutcome
 from app.models.common import OrderStatus as S
 from app.models.order import Inspection, Order
+from app.models.user import User
 from app.services import audit
 from app.services.state_machine import InvalidTransition, transition
 
@@ -139,3 +143,57 @@ def submit_inspection(
     db.commit()
     db.refresh(order)
     return {"inspection_id": insp.id, "outcome": insp.outcome, "order_status": order.status}
+
+
+# --- Agent-as-expert advisory log ----------------------------------------
+
+class AdvisoryLogCreate(BaseModel):
+    farmer_phone: str | None = None
+    listing_id: int | None = None
+    crop: str | None = None
+    topic: str = "advisory"  # advisory | education | follow_up
+    observation: str | None = None
+    recommendation: str | None = None
+    follow_up_on: str | None = None
+
+
+def _log_json(l: AdvisoryLog) -> dict:
+    return {
+        "id": l.id,
+        "agent_id": l.agent_id,
+        "farmer_id": l.farmer_id,
+        "listing_id": l.listing_id,
+        "crop": l.crop,
+        "topic": l.topic,
+        "observation": l.observation,
+        "recommendation": l.recommendation,
+        "follow_up_on": l.follow_up_on,
+        "created_at": l.created_at.isoformat() if l.created_at else None,
+    }
+
+
+@router.post("/advisory-logs", status_code=status.HTTP_201_CREATED)
+def create_advisory_log(body: AdvisoryLogCreate, user=Depends(_agent), db: Session = Depends(get_db)):
+    """Field agent records advisory / farmer-education notes from a visit."""
+    farmer_id = None
+    if body.farmer_phone:
+        farmer = db.scalar(select(User).where(User.phone == body.farmer_phone))
+        farmer_id = farmer.id if farmer else None
+    log = AdvisoryLog(
+        agent_id=user.id, farmer_id=farmer_id, listing_id=body.listing_id, crop=body.crop,
+        topic=body.topic, observation=body.observation, recommendation=body.recommendation,
+        follow_up_on=body.follow_up_on,
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return _log_json(log)
+
+
+@router.get("/advisory-logs")
+def list_advisory_logs(user=Depends(_agent), db: Session = Depends(get_db)):
+    rows = db.scalars(
+        select(AdvisoryLog).where(AdvisoryLog.agent_id == user.id)
+        .order_by(AdvisoryLog.id.desc()).limit(100)
+    )
+    return [_log_json(l) for l in rows]

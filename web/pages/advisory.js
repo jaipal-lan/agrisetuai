@@ -1,8 +1,20 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, getToken, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
+
+async function uploadImage(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${API_BASE}/media/upload`, {
+    method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd,
+  });
+  if (!res.ok) throw new Error((await res.json()).detail || "Upload failed");
+  return res.json();
+}
 
 function Triage({ ai }) {
   if (!ai) return null;
@@ -37,6 +49,17 @@ function Triage({ ai }) {
           <ol>{ai.ipm_order.map((s, i) => <li key={i}>{s}</li>)}</ol>
         </>
       )}
+      {ai.visual_prescreen && (
+        <div className="card" style={{ marginTop: 12, borderLeft: "4px solid var(--amber-600)" }}>
+          <b>📷 Visual pre-screen (beta)</b>
+          <div style={{ fontSize: 14, marginTop: 4 }}>
+            {ai.visual_prescreen.images_received > 0
+              ? `${ai.visual_prescreen.images_received} image(s): ${ai.visual_prescreen.hint}`
+              : ai.visual_prescreen.recommendation}
+          </div>
+          <div className="disclaimer">{ai.visual_prescreen.note}</div>
+        </div>
+      )}
       <div className="ok" style={{ fontSize: 13 }}>
         {ai.pesticide_note}
       </div>
@@ -53,7 +76,19 @@ export default function Advisory() {
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [images, setImages] = useState([]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function addPhotos(files) {
+    setErr(null);
+    try {
+      const keys = [];
+      for (const f of files) keys.push((await uploadImage(f)).object_key);
+      setImages((prev) => [...prev, ...keys]);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
 
   async function load() {
     try {
@@ -78,9 +113,11 @@ export default function Advisory() {
           crop: form.crop,
           growth_stage: form.growth_stage || undefined,
           notes: form.notes || undefined,
+          media_refs: images.length ? images : undefined,
         },
       });
       setResult(c.ai_output);
+      setImages([]);
       load();
     } catch (e) {
       setErr(e.message);
@@ -121,6 +158,14 @@ export default function Advisory() {
         <label>What do you see? (symptoms)</label>
         <textarea rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)}
           placeholder="e.g. spreading leaf spots and lesions on tillers" />
+        <div style={{ marginTop: 10 }}>
+          <label className="btn ghost" style={{ cursor: "pointer" }}>
+            📷 Add crop photos
+            <input type="file" accept="image/*" multiple style={{ display: "none" }}
+                   onChange={(e) => addPhotos(Array.from(e.target.files))} />
+          </label>
+          {images.length > 0 && <span className="muted" style={{ marginLeft: 10 }}>{images.length} photo(s) attached</span>}
+        </div>
         <div style={{ marginTop: 12 }}>
           <button onClick={submit} disabled={busy || !form.crop}>Get guidance</button>
         </div>
