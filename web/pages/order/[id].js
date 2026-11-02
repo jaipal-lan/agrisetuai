@@ -31,6 +31,71 @@ function Quote({ q }) {
   );
 }
 
+function Stars({ value, onPick }) {
+  return (
+    <span style={{ fontSize: 22, cursor: onPick ? "pointer" : "default" }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span key={n} onClick={onPick ? () => onPick(n) : undefined}
+              style={{ color: n <= value ? "#f59e0b" : "#d1d5db" }}>★</span>
+      ))}
+    </span>
+  );
+}
+
+function ReviewBox({ order }) {
+  const [done, setDone] = useState({});
+  const [farmerR, setFarmerR] = useState(0);
+  const [courierR, setCourierR] = useState(0);
+  const [fc, setFc] = useState("");
+  const [cc, setCc] = useState("");
+  const [msg, setMsg] = useState(null);
+  const hasCourier = !!order.shipment?.courier_name;
+
+  async function loadDone() {
+    try { setDone((await api(`/reviews/for-order/${order.id}`)).reviewed || {}); } catch {}
+  }
+  useEffect(() => { loadDone(); /* eslint-disable-next-line */ }, [order.id]);
+
+  async function submit(subject_type, rating, comment) {
+    if (!rating) return;
+    setMsg(null);
+    try {
+      await api("/reviews", { method: "POST", body: { order_id: order.id, subject_type, rating, comment: comment || undefined } });
+      setMsg("Thanks for your rating.");
+      loadDone();
+    } catch (e) { setMsg(e.message); }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h3>Rate your experience</h3>
+      <div style={{ marginTop: 8 }}>
+        <div className="muted" style={{ fontSize: 13 }}>Farmer {done.farmer ? `· you rated ${done.farmer}★` : ""}</div>
+        <Stars value={done.farmer || farmerR} onPick={done.farmer ? null : setFarmerR} />
+        {!done.farmer && (
+          <>
+            <input placeholder="Comment (optional)" value={fc} onChange={(e) => setFc(e.target.value)} />
+            <button style={{ marginTop: 8 }} disabled={!farmerR} onClick={() => submit("farmer", farmerR, fc)}>Submit farmer rating</button>
+          </>
+        )}
+      </div>
+      {hasCourier && (
+        <div style={{ marginTop: 14 }}>
+          <div className="muted" style={{ fontSize: 13 }}>Courier: {order.shipment.courier_name} {done.courier ? `· you rated ${done.courier}★` : ""}</div>
+          <Stars value={done.courier || courierR} onPick={done.courier ? null : setCourierR} />
+          {!done.courier && (
+            <>
+              <input placeholder="Comment (optional)" value={cc} onChange={(e) => setCc(e.target.value)} />
+              <button style={{ marginTop: 8 }} disabled={!courierR} onClick={() => submit("courier", courierR, cc)}>Submit courier rating</button>
+            </>
+          )}
+        </div>
+      )}
+      {msg && <div className="ok" style={{ marginTop: 10 }}>{msg}</div>}
+    </div>
+  );
+}
+
 function Certificate({ orderId }) {
   const [cert, setCert] = useState(null);
   const [err, setErr] = useState(null);
@@ -342,6 +407,10 @@ export default function OrderDetail() {
       )}
 
       {s === "settled" && <div className="ok" style={{ marginTop: 16 }}>Order complete and settled. 🌾</div>}
+
+      {isBuyer && ["delivered_pending_acceptance", "completed", "settled", "partially_refunded", "refunded"].includes(s) && (
+        <ReviewBox order={order} />
+      )}
 
       <h2>History</h2>
       <ul className="timeline">

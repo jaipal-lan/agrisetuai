@@ -287,6 +287,25 @@ def run():
     check("ledger still balanced after settlement", acct["balanced"] is True)
     check("seller_payable cleared to 0", acct["accounts"].get("seller_payable") == "0.00")
 
+    print("\n== Ratings & reviews + earnings ==")
+    r = client.post("/api/reviews", headers=hdr(buyer), json={
+        "order_id": order_id, "subject_type": "farmer", "rating": 5, "comment": "Great quality, clean grain."})
+    check("buyer reviews farmer", r.status_code == 201 and r.json()["rating"] == 5)
+    r = client.post("/api/reviews", headers=hdr(buyer), json={
+        "order_id": order_id, "subject_type": "courier", "rating": 4, "comment": "On time."})
+    check("buyer reviews courier", r.status_code == 201)
+    # Non-buyer cannot review.
+    r = client.post("/api/reviews", headers=hdr(agent), json={
+        "order_id": order_id, "subject_type": "farmer", "rating": 1})
+    check("non-buyer cannot review", r.status_code == 403)
+    # Seller rating appears on their listings.
+    lst = client.get(f"/api/listings/{listing['id']}").json()
+    check("seller rating shows on listing", lst["seller_rating"] == 5.0 and lst["seller_rating_count"] >= 1)
+    # Farmer earnings statement.
+    earn = client.get("/api/auth/me/earnings", headers=hdr(farmer)).json()
+    check("earnings statement totals present", float(earn["totals"]["net"]) > 0)
+    check("earnings lists settled order", any(o["order_public_id"] == oj["public_id"] for o in earn["orders"]))
+
     print("\n== Alerting (notifications) ==")
     notes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
     titles = " ".join(n["title"] for n in notes)

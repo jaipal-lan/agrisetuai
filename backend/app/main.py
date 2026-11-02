@@ -17,6 +17,7 @@ from app.api import (
     offers,
     orders,
     pricing,
+    reviews,
     rfqs,
     subscriptions,
     support,
@@ -53,7 +54,7 @@ API = "/api"
 for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
     pricing, admin, advisory, insights, lots, media, support, logistics,
-    subscriptions, carriers, transport,
+    subscriptions, carriers, transport, reviews,
 ):
     app.include_router(module.router, prefix=API)
 

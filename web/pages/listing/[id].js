@@ -98,6 +98,12 @@ export default function ListingDetail() {
           {listing.variety ? `${listing.variety} · ` : ""}
           Harvest {listing.harvest_year || "—"} · Min order {listing.min_order_qty} {listing.unit}
         </div>
+        {listing.seller_rating != null && (
+          <div style={{ fontSize: 14, marginTop: 6 }}>
+            Seller rating: <b style={{ color: "#f59e0b" }}>★ {listing.seller_rating}</b>
+            <span className="muted"> ({listing.seller_rating_count})</span>
+          </div>
+        )}
         {listing.pickup_terms && (
           <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>{listing.pickup_terms}</div>
         )}

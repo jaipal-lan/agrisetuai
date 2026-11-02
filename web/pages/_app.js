@@ -102,6 +102,7 @@ function Nav() {
       <Link href="/welcome" className="brand">{t("app_name")}</Link>
       <Link href="/">{t("marketplace")}</Link>
       {seller && <Link href="/sell">{t("sell")}</Link>}
+      {seller && <Link href="/earnings">{t("earnings")}</Link>}
       {(buyer || seller) && <Link href="/requests">{t("requests")}</Link>}
       {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
       {agent && <Link href="/agent">{t("agent_jobs")}</Link>}

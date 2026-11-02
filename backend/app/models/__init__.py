@@ -33,6 +33,7 @@ from app.models.order import (
     ShipmentEvent,
 )
 from app.models.pricing import PricingRule
+from app.models.review import Review
 from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.support import (
     ConsentRecord,
@@ -78,6 +79,7 @@ __all__ = [
     "Shipment",
     "ShipmentEvent",
     "PricingRule",
+    "Review",
     "AgentProfile",
     "BuyerProfile",
     "FarmerProfile",

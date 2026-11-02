@@ -45,6 +45,9 @@ export default function ProductOfferings() {
                 <h3 style={{ fontSize: 16 }}>{o.place?.label || "—"}</h3>
                 {o.agent_verified && <span className="badge">✓ verified</span>}
               </div>
+              {o.seller_rating != null && (
+                <div style={{ fontSize: 13 }}><span style={{ color: "#f59e0b" }}>★ {o.seller_rating}</span> <span className="muted">({o.seller_rating_count})</span></div>
+              )}
               <div className="muted" style={{ fontSize: 13 }}>
                 {o.variety ? `${o.variety} · ` : ""}{o.is_organic ? "organic" : "non-organic"}
                 {o.grade ? ` · ${o.grade.label}` : ""}{o.harvest_year ? ` · HY ${o.harvest_year}` : ""}

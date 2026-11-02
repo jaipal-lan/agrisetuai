@@ -111,6 +111,15 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         if listing.agent_verified and listing.verified_by:
             vb = db.get(User, listing.verified_by)
             data["verified_by_name"] = vb.name if vb else None
+        # Seller's rating from buyer reviews.
+        from app.models.review import Review
+        from sqlalchemy import func as _func
+        avg, cnt = db.execute(
+            select(_func.avg(Review.rating), _func.count(Review.id))
+            .where(Review.subject_type == "farmer", Review.subject_id == listing.seller_id)
+        ).one()
+        data["seller_rating"] = round(float(avg), 2) if avg is not None else None
+        data["seller_rating_count"] = int(cnt or 0)
     return data
 
 

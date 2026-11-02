@@ -212,6 +212,49 @@ def notifications(user: User = Depends(get_current_user), db: Session = Depends(
     ]
 
 
+@router.get("/me/earnings")
+def my_earnings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Farmer/FPO earnings statement: per-order gross, commission, net, payout."""
+    from app.core.money import money
+    from app.models.common import OrderStatus as OS
+    from app.models.finance import Payout
+    from app.models.order import Order
+
+    rows = db.scalars(
+        select(Order).where(
+            Order.seller_id == user.id,
+            Order.status.in_([OS.COMPLETED, OS.SETTLED, OS.PARTIALLY_REFUNDED, OS.REFUNDED]),
+        ).order_by(Order.id.desc())
+    )
+    payouts = {p.order_id: p for p in db.scalars(select(Payout).where(Payout.seller_id == user.id))}
+    lines = []
+    tot_gross = tot_comm = tot_net = tot_paid = money(0)
+    for o in rows:
+        q = o.quote or {}
+        t = o.accepted_terms or {}
+        gross = money(q.get("product_value") or (float(t.get("price_per_unit", 0)) * float(t.get("quantity", 0))))
+        comm = money(q.get("seller_commission", 0))
+        net = money(o.seller_payable or (gross - comm))
+        payout = payouts.get(o.id)
+        paid = money(payout.amount) if payout else money(0)
+        tot_gross += gross; tot_comm += comm; tot_net += net; tot_paid += paid
+        lines.append({
+            "order_public_id": o.public_id,
+            "status": o.status,
+            "gross": str(gross),
+            "commission": str(comm),
+            "net": str(net),
+            "payout_status": payout.status if payout else ("pending" if o.status != OS.SETTLED else "—"),
+            "paid": str(paid),
+        })
+    return {
+        "currency": "INR",
+        "totals": {"gross": str(tot_gross), "commission": str(tot_comm),
+                   "net": str(tot_net), "paid": str(tot_paid)},
+        "orders": lines,
+    }
+
+
 @router.post("/notifications/read")
 def mark_notifications_read(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Mark all of the caller's notifications as read (clears the bell badge)."""
