@@ -4,6 +4,12 @@
 const BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
 
+// URL to display a listing/evidence image by its object_key.
+export function mediaUrl(objectKey) {
+  if (!objectKey) return null;
+  return `${BASE}/media/file/${objectKey}`;
+}
+
 export function getToken() {
   if (typeof window === "undefined") return null;
   try {

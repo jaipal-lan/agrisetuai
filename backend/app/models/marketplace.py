@@ -38,6 +38,13 @@ class Listing(Base, TimestampMixin):
         String(16), default=ListingStatus.DRAFT, index=True
     )
 
+    # Optional pre-sale agent verification of the lot at the farm gate. Distinct
+    # from the per-order inspection; surfaces an "agent verified" badge.
+    agent_verified: Mapped[bool] = mapped_column(default=False)
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verification_note: Mapped[str | None] = mapped_column(String(300))
+
     media: Mapped[list["ListingMedia"]] = relationship(back_populates="listing")
 
     @property

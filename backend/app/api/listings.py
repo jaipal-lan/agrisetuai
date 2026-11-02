@@ -10,18 +10,22 @@ from app.core.deps import get_current_user, require_roles
 from app.core.money import qty
 from app.core.rbac import Role
 from app.core.serializers import public_user
-from app.models.catalog import Commodity
-from app.models.common import ClaimStatus, ListingStatus
+from app.models.catalog import Commodity, Variety
+from app.models.common import ClaimStatus, ListingStatus, utcnow
+from app.models.location import Mandal
 from app.models.marketplace import Listing, ListingMedia
-from app.models.user import User
+from app.models.user import FarmerProfile, User
 from app.api.subscriptions import active_benefits
 
 router = APIRouter(prefix="/listings", tags=["listings"])
 
 _seller = require_roles(Role.FARMER, Role.FPO)
+_verifier = require_roles(Role.FIELD_AGENT, Role.MANDAL_MANAGER, Role.SUPERADMIN)
 
 # Active-listing cap for a seller with no paid subscription (free tier).
 _FREE_LISTING_CAP = 3
+# Minimum quality/sample images required before a listing can go live.
+_MIN_LISTING_IMAGES = 3
 
 
 class ListingCreate(BaseModel):
@@ -41,8 +45,29 @@ class ListingCreate(BaseModel):
     pickup_terms: str | None = None
 
 
-def _serialize(listing: Listing, seller: User | None = None) -> dict:
+def _place(db: Session, listing: Listing, seller: User | None) -> dict:
+    """Where this produce is: mandal (+district) and the farmer's village."""
+    mandal = db.get(Mandal, listing.mandal_id) if listing.mandal_id else None
+    village = None
+    if seller is not None:
+        fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == seller.id))
+        village = fp.village if fp else None
     return {
+        "mandal_id": listing.mandal_id,
+        "mandal": mandal.name if mandal else None,
+        "village": village,
+        "label": ", ".join([p for p in [village, mandal.name if mandal else None] if p]) or None,
+    }
+
+
+def _serialize(listing: Listing, seller: User | None = None, db: Session | None = None) -> dict:
+    images = [
+        {"object_key": m.object_key, "media_type": m.media_type}
+        for m in listing.media if m.media_type == "image"
+    ]
+    avail = qty(listing.available_qty)
+    out_of_stock = listing.status == ListingStatus.SOLD_OUT or avail <= qty(0)
+    data = {
         "id": listing.id,
         "seller": public_user(seller) if seller else {"id": listing.seller_id},
         "commodity_id": listing.commodity_id,
@@ -53,16 +78,30 @@ def _serialize(listing: Listing, seller: User | None = None) -> dict:
         "total_qty": str(qty(listing.total_qty)),
         "reserved_qty": str(qty(listing.reserved_qty)),
         "sold_qty": str(qty(listing.sold_qty)),
-        "available_qty": str(qty(listing.available_qty)),
+        "available_qty": str(avail),
         "min_order_qty": str(qty(listing.min_order_qty)),
         "asking_price": str(listing.asking_price),
         "negotiable": listing.negotiable,
         "claim_status": listing.claim_status,
+        "is_organic": listing.claim_status == str(ClaimStatus.ORGANIC),
         "mandal_id": listing.mandal_id,
         "pickup_terms": listing.pickup_terms,
         "status": listing.status,
-        "media": [{"object_key": m.object_key, "media_type": m.media_type} for m in listing.media],
+        "out_of_stock": out_of_stock,
+        "agent_verified": listing.agent_verified,
+        "verified_at": listing.verified_at.isoformat() if listing.verified_at else None,
+        "verification_note": listing.verification_note,
+        "image_count": len(images),
+        "media": images,
     }
+    if db is not None:
+        commodity = db.get(Commodity, listing.commodity_id)
+        variety = db.get(Variety, listing.variety_id) if listing.variety_id else None
+        data["commodity"] = commodity.name if commodity else None
+        data["commodity_te"] = commodity.name_te if commodity else None
+        data["variety"] = variety.name if variety else None
+        data["place"] = _place(db, listing, seller)
+    return data
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -97,7 +136,7 @@ def create_listing(
     db.add(listing)
     db.commit()
     db.refresh(listing)
-    return _serialize(listing, user)
+    return _serialize(listing, user, db)
 
 
 @router.get("")
@@ -129,14 +168,83 @@ def search_listings(
         if min_qty is not None and float(listing.available_qty) < min_qty:
             continue
         seller = db.get(User, listing.seller_id)
-        out.append(_serialize(listing, seller))
+        out.append(_serialize(listing, seller, db))
     return out
 
 
 @router.get("/mine")
 def my_listings(user: User = Depends(_seller), db: Session = Depends(get_db)):
     rows = db.scalars(select(Listing).where(Listing.seller_id == user.id))
-    return [_serialize(listing, user) for listing in rows]
+    return [_serialize(listing, user, db) for listing in rows]
+
+
+# --- Product view: the same product offered by multiple farmers/places --------
+# Declared before /{listing_id} so "products" is not parsed as a listing id.
+
+@router.get("/products")
+def products(category: str | None = None, db: Session = Depends(get_db)):
+    """Product catalog grouped by commodity, each with how many farmers/places
+    currently offer it and the price range — the marketplace's product grid."""
+    stmt = select(Commodity)
+    if category:
+        stmt = stmt.where(Commodity.category == category)
+    out = []
+    for c in db.scalars(stmt.order_by(Commodity.category, Commodity.name)):
+        rows = list(db.scalars(
+            select(Listing).where(Listing.commodity_id == c.id, Listing.status == ListingStatus.OPEN)
+        ))
+        live = [l for l in rows if qty(l.available_qty) > qty(0)]
+        prices = [float(l.asking_price) for l in live]
+        places = set()
+        for l in live:
+            m = db.get(Mandal, l.mandal_id) if l.mandal_id else None
+            if m:
+                places.add(m.name)
+        out.append({
+            "commodity_id": c.id,
+            "commodity": c.name,
+            "commodity_te": c.name_te,
+            "category": c.category,
+            "min_order_qty": str(qty(c.min_order_qty or 0)),
+            "offering_count": len(live),
+            "place_count": len(places),
+            "price_min": min(prices) if prices else None,
+            "price_max": max(prices) if prices else None,
+            "any_verified": any(l.agent_verified for l in live),
+        })
+    return out
+
+
+@router.get("/products/{commodity_id}")
+def product_offerings(commodity_id: int, include_sold_out: bool = True, db: Session = Depends(get_db)):
+    """All farmers' offerings of one product, from every place.
+
+    Shows each seller's price, available quantity, location and verification, so a
+    buyer sees the full market for a product. Sold-out lots are flagged, not hidden.
+    """
+    commodity = db.get(Commodity, commodity_id)
+    if not commodity:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Commodity not found")
+    statuses = [ListingStatus.OPEN, ListingStatus.SOLD_OUT] if include_sold_out else [ListingStatus.OPEN]
+    rows = list(db.scalars(
+        select(Listing).where(Listing.commodity_id == commodity_id, Listing.status.in_(statuses))
+        .order_by(Listing.asking_price)
+    ))
+    offerings = [_serialize(l, db.get(User, l.seller_id), db) for l in rows]
+    in_stock = [o for o in offerings if not o["out_of_stock"]]
+    prices = [float(o["asking_price"]) for o in in_stock]
+    places = sorted({o["place"]["label"] for o in in_stock if o["place"]["label"]})
+    return {
+        "commodity_id": commodity_id,
+        "commodity": commodity.name,
+        "commodity_te": commodity.name_te,
+        "min_order_qty": str(qty(commodity.min_order_qty or 0)),
+        "offering_count": len(in_stock),
+        "price_min": min(prices) if prices else None,
+        "price_max": max(prices) if prices else None,
+        "places": places,
+        "offerings": offerings,
+    }
 
 
 @router.get("/{listing_id}")
@@ -144,7 +252,7 @@ def get_listing(listing_id: int, db: Session = Depends(get_db)):
     listing = db.get(Listing, listing_id)
     if not listing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Listing not found")
-    return _serialize(listing, db.get(User, listing.seller_id))
+    return _serialize(listing, db.get(User, listing.seller_id), db)
 
 
 def _owned(listing_id: int, user: User, db: Session) -> Listing:
@@ -161,6 +269,14 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
     listing = _owned(listing_id, user, db)
     if listing.status not in (ListingStatus.DRAFT, ListingStatus.PAUSED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Listing cannot be published")
+    # Require minimum quality/sample images so buyers can see the produce.
+    image_count = sum(1 for m in listing.media if m.media_type == "image")
+    if image_count < _MIN_LISTING_IMAGES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Add at least {_MIN_LISTING_IMAGES} sample images before publishing "
+            f"({image_count}/{_MIN_LISTING_IMAGES}).",
+        )
     # Enforce the subscription's active-listing cap (free tier otherwise).
     cap = active_benefits(db, user.id).get("max_active_listings", _FREE_LISTING_CAP)
     active_count = db.scalar(
@@ -175,7 +291,7 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
         )
     listing.status = ListingStatus.OPEN
     db.commit()
-    return _serialize(listing, user)
+    return _serialize(listing, user, db)
 
 
 @router.post("/{listing_id}/pause")
@@ -183,7 +299,7 @@ def pause(listing_id: int, user: User = Depends(_seller), db: Session = Depends(
     listing = _owned(listing_id, user, db)
     listing.status = ListingStatus.PAUSED
     db.commit()
-    return _serialize(listing, user)
+    return _serialize(listing, user, db)
 
 
 @router.post("/{listing_id}/withdraw")
@@ -195,7 +311,7 @@ def withdraw(listing_id: int, user: User = Depends(_seller), db: Session = Depen
         )
     listing.status = ListingStatus.WITHDRAWN
     db.commit()
-    return _serialize(listing, user)
+    return _serialize(listing, user, db)
 
 
 class MediaAttach(BaseModel):
@@ -223,4 +339,29 @@ def attach_media(
     )
     db.commit()
     db.refresh(listing)
-    return _serialize(listing, user)
+    return _serialize(listing, user, db)
+
+
+class VerifyBody(BaseModel):
+    note: str | None = None
+    verified: bool = True
+
+
+@router.post("/{listing_id}/verify")
+def verify_listing(
+    listing_id: int,
+    body: VerifyBody,
+    user: User = Depends(_verifier),
+    db: Session = Depends(get_db),
+):
+    """A field agent / mandal manager marks a listing as agent-verified at the farm
+    gate (pre-sale). This is a visual field check, not the per-order inspection."""
+    listing = db.get(Listing, listing_id)
+    if not listing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Listing not found")
+    listing.agent_verified = body.verified
+    listing.verified_by = user.id if body.verified else None
+    listing.verified_at = utcnow() if body.verified else None
+    listing.verification_note = body.note
+    db.commit()
+    return _serialize(listing, db.get(User, listing.seller_id), db)

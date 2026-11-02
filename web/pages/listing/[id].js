@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../../lib/api";
+import { api, getUser, mediaUrl } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 
 export default function ListingDetail() {
@@ -70,12 +70,23 @@ export default function ListingDetail() {
       <button className="ghost" onClick={() => router.push("/")}>← {t("marketplace")}</button>
       <h1 style={{ marginTop: 16 }}>{cname || "Listing"}</h1>
       <div className="row" style={{ marginBottom: 12 }}>
-        <span className="badge">{listing.status}</span>
-        <span className={`badge ${listing.claim_status === "organic" ? "" : "grey"}`}>
-          {listing.claim_status}
+        <span className="badge">{listing.status.replace(/_/g, " ")}</span>
+        <span className={`badge ${listing.is_organic ? "" : "grey"}`}>
+          {listing.is_organic ? "organic" : listing.claim_status}
         </span>
         {commodity && <span className="badge grey">{commodity.category}</span>}
+        {listing.agent_verified && <span className="badge">✓ agent verified</span>}
+        {listing.out_of_stock && <span className="badge amber">out of stock</span>}
       </div>
+
+      {listing.media && listing.media.length > 0 && (
+        <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "nowrap", overflowX: "auto" }}>
+          {listing.media.map((m, i) => (
+            <img key={i} src={mediaUrl(m.object_key)} alt={`sample ${i + 1}`} loading="lazy"
+                 style={{ width: 150, height: 110, objectFit: "cover", borderRadius: 8, flex: "0 0 auto" }} />
+          ))}
+        </div>
+      )}
 
       <div className="card">
         <div className="between">
@@ -83,13 +94,31 @@ export default function ListingDetail() {
           <div className="muted">{t("available")}: <b>{listing.available_qty}</b> {listing.unit}</div>
         </div>
         <div className="muted" style={{ fontSize: 14, marginTop: 8 }}>
-          Harvest year {listing.harvest_year || "—"} · Min order {listing.min_order_qty} {listing.unit}
+          {listing.place?.label && <>📍 {listing.place.label} · </>}
+          {listing.variety ? `${listing.variety} · ` : ""}
+          Harvest {listing.harvest_year || "—"} · Min order {listing.min_order_qty} {listing.unit}
         </div>
+        {listing.agent_verified && listing.verification_note && (
+          <div className="ok" style={{ marginTop: 10, fontSize: 13 }}>
+            ✓ Agent verified: {listing.verification_note}
+          </div>
+        )}
+        {listing.pickup_terms && (
+          <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>{listing.pickup_terms}</div>
+        )}
       </div>
 
       {err && <div className="error">{err}</div>}
 
-      {isOwner ? (
+      {listing.out_of_stock ? (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="badge grey">Out of stock</div>
+          <p className="muted" style={{ marginTop: 8 }}>This lot is sold out. See other farmers offering this product.</p>
+          <button className="ghost" onClick={() => router.push(`/product/${listing.commodity_id}`)}>
+            Other offerings
+          </button>
+        </div>
+      ) : isOwner ? (
         <div className="ok" style={{ marginTop: 16 }}>This is your listing. Manage it under {t("sell")}.</div>
       ) : isBuyer ? (
         <div className="card" style={{ marginTop: 16 }}>

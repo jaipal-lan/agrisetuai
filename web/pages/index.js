@@ -6,24 +6,18 @@ import { useI18n } from "../lib/i18n";
 
 export default function Marketplace() {
   const { t, lang } = useI18n();
-  const [commodities, setCommodities] = useState([]);
-  const [listings, setListings] = useState([]);
-  const [commodityId, setCommodityId] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
+  const [products, setProducts] = useState([]);
+  const [category, setCategory] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-
-  const cmap = Object.fromEntries(commodities.map((c) => [c.id, c]));
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (commodityId) params.set("commodity_id", commodityId);
-      if (maxPrice) params.set("max_price", maxPrice);
-      const rows = await api(`/listings?${params.toString()}`);
-      setListings(rows);
+      if (category) params.set("category", category);
+      setProducts(await api(`/listings/products?${params.toString()}`));
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -32,17 +26,12 @@ export default function Marketplace() {
   }
 
   useEffect(() => {
-    api("/catalog/commodities").then(setCommodities).catch(() => {});
-  }, []);
-  useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commodityId, maxPrice]);
+  }, [category]);
 
-  function cname(c) {
-    if (!c) return "—";
-    return lang === "te" && c.name_te ? c.name_te : c.name;
-  }
+  const pname = (p) => (lang === "te" && p.commodity_te ? p.commodity_te : p.commodity);
+  const categories = [...new Set(products.map((p) => p.category))];
 
   return (
     <div>
@@ -50,56 +39,41 @@ export default function Marketplace() {
       <p className="tagline">{t("tagline")}</p>
 
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="row">
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <label>{t("commodity")}</label>
-            <select value={commodityId} onChange={(e) => setCommodityId(e.target.value)}>
-              <option value="">{t("search")}…</option>
-              {commodities.map((c) => (
-                <option key={c.id} value={c.id}>{cname(c)} ({c.category})</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ width: 160 }}>
-            <label>{t("price")} ≤</label>
-            <input
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(e.target.value.replace(/[^\d.]/g, ""))}
-              placeholder="₹/kg"
-              inputMode="decimal"
-            />
-          </div>
-        </div>
+        <label>Category</label>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ maxWidth: 240 }}>
+          <option value="">All products</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
       </div>
 
       {err && <div className="error">{err}</div>}
       {loading ? (
         <p className="muted">{t("loading")}</p>
-      ) : listings.length === 0 ? (
-        <p className="muted">No open listings yet.</p>
       ) : (
         <div className="grid">
-          {listings.map((l) => {
-            const c = cmap[l.commodity_id];
+          {products.map((p) => {
+            const available = p.offering_count > 0;
             return (
-              <Link key={l.id} href={`/listing/${l.id}`} className="card" style={{ color: "inherit" }}>
+              <Link key={p.commodity_id} href={`/product/${p.commodity_id}`} className="card" style={{ color: "inherit" }}>
                 <div className="between">
-                  <h3>{cname(c)}</h3>
-                  <span className={`badge ${l.claim_status === "organic" ? "" : "grey"}`}>
-                    {l.claim_status}
-                  </span>
+                  <h3>{pname(p)}</h3>
+                  {p.any_verified && <span className="badge">✓ verified</span>}
                 </div>
                 <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-                  {c ? c.category : ""} · HY {l.harvest_year || "—"}
+                  {p.category} · MOQ {p.min_order_qty} kg
                 </div>
-                <div className="price">
-                  ₹{l.asking_price}<small> {t("per_kg")}</small>
-                </div>
-                <div className="muted" style={{ fontSize: 14, marginTop: 6 }}>
-                  {t("available")}: {l.available_qty} {l.unit}
-                </div>
-                {l.negotiable && (
-                  <div className="badge amber" style={{ marginTop: 10 }}>Negotiable</div>
+                {available ? (
+                  <>
+                    <div className="price">
+                      ₹{p.price_min}{p.price_max !== p.price_min ? `–${p.price_max}` : ""}
+                      <small> {t("per_kg")}</small>
+                    </div>
+                    <div className="muted" style={{ fontSize: 14, marginTop: 6 }}>
+                      {p.offering_count} farmer{p.offering_count > 1 ? "s" : ""} · {p.place_count} place{p.place_count > 1 ? "s" : ""}
+                    </div>
+                  </>
+                ) : (
+                  <div className="badge grey" style={{ marginTop: 10 }}>Out of stock</div>
                 )}
               </Link>
             );

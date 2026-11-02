@@ -2,6 +2,7 @@ import hashlib
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -12,6 +13,21 @@ from app.models.support import MediaObject
 from app.services import audit
 
 router = APIRouter(prefix="/media", tags=["media"])
+
+_PLACEHOLDER_COLORS = ["#2e7d32", "#558b2f", "#9e6d1f", "#8d6e63", "#6a1b9a", "#00838f"]
+
+
+def _placeholder_svg(label: str) -> str:
+    color = _PLACEHOLDER_COLORS[sum(ord(c) for c in label) % len(_PLACEHOLDER_COLORS)]
+    text = (label.replace("sample/", "").replace(".svg", "").replace("-", " "))[:28]
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">'
+        f'<rect width="400" height="300" fill="{color}"/>'
+        f'<text x="200" y="150" fill="#ffffff" font-family="sans-serif" font-size="22" '
+        f'text-anchor="middle" dominant-baseline="middle">{text}</text>'
+        f'<text x="200" y="185" fill="#ffffff" font-family="sans-serif" font-size="13" '
+        f'text-anchor="middle" opacity="0.8">sample photo</text></svg>'
+    )
 
 _ALLOWED = {
     "image/jpeg": "jpg",
@@ -70,3 +86,20 @@ async def upload(
         "content_type": ctype,
         "note": "Pilot stores files on local disk. Swap for signed object-storage URLs in production.",
     }
+
+
+@router.get("/file/{object_key:path}")
+def serve_file(object_key: str):
+    """Serve a stored media file (public listing images, dev). Demo listings use
+    `sample/...` keys that render as a generated placeholder image, so the UI shows
+    produce photos without bundled binaries.
+
+    NOTE: pilot-only. Production must gate restricted evidence behind signed URLs.
+    """
+    if object_key.startswith("sample/"):
+        return Response(content=_placeholder_svg(object_key), media_type="image/svg+xml")
+    root = os.path.abspath(settings.media_dir)
+    dest = os.path.abspath(os.path.join(root, object_key.replace("/", os.sep)))
+    if not dest.startswith(root) or not os.path.isfile(dest):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    return FileResponse(dest)

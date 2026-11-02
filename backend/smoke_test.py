@@ -86,12 +86,33 @@ def run():
     listing = r.json()
     check("listing starts as draft", listing["status"] == "draft")
 
+    # Publishing requires at least 3 sample images.
     r = client.post(f"/api/listings/{listing['id']}/publish", headers=hdr(farmer))
-    check("listing published", r.json()["status"] == "open")
+    check("publish blocked without 3 images", r.status_code == 400)
+    for n in range(1, 4):
+        client.post(f"/api/listings/{listing['id']}/media", headers=hdr(farmer),
+                    json={"object_key": f"sample/paddy-test-{n}.svg", "media_type": "image"})
+    r = client.post(f"/api/listings/{listing['id']}/publish", headers=hdr(farmer))
+    check("listing published after images", r.json()["status"] == "open")
+
+    # Agent verifies the listing at the farm gate.
+    r = client.post(f"/api/listings/{listing['id']}/verify", headers=hdr(agent),
+                    json={"note": "Weight sampled; grade consistent."})
+    check("agent verifies listing", r.json()["agent_verified"] is True)
 
     found = client.get("/api/listings", params={"commodity_id": paddy["id"]}).json()
     check("listing appears in search", any(x["id"] == listing["id"] for x in found))
     check("seller phone NOT leaked in search", "phone" not in found[0]["seller"])
+    mine = next(x for x in found if x["id"] == listing["id"])
+    check("listing shows place (mandal)", mine["place"]["mandal"] is not None)
+    check("listing shows image count", mine["image_count"] >= 3)
+
+    # Product view: same product from multiple farmers/places, out-of-stock flagged.
+    prod = client.get(f"/api/listings/products/{paddy['id']}").json()
+    check("product view lists offerings", prod["offering_count"] >= 1)
+    check("product view aggregates places", isinstance(prod["places"], list))
+    grid = client.get("/api/listings/products").json()
+    check("product grid returns commodities", any(p["commodity_id"] == paddy["id"] for p in grid))
 
     # MOQ guard: an offer below the minimum order quantity is rejected.
     r = client.post("/api/offers", headers=hdr(buyer), json={
@@ -402,7 +423,11 @@ def run():
             "total_qty": 100, "min_order_qty": 10, "asking_price": 25.0,
             "mandal_id": mandal_id, "harvest_year": 2026,
         })
-        created.append(rc.json()["id"])
+        lid = rc.json()["id"]
+        created.append(lid)
+        for n in range(1, 4):  # satisfy the min-images rule
+            client.post(f"/api/listings/{lid}/media", headers=hdr(capfarmer),
+                        json={"object_key": f"sample/cap-{lid}-{n}.svg", "media_type": "image"})
     pubs = [client.post(f"/api/listings/{lid}/publish", headers=hdr(capfarmer)).status_code
             for lid in created]
     check("free tier publishes up to cap", pubs[:3] == [200, 200, 200])

@@ -1,8 +1,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, getToken, getUser, mediaUrl } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
+
+async function uploadImage(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${API_BASE}/media/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: fd,
+  });
+  if (!res.ok) throw new Error((await res.json()).detail || "Upload failed");
+  return res.json();
+}
 
 export default function Sell() {
   const { t, lang } = useI18n();
@@ -77,6 +91,25 @@ export default function Sell() {
       loadMine();
     } catch (e) {
       setErr(e.message);
+    }
+  }
+
+  async function addImages(id, files) {
+    setErr(null);
+    setBusy(true);
+    try {
+      for (const f of files) {
+        const up = await uploadImage(f);
+        await api(`/listings/${id}/media`, {
+          method: "POST",
+          body: { object_key: up.object_key, media_type: "image", checksum: up.checksum },
+        });
+      }
+      loadMine();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -155,35 +188,54 @@ export default function Sell() {
       </div>
 
       <h2>My listings</h2>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Add at least 3 quality/sample images before publishing. A field agent may verify your lot at the farm gate.
+      </p>
       {listings.length === 0 ? (
         <p className="muted">None yet.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>{t("commodity")}</th>
-              <th>{t("price")}</th>
-              <th>{t("available")}</th>
-              <th>{t("status")}</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {listings.map((l) => (
-              <tr key={l.id}>
-                <td>{cname(cmap[l.commodity_id])}</td>
-                <td>₹{l.asking_price}</td>
-                <td>{l.available_qty} / {l.total_qty}</td>
-                <td><span className="badge grey">{l.status}</span></td>
-                <td>
-                  {l.status === "draft" && <button onClick={() => act(l.id, "publish")}>{t("publish")}</button>}
+        <div className="grid">
+          {listings.map((l) => {
+            const imgs = l.media || [];
+            const enough = imgs.length >= 3;
+            return (
+              <div className="card" key={l.id}>
+                <div className="between">
+                  <h3 style={{ fontSize: 16 }}>{cname(cmap[l.commodity_id])}</h3>
+                  <span className={`badge ${l.status === "open" ? "" : l.status === "sold_out" ? "amber" : "grey"}`}>
+                    {l.status.replace(/_/g, " ")}
+                  </span>
+                </div>
+                <div className="muted" style={{ fontSize: 13 }}>
+                  ₹{l.asking_price}/kg · {l.available_qty}/{l.total_qty} {l.unit}
+                  {l.is_organic ? " · organic" : ""}
+                  {l.agent_verified ? " · ✓ verified" : ""}
+                </div>
+                {imgs.length > 0 && (
+                  <div className="row" style={{ gap: 6, margin: "10px 0", flexWrap: "nowrap", overflowX: "auto" }}>
+                    {imgs.map((m, i) => (
+                      <img key={i} src={mediaUrl(m.object_key)} alt="" loading="lazy"
+                           style={{ width: 64, height: 50, objectFit: "cover", borderRadius: 6, flex: "0 0 auto" }} />
+                    ))}
+                  </div>
+                )}
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {imgs.length}/3 images {enough ? "✓" : "— add more to publish"}
+                </div>
+                <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                  <label className="btn ghost" style={{ cursor: "pointer" }}>
+                    + Images
+                    <input type="file" accept="image/*" multiple style={{ display: "none" }}
+                           onChange={(e) => addImages(l.id, Array.from(e.target.files))} />
+                  </label>
+                  {l.status === "draft" && <button disabled={!enough || busy} onClick={() => act(l.id, "publish")}>{t("publish")}</button>}
                   {l.status === "open" && <button className="ghost" onClick={() => act(l.id, "pause")}>Pause</button>}
-                  {l.status === "paused" && <button onClick={() => act(l.id, "publish")}>Resume</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  {l.status === "paused" && <button disabled={!enough} onClick={() => act(l.id, "publish")}>Resume</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

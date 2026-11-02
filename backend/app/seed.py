@@ -11,7 +11,7 @@ from app.core.money import D
 from app.core.rbac import Role
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import ListingStatus, utcnow
-from app.models.marketplace import Listing
+from app.models.marketplace import Listing, ListingMedia
 from app.models.location import District, Mandal, State
 from app.models.pricing import PricingRule
 from app.models.subscription import SubscriptionPlan
@@ -184,6 +184,7 @@ def seed_listings(db: Session, catalog: dict, mandals: dict) -> int:
         ("Toor Dal", 5000, 98.0, "conventional"),
         ("Groundnut", 8000, 68.0, "conventional"),
     ]
+    agent = db.scalar(select(User).where(User.phone == "919000000002"))
     fcycle = itertools.cycle(farmers)
     created = 0
     for i, (cname, qty, price, claim) in enumerate(listing_defs):
@@ -198,14 +199,31 @@ def seed_listings(db: Session, catalog: dict, mandals: dict) -> int:
         v = first(Variety, c.id)
         g = first(GradeSpec, c.id)
         evidence = {"certificate_no": f"NPOP-DEMO-{i}", "scope": "organic"} if claim == "organic" else None
-        db.add(Listing(
+        # Every third listing is sold out, to demonstrate the out-of-stock state.
+        sold_out = (i % 4 == 3)
+        verified = (i % 2 == 0)  # roughly half are agent-verified at the farm gate
+        slug = cname.lower().replace(" ", "-")
+        lst = Listing(
             seller_id=u.id, commodity_id=c.id,
             variety_id=v.id if v else None, grade_spec_id=g.id if g else None,
-            total_qty=D(qty), reserved_qty=D(0), sold_qty=D(0), min_order_qty=D(round(qty * 0.05, 3)),
+            total_qty=D(qty), reserved_qty=D(0),
+            sold_qty=D(qty) if sold_out else D(0),
+            min_order_qty=D(round(qty * 0.05, 3)),
             asking_price=D(price), negotiable=True, claim_status=claim, claim_evidence=evidence,
-            mandal_id=m.id if m else None, status=str(ListingStatus.OPEN),
+            mandal_id=m.id if m else None,
+            status=str(ListingStatus.SOLD_OUT if sold_out else ListingStatus.OPEN),
             pickup_terms="Farm-gate pickup; bags included.", harvest_year=2026,
-        ))
+            agent_verified=verified,
+            verified_by=agent.id if (verified and agent) else None,
+            verified_at=utcnow() if verified else None,
+            verification_note="Field-gate visual check: weight sampled, grade consistent." if verified else None,
+        )
+        db.add(lst)
+        db.flush()
+        # Attach 3 sample images (placeholders rendered by /media/file/sample/...).
+        for n in range(1, 4):
+            db.add(ListingMedia(listing_id=lst.id, object_key=f"sample/{slug}-{n}.svg",
+                                media_type="image", access_class="public"))
         created += 1
     db.flush()
     return created
