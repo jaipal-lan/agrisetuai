@@ -10,9 +10,11 @@ from app.core.database import SessionLocal, run_migrations
 from app.core.money import D
 from app.core.rbac import Role
 from app.models.catalog import Commodity, GradeSpec, Variety
-from app.models.common import utcnow
+from app.models.common import ListingStatus, utcnow
+from app.models.marketplace import Listing
 from app.models.location import District, Mandal, State
 from app.models.pricing import PricingRule
+from app.models.subscription import SubscriptionPlan
 from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
 
 
@@ -56,32 +58,144 @@ def seed_locations(db: Session) -> dict:
     return mandals
 
 
+# (category, name, product_form, name_te, handling_class, [varieties], [grades])
+_CATALOG = [
+    ("paddy", "Paddy", "paddy", "వరి ధాన్యం", "dry_grain",
+     [("BPT 5204", "బీపీటీ 5204"), ("MTU 1010", "ఎంటీయూ 1010"), ("Sona Masoori", "సోనా మసూరి")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 17, "max_foreign_matter_pct": 2})]),
+    ("rice", "Milled Rice", "milled_rice", "బియ్యం", "dry_grain",
+     [("Sona Masoori", "సోనా మసూరి"), ("HMT", "హెచ్ఎంటీ")],
+     [("A", "Grade A", {"max_broken_pct": 5, "max_moisture_pct": 14})]),
+    ("pulses", "Toor Dal", "whole", "కందిపప్పు", "dry_grain",
+     [("LRG 41", "ఎల్ఆర్‌జీ 41")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 12, "max_foreign_matter_pct": 2})]),
+    ("pulses", "Green Gram", "whole", "పెసలు", "dry_grain",
+     [("WGG 42", "డబ్ల్యూజీజీ 42")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 12})]),
+    ("pulses", "Bengal Gram", "whole", "శనగలు", "dry_grain",
+     [("JG 11", "జేజీ 11")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 12})]),
+    ("oilseeds", "Groundnut", "pods", "వేరుశెనగ", "dry_grain",
+     [("K6", "కే6"), ("TMV 2", "టీఎంవీ 2")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 8, "max_oil_content_pct": None})]),
+    ("cereals", "Maize", "grain", "మొక్కజొన్న", "dry_grain",
+     [("DKC 9108", "డీకేసీ 9108")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 14, "max_foreign_matter_pct": 2})]),
+    # ---- spices ----
+    ("spices", "Red Chilli", "dried", "ఎండు మిర్చి", "dry_spice",
+     [("Teja S17", "తేజా"), ("Byadgi", "బ్యాడ్గి"), ("334", "334")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 11, "min_colour_asta": 40})]),
+    ("spices", "Turmeric", "dried_finger", "పసుపు", "dry_spice",
+     [("Salem", "సేలం"), ("Rajapuri", "రాజాపురి"), ("Duggirala", "దుగ్గిరాల")],
+     [("Finger", "Finger", {"min_curcumin_pct": 3, "max_moisture_pct": 10}),
+      ("Bulb", "Bulb", {"min_curcumin_pct": 2.5, "max_moisture_pct": 10})]),
+    ("spices", "Black Pepper", "dried_berry", "మిరియాలు", "dry_spice",
+     [("Malabar Garbled", "మలబార్"), ("Tellicherry", "తెల్లిచెర్రి")],
+     [("MG1", "Malabar Garbled 1", {"min_bulk_density_g_l": 500, "max_moisture_pct": 11})]),
+    ("spices", "Coriander Seed", "dried_seed", "ధనియాలు", "dry_spice",
+     [("Eagle", "ఈగల్"), ("Sadhana", "సాధన")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 9, "max_foreign_matter_pct": 2})]),
+    ("spices", "Cumin Seed", "dried_seed", "జీలకర్ర", "dry_spice",
+     [("Gujarat Local", "గుజరాత్")],
+     [("99%", "99% Purity", {"min_purity_pct": 99, "max_moisture_pct": 9})]),
+    ("spices", "Tamarind", "deseeded", "చింతపండు", "dry_spice",
+     [("Seedless", "విత్తనరహిత")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 18})]),
+    ("spices", "Dry Ginger", "dried", "సొంఠి", "dry_spice",
+     [("Local", "లోకల్")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 10})]),
+    ("spices", "Mustard", "dried_seed", "ఆవాలు", "dry_spice",
+     [("Yellow", "పసుపు ఆవాలు")],
+     [("FAQ", "Fair Average Quality", {"max_moisture_pct": 8})]),
+]
+
+
 def seed_catalog(db: Session) -> dict:
     out = {}
-    paddy, _ = _get_or_create(
-        db, Commodity, category="paddy", name="Paddy", product_form="paddy",
-        defaults={"name_te": "వరి ధాన్యం", "unit": "kg", "handling_class": "dry_grain"},
-    )
-    rice, _ = _get_or_create(
-        db, Commodity, category="rice", name="Milled Rice", product_form="milled_rice",
-        defaults={"name_te": "బియ్యం", "unit": "kg", "handling_class": "dry_grain"},
-    )
-    toor, _ = _get_or_create(
-        db, Commodity, category="pulses", name="Toor Dal", product_form="whole",
-        defaults={"name_te": "కందిపప్పు", "unit": "kg", "handling_class": "dry_grain"},
-    )
-    chilli, _ = _get_or_create(
-        db, Commodity, category="spices", name="Red Chilli", product_form="dried",
-        defaults={"name_te": "ఎండు మిర్చి", "unit": "kg", "handling_class": "dry_spice"},
-    )
-    for c in (paddy, rice, toor, chilli):
-        _get_or_create(db, GradeSpec, commodity_id=c.id, code="FAQ",
-                       defaults={"label": "Fair Average Quality",
-                                 "attributes": {"max_moisture_pct": 14, "max_foreign_matter_pct": 2}})
-    _get_or_create(db, Variety, commodity_id=paddy.id, name="BPT 5204",
-                   defaults={"name_te": "బీపీటీ 5204"})
-    out.update(paddy=paddy, rice=rice, toor=toor, chilli=chilli)
+    for category, name, form, name_te, hc, varieties, grades in _CATALOG:
+        c, _ = _get_or_create(
+            db, Commodity, category=category, name=name, product_form=form,
+            defaults={"name_te": name_te, "unit": "kg", "handling_class": hc},
+        )
+        for vname, vte in varieties:
+            _get_or_create(db, Variety, commodity_id=c.id, name=vname, defaults={"name_te": vte})
+        for code, label, attrs in grades:
+            _get_or_create(db, GradeSpec, commodity_id=c.id, code=code,
+                           defaults={"label": label, "attributes": attrs})
+        out[name] = c
+    # legacy keys used elsewhere in seeding
+    out.update(paddy=out["Paddy"], rice=out["Milled Rice"],
+               toor=out["Toor Dal"], chilli=out["Red Chilli"])
     return out
+
+
+def seed_listings(db: Session, catalog: dict, mandals: dict) -> int:
+    """A spread of OPEN demo listings across commodities, mandals and farmers —
+    multiple test rows for the marketplace. Idempotent."""
+    import itertools
+
+    farmer_defs = [
+        ("919000000011", "Sita (Farmer)", "Tenali", "Kolakaluru"),
+        ("919000000012", "Ramana (Farmer)", "Mangalagiri", "Nidamarru"),
+        ("919000000013", "Anjali (Farmer)", "Gudivada", "Pedana"),
+        ("919000000014", "Venkat (Farmer)", "Miryalaguda", "Vemulapalli"),
+        ("919000000015", "Prasad (Farmer)", "Huzurabad", "Jammikunta"),
+    ]
+    farmers = []
+    for phone, name, mandal_name, village in farmer_defs:
+        u, _ = _get_or_create(db, User, phone=phone,
+                              defaults={"name": name, "role": str(Role.FARMER),
+                                        "onboarding_complete": True})
+        m = mandals.get(mandal_name)
+        if not db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == u.id)):
+            db.add(FarmerProfile(user_id=u.id, mandal_id=m.id if m else None,
+                                 village=village, verification_status="verified"))
+        farmers.append((u, m))
+    db.flush()
+
+    def first(model, cid):
+        return db.scalar(select(model).where(model.commodity_id == cid))
+
+    # (commodity name, qty kg, price/kg, claim)
+    listing_defs = [
+        ("Turmeric", 4000, 92.0, "conventional"),
+        ("Turmeric", 2500, 112.0, "organic"),
+        ("Black Pepper", 800, 520.0, "conventional"),
+        ("Red Chilli", 6000, 185.0, "conventional"),
+        ("Red Chilli", 3000, 240.0, "organic"),
+        ("Coriander Seed", 3500, 95.0, "conventional"),
+        ("Cumin Seed", 1200, 290.0, "conventional"),
+        ("Dry Ginger", 1500, 140.0, "conventional"),
+        ("Tamarind", 2000, 85.0, "conventional"),
+        ("Paddy", 20000, 22.5, "conventional"),
+        ("Toor Dal", 5000, 98.0, "conventional"),
+        ("Groundnut", 8000, 68.0, "conventional"),
+    ]
+    fcycle = itertools.cycle(farmers)
+    created = 0
+    for i, (cname, qty, price, claim) in enumerate(listing_defs):
+        c = catalog.get(cname)
+        if not c:
+            continue
+        u, m = next(fcycle)
+        if db.scalar(select(Listing).where(Listing.seller_id == u.id,
+                                           Listing.commodity_id == c.id,
+                                           Listing.asking_price == D(price))):
+            continue
+        v = first(Variety, c.id)
+        g = first(GradeSpec, c.id)
+        evidence = {"certificate_no": f"NPOP-DEMO-{i}", "scope": "organic"} if claim == "organic" else None
+        db.add(Listing(
+            seller_id=u.id, commodity_id=c.id,
+            variety_id=v.id if v else None, grade_spec_id=g.id if g else None,
+            total_qty=D(qty), reserved_qty=D(0), sold_qty=D(0), min_order_qty=D(round(qty * 0.05, 3)),
+            asking_price=D(price), negotiable=True, claim_status=claim, claim_evidence=evidence,
+            mandal_id=m.id if m else None, status=str(ListingStatus.OPEN),
+            pickup_terms="Farm-gate pickup; bags included.", harvest_year=2026,
+        ))
+        created += 1
+    db.flush()
+    return created
 
 
 def seed_users(db: Session, mandals: dict) -> dict:
@@ -129,6 +243,48 @@ def seed_pricing(db: Session) -> None:
         effective_from=utcnow(), reason="Initial pilot tariff",
     )
     db.add(rule)
+
+
+_PLANS = [
+    # (code, name, name_te, audience, price, period_days, sort, benefits)
+    ("farmer_free", "Basic", "బేసిక్", "farmer", 0, 30, 0, {
+        "max_active_listings": 3, "fee_discount_pct": 0, "featured_listings": 0,
+        "advisory_full": False, "priority_support": False, "rfq_boost": False,
+    }),
+    ("farmer_grow", "Grow", "గ్రో", "farmer", 199, 30, 1, {
+        "max_active_listings": 15, "fee_discount_pct": 10, "featured_listings": 2,
+        "advisory_full": True, "priority_support": False, "rfq_boost": True,
+    }),
+    ("farmer_pro", "Pro", "ప్రో", "farmer", 499, 30, 2, {
+        "max_active_listings": 100, "fee_discount_pct": 25, "featured_listings": 10,
+        "advisory_full": True, "priority_support": True, "rfq_boost": True,
+    }),
+    ("buyer_free", "Basic", "బేసిక్", "buyer", 0, 30, 0, {
+        "max_active_rfqs": 3, "fee_discount_pct": 0, "advisory_full": False,
+        "priority_support": False, "rfq_boost": False,
+    }),
+    ("buyer_trade", "Trade", "ట్రేడ్", "buyer", 299, 30, 1, {
+        "max_active_rfqs": 20, "fee_discount_pct": 10, "advisory_full": True,
+        "priority_support": False, "rfq_boost": True,
+    }),
+    ("buyer_enterprise", "Enterprise", "ఎంటర్‌ప్రైజ్", "buyer", 999, 30, 2, {
+        "max_active_rfqs": 200, "fee_discount_pct": 20, "advisory_full": True,
+        "priority_support": True, "rfq_boost": True,
+    }),
+]
+
+
+def seed_subscription_plans(db: Session) -> int:
+    for code, name, name_te, audience, price, period, sort, benefits in _PLANS:
+        _get_or_create(
+            db, SubscriptionPlan, code=code,
+            defaults={
+                "name": name, "name_te": name_te, "audience": audience,
+                "price": D(price), "period_days": period, "sort": sort,
+                "benefits": benefits, "active": True,
+            },
+        )
+    return len(_PLANS)
 
 
 def seed_advisory(db: Session) -> None:
@@ -269,13 +425,17 @@ def main() -> None:
     db = SessionLocal()
     try:
         mandals = seed_locations(db)
-        seed_catalog(db)
+        catalog = seed_catalog(db)
         seed_users(db, mandals)
+        n_listings = seed_listings(db, catalog, mandals)
         seed_pricing(db)
+        n_plans = seed_subscription_plans(db)
         seed_advisory(db)
         seed_insights(db, mandals)
         db.commit()
-        print("Seeded locations, catalog, demo users, pricing, advisory + insights.")
+        print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
+              f"{n_listings} listings, pricing, {n_plans} subscription plans, "
+              f"advisory + insights.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

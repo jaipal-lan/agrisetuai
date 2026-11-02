@@ -31,6 +31,7 @@ from app.models.order import (
     ShipmentEvent,
 )
 from app.models.pricing import PricingRule
+from app.models.subscription import Subscription, SubscriptionPlan
 from app.models.support import (
     ConsentRecord,
     Dispute,

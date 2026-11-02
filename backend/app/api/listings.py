@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -14,10 +14,14 @@ from app.models.catalog import Commodity
 from app.models.common import ClaimStatus, ListingStatus
 from app.models.marketplace import Listing, ListingMedia
 from app.models.user import User
+from app.api.subscriptions import active_benefits
 
 router = APIRouter(prefix="/listings", tags=["listings"])
 
 _seller = require_roles(Role.FARMER, Role.FPO)
+
+# Active-listing cap for a seller with no paid subscription (free tier).
+_FREE_LISTING_CAP = 3
 
 
 class ListingCreate(BaseModel):
@@ -157,6 +161,18 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
     listing = _owned(listing_id, user, db)
     if listing.status not in (ListingStatus.DRAFT, ListingStatus.PAUSED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Listing cannot be published")
+    # Enforce the subscription's active-listing cap (free tier otherwise).
+    cap = active_benefits(db, user.id).get("max_active_listings", _FREE_LISTING_CAP)
+    active_count = db.scalar(
+        select(func.count())
+        .select_from(Listing)
+        .where(Listing.seller_id == user.id, Listing.status == ListingStatus.OPEN)
+    )
+    if active_count >= cap:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Active-listing limit reached ({cap}). Upgrade your plan to list more.",
+        )
     listing.status = ListingStatus.OPEN
     db.commit()
     return _serialize(listing, user)

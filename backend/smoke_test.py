@@ -352,6 +352,45 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger still balanced after refund", acct["balanced"] is True)
 
+    print("\n== Subscriptions (plans, audience guard, benefit snapshot, ledger) ==")
+    fplans = client.get("/api/subscriptions/plans", params={"audience": "farmer"}).json()
+    check("farmer plans listed", len(fplans) == 3 and all(p["audience"] == "farmer" for p in fplans))
+    r = client.post("/api/subscriptions/subscribe", headers=hdr(farmer), json={"plan_code": "farmer_pro"})
+    check("farmer subscribes to pro", r.status_code == 200
+          and r.json()["subscription"]["plan_code"] == "farmer_pro")
+    me = client.get("/api/subscriptions/me", headers=hdr(farmer)).json()
+    check("active subscription benefits snapshotted", me["benefits"].get("fee_discount_pct") == 25
+          and me["benefits"].get("max_active_listings") == 100)
+    r = client.post("/api/subscriptions/subscribe", headers=hdr(farmer), json={"plan_code": "buyer_trade"})
+    check("audience guard blocks cross-audience plan", r.status_code == 400)
+    # Re-subscribe supersedes the prior active one (no stacking).
+    client.post("/api/subscriptions/subscribe", headers=hdr(farmer), json={"plan_code": "farmer_grow"})
+    me2 = client.get("/api/subscriptions/me", headers=hdr(farmer)).json()
+    check("re-subscribe supersedes prior plan", me2["subscription"]["plan_code"] == "farmer_grow")
+    client.post("/api/subscriptions/subscribe", headers=hdr(buyer), json={"plan_code": "buyer_trade"})
+    ov = client.get("/api/subscriptions/admin", headers=hdr(superadmin)).json()
+    check("admin overview counts active members", ov["active_count"] == 2)
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger balanced after subscription payments", acct["balanced"] is True)
+
+    print("\n== Subscription benefit enforced: active-listing cap ==")
+    capfarmer = login(client, "919000000021", role="farmer", name="Cap Test")
+    created = []
+    for i in range(4):
+        rc = client.post("/api/listings", headers=hdr(capfarmer), json={
+            "commodity_id": paddy["id"], "grade_spec_id": grade_id,
+            "total_qty": 100, "min_order_qty": 10, "asking_price": 25.0,
+            "mandal_id": mandal_id, "harvest_year": 2026,
+        })
+        created.append(rc.json()["id"])
+    pubs = [client.post(f"/api/listings/{lid}/publish", headers=hdr(capfarmer)).status_code
+            for lid in created]
+    check("free tier publishes up to cap", pubs[:3] == [200, 200, 200])
+    check("free tier blocks 4th listing", pubs[3] == 403)
+    client.post("/api/subscriptions/subscribe", headers=hdr(capfarmer), json={"plan_code": "farmer_pro"})
+    r = client.post(f"/api/listings/{created[3]}/publish", headers=hdr(capfarmer))
+    check("upgraded plan lifts the cap", r.status_code == 200)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

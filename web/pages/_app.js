@@ -56,13 +56,14 @@ function Nav() {
 
   return (
     <nav className="nav">
-      <Link href="/" className="brand">{t("app_name")}</Link>
+      <Link href="/welcome" className="brand">{t("app_name")}</Link>
       <Link href="/">{t("marketplace")}</Link>
       {seller && <Link href="/sell">{t("sell")}</Link>}
       {(buyer || seller) && <Link href="/requests">{t("requests")}</Link>}
       {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
       {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
       <Link href="/insights">{t("insights")}</Link>
+      {(!user || buyer || seller) && <Link href="/subscriptions">{t("plans")}</Link>}
       {user && <Link href="/offers">{t("my_offers")}</Link>}
       {user && <Link href="/orders">{t("my_orders")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
