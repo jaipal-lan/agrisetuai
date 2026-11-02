@@ -25,21 +25,55 @@ export default function Admin() {
   const [sim, setSim] = useState(null);
   const [lastDraftId, setLastDraftId] = useState(null);
   const [commodities, setCommodities] = useState([]);
+  const [carriers, setCarriers] = useState([]);
+  const [newCarrier, setNewCarrier] = useState({ name: "", code: "", contact_phone: "" });
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  const setC = (k, v) => setNewCarrier((c) => ({ ...c, [k]: v }));
 
   async function load() {
     try {
-      const [k, l, r, c] = await Promise.all([
+      const [k, l, r, c, cr] = await Promise.all([
         api("/admin/kpis"),
         api("/admin/ledger/accounts"),
         api("/pricing/rules"),
         api("/catalog/commodities"),
+        api("/carriers"),
       ]);
       setKpis(k);
       setLedger(l);
       setRules(r);
       setCommodities(c);
+      setCarriers(cr);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function onboardCarrier() {
+    setErr(null);
+    try {
+      await api("/carriers", {
+        method: "POST",
+        body: {
+          name: newCarrier.name,
+          code: newCarrier.code.toUpperCase(),
+          contact_phone: newCarrier.contact_phone || undefined,
+          vehicle_classes: ["bike", "auto", "mini_truck"],
+        },
+      });
+      setNewCarrier({ name: "", code: "", contact_phone: "" });
+      load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function patchCarrier(id, patch) {
+    setErr(null);
+    try {
+      await api(`/carriers/${id}`, { method: "PATCH", body: patch });
+      load();
     } catch (e) {
       setErr(e.message);
     }
@@ -213,6 +247,45 @@ export default function Admin() {
             {sim.seller_commission !== undefined && <> · seller commission ₹{sim.seller_commission}</>}
           </div>
         )}
+      </div>
+
+      <h2>Transport couriers</h2>
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Code</th><th>Areas</th><th>KYC</th><th>Active</th><th></th></tr>
+        </thead>
+        <tbody>
+          {carriers.map((c) => (
+            <tr key={c.id}>
+              <td>{c.name}</td>
+              <td>{c.code}</td>
+              <td className="muted">{(c.service_areas || []).join(", ") || "—"}</td>
+              <td><span className={`badge ${c.kyc_status === "verified" ? "" : "amber"}`}>{c.kyc_status}</span></td>
+              <td>{c.active ? "yes" : "no"}</td>
+              <td>
+                {c.kyc_status !== "verified" && (
+                  <button className="ghost" onClick={() => patchCarrier(c.id, { kyc_status: "verified" })}>Verify</button>
+                )}{" "}
+                <button className="ghost" onClick={() => patchCarrier(c.id, { active: !c.active })}>
+                  {c.active ? "Suspend" : "Enable"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="card" style={{ marginTop: 10 }}>
+        <div className="row">
+          <div style={{ flex: 2 }}><label>Courier name</label>
+            <input value={newCarrier.name} onChange={(e) => setC("name", e.target.value)} /></div>
+          <div style={{ flex: 1 }}><label>Code</label>
+            <input value={newCarrier.code} onChange={(e) => setC("code", e.target.value)} /></div>
+          <div style={{ flex: 1 }}><label>Phone</label>
+            <input value={newCarrier.contact_phone} onChange={(e) => setC("contact_phone", e.target.value)} inputMode="numeric" /></div>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button disabled={!newCarrier.name || !newCarrier.code} onClick={onboardCarrier}>Onboard courier</button>
+        </div>
       </div>
 
       <h2>Product minimum order quantities</h2>

@@ -145,6 +145,9 @@ class Shipment(Base, TimestampMixin):
     public_id: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
     carrier_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # Assigned transport courier (a company we tie up with) + snapshot of its name.
+    courier_id: Mapped[int | None] = mapped_column(ForeignKey("carriers.id"))
+    courier_name: Mapped[str | None] = mapped_column(String(120))
     route: Mapped[dict | None] = mapped_column(JSON)
     vehicle_class: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(24), default="created")

@@ -9,6 +9,7 @@ from app.models.advisory import (
     WeatherSnapshot,
 )
 from app.models.audit import AuditLog
+from app.models.carrier import Carrier
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.finance import LedgerEntry, Payment, Payout, Refund
 from app.models.location import District, Mandal, State
@@ -50,6 +51,7 @@ from app.models.user import (
 
 __all__ = [
     "AuditLog",
+    "Carrier",
     "Commodity",
     "GradeSpec",
     "Variety",

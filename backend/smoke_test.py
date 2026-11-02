@@ -241,12 +241,32 @@ def run():
     check("certificate records measured net weight", cert["measured"]["net_qty_kg"] is not None)
     check("certificate discloses what was not tested", "laboratory" in cert["not_tested_note"].lower())
 
+    # Transport couriers: onboard, KYC-gate, assign to the shipment.
+    r = client.post("/api/carriers", headers=hdr(superadmin), json={
+        "name": "Test Courier", "code": "TST", "vehicle_classes": ["mini_truck"],
+        "service_areas": ["Guntur"],
+    })
+    carrier_id = r.json()["id"]
+    check("carrier onboarded (pending KYC)", r.json()["kyc_status"] == "pending")
+    r = client.post(f"/api/orders/{order_id}/assign-courier", headers=hdr(manager),
+                    json={"courier_id": carrier_id, "vehicle_class": "mini_truck"})
+    check("unverified carrier cannot be assigned", r.status_code == 409)
+    client.patch(f"/api/carriers/{carrier_id}", headers=hdr(superadmin), json={"kyc_status": "verified"})
+    r = client.post(f"/api/orders/{order_id}/assign-courier", headers=hdr(manager),
+                    json={"courier_id": carrier_id, "vehicle_class": "mini_truck"})
+    check("verified carrier assigned to order", r.json()["courier"] == "Test Courier")
+
     for ev, expect in [("picked_up", "picked_up"), ("in_transit", "in_transit"),
                        ("out_for_delivery", "out_for_delivery"),
                        ("delivered", "delivered_pending_acceptance")]:
         r = client.post(f"/api/orders/{order_id}/shipment/event", headers=hdr(transport),
                         json={"event": ev})
         check(f"shipment {ev}", r.json()["order"]["status"] == expect)
+
+    # Tracking timeline visible to the buyer, with courier + milestones.
+    trk = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(buyer)).json()
+    check("tracking shows assigned courier", trk["shipment"]["courier_name"] == "Test Courier")
+    check("tracking lists shipment milestones", len(trk["events"]) >= 3)
 
     r = client.post(f"/api/orders/{order_id}/acceptance", headers=hdr(buyer))
     check("buyer accepts delivery -> settled", r.json()["status"] == "settled")

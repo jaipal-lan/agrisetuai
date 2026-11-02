@@ -460,6 +460,28 @@ def seed_insights(db: Session, mandals: dict) -> None:
         ))
 
 
+def seed_carriers(db: Session) -> int:
+    from app.models.carrier import Carrier
+
+    carriers = [
+        ("Krishna Logistics", "KRL", "919500000001",
+         ["bike", "auto", "mini_truck"], ["Guntur", "Krishna"], "verified"),
+        ("Deccan Freight", "DEC", "919500000002",
+         ["mini_truck", "truck"], ["Nalgonda", "Karimnagar", "Hyderabad"], "verified"),
+        ("AgriMove Couriers", "AGM", "919500000003",
+         ["bike", "auto"], ["Guntur"], "pending"),
+    ]
+    n = 0
+    for name, code, phone, vclasses, areas, kyc in carriers:
+        _, created = _get_or_create(
+            db, Carrier, code=code,
+            defaults={"name": name, "contact_phone": phone, "vehicle_classes": vclasses,
+                      "service_areas": areas, "kyc_status": kyc, "active": True},
+        )
+        n += 1
+    return n
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -470,12 +492,13 @@ def main() -> None:
         n_listings = seed_listings(db, catalog, mandals)
         seed_pricing(db)
         n_plans = seed_subscription_plans(db)
+        n_carriers = seed_carriers(db)
         seed_advisory(db)
         seed_insights(db, mandals)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "
-              f"advisory + insights.")
+              f"{n_carriers} couriers, advisory + insights.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

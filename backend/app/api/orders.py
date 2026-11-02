@@ -87,6 +87,8 @@ def _order_json(order: Order, db: Session, viewer=None) -> dict:
             "public_id": shipment.public_id,
             "status": shipment.status,
             "vehicle_class": shipment.vehicle_class,
+            "courier_id": shipment.courier_id,
+            "courier_name": shipment.courier_name,
         },
         "history": [
             {
@@ -462,6 +464,72 @@ def packing_complete(
     _safe_transition(db, order, S.READY_FOR_PICKUP, actor_id=user.id, reason_code="lot_sealed")
     db.commit()
     return {"order": _order_json(order, db, user), "lot_id": lot.public_id, "qr": pkg.qr_code}
+
+
+# --- Courier assignment + tracking ---------------------------------------
+
+class AssignCourier(BaseModel):
+    courier_id: int
+    vehicle_class: str | None = None
+
+
+@router.post("/{order_id}/assign-courier")
+def assign_courier(
+    order_id: int,
+    body: AssignCourier,
+    user=Depends(require_roles(Role.MANDAL_MANAGER, Role.SUPERADMIN, Role.TRANSPORT)),
+    db: Session = Depends(get_db),
+):
+    """Assign a tied-up transport courier to the order's shipment."""
+    from app.models.carrier import Carrier
+
+    order = _get_order(order_id, db)
+    carrier = db.get(Carrier, body.courier_id)
+    if not carrier or not carrier.active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Carrier not available")
+    if carrier.kyc_status != "verified":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Carrier KYC not verified")
+
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    if shipment is None:
+        shipment = Shipment(public_id=gen_shipment(), order_id=order.id, status="assigned")
+        db.add(shipment)
+        db.flush()
+    shipment.courier_id = carrier.id
+    shipment.courier_name = carrier.name
+    if body.vehicle_class:
+        shipment.vehicle_class = body.vehicle_class
+    audit.record(db, actor_id=user.id, action="shipment.assign_courier", object_type="order",
+                 object_id=order.public_id, new_values={"courier": carrier.code})
+    db.commit()
+    return {"order": _order_json(order, db, user), "shipment_id": shipment.public_id,
+            "courier": carrier.name}
+
+
+@router.get("/{order_id}/tracking")
+def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Live tracking timeline visible to the buyer, seller and staff."""
+    order = _get_order(order_id, db)
+    _require_party(order, user)
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    events = []
+    if shipment is not None:
+        rows = db.scalars(
+            select(ShipmentEvent).where(ShipmentEvent.shipment_id == shipment.id)
+            .order_by(ShipmentEvent.at)
+        )
+        events = [{"event": e.event, "at": e.at.isoformat(), "evidence_ref": e.evidence_ref} for e in rows]
+    return {
+        "order_public_id": order.public_id,
+        "order_status": order.status,
+        "shipment": None if shipment is None else {
+            "public_id": shipment.public_id,
+            "status": shipment.status,
+            "courier_name": shipment.courier_name,
+            "vehicle_class": shipment.vehicle_class,
+        },
+        "events": events,
+    }
 
 
 # --- Shipment milestones --------------------------------------------------

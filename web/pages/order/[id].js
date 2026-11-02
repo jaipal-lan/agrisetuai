@@ -75,6 +75,8 @@ export default function OrderDetail() {
   const [routeKm, setRouteKm] = useState("");
   const [gross, setGross] = useState("");
   const [outcome, setOutcome] = useState("pass");
+  const [carriers, setCarriers] = useState([]);
+  const [courierId, setCourierId] = useState("");
 
   useEffect(() => {
     setMe(getUser());
@@ -91,6 +93,13 @@ export default function OrderDetail() {
     if (id) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    const role = me?.role;
+    if (role && ["mandal_manager", "superadmin", "transport"].includes(role)) {
+      api("/carriers?active_only=true").then((cs) => setCarriers(cs.filter((c) => c.kyc_status === "verified"))).catch(() => {});
+    }
+  }, [me]);
 
   async function act(path, body, headers) {
     setErr(null);
@@ -250,6 +259,37 @@ export default function OrderDetail() {
         <Action>
           <h3>Packing</h3>
           <button disabled={busy} onClick={() => act(`/orders/${id}/packing-complete`)}>Seal lot & complete packing</button>
+        </Action>
+      )}
+
+      {/* Courier info (all parties) */}
+      {order.shipment && order.shipment.courier_name && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="between">
+            <div>🚚 Courier: <b>{order.shipment.courier_name}</b></div>
+            <span className="badge grey">{order.shipment.status.replace(/_/g, " ")}</span>
+          </div>
+          {order.shipment.vehicle_class && <div className="muted" style={{ fontSize: 13 }}>{order.shipment.vehicle_class}</div>}
+        </div>
+      )}
+
+      {/* Staff/transport: assign a courier */}
+      {isTransport && !order.shipment?.courier_name &&
+        ["paid", "packing", "ready_for_pickup"].includes(s) && (
+        <Action>
+          <h3>Assign transport courier</h3>
+          <select value={courierId} onChange={(e) => setCourierId(e.target.value)}>
+            <option value="">— select courier —</option>
+            {carriers.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} ({(c.vehicle_classes || []).join("/")})</option>
+            ))}
+          </select>
+          <div style={{ marginTop: 12 }}>
+            <button disabled={busy || !courierId}
+                    onClick={() => act(`/orders/${id}/assign-courier`, { courier_id: Number(courierId) })}>
+              Assign courier
+            </button>
+          </div>
         </Action>
       )}
 
