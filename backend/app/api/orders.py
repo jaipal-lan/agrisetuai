@@ -130,6 +130,77 @@ def get_order(order_id: int, user=Depends(get_current_user), db: Session = Depen
     return _order_json(order, db, user)
 
 
+# --- AgriSetu Verified Lot Certificate ------------------------------------
+
+# Attributes a physical field inspection can establish vs. those that need a lab.
+_NOT_TESTED_NOTE = (
+    "This certificate records what the field agent observed and measured on site. "
+    "It does NOT test for pesticide residues, chemical adulteration, aflatoxins or "
+    "microbial safety; those require accredited laboratory analysis. This is an "
+    "AgriSetu verification, not a government or statutory certification."
+)
+
+
+@router.get("/{order_id}/certificate")
+def verified_lot_certificate(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """The AgriSetu Verified Lot Certificate shown to the buyer before payment.
+
+    Transparently separates what was observed, what was measured, and what was
+    NOT tested. Never implies statutory certification.
+    """
+    from app.models.catalog import Commodity, GradeSpec, Variety
+
+    order = _get_order(order_id, db)
+    _require_party(order, user)
+
+    insp = db.scalar(
+        select(Inspection)
+        .where(Inspection.order_id == order.id,
+               Inspection.outcome.in_([InspectionOutcome.PASS, InspectionOutcome.PASS_WITH_ADJUSTMENT]))
+        .order_by(Inspection.id.desc())
+    )
+    if insp is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No passed inspection yet; certificate not available")
+
+    terms = order.accepted_terms or {}
+    commodity = db.get(Commodity, terms.get("commodity_id")) if terms.get("commodity_id") else None
+    variety = None
+    grade = db.get(GradeSpec, terms.get("grade_spec_id")) if terms.get("grade_spec_id") else None
+    lot = db.scalar(select(Lot).where(Lot.id.in_([l.lot_id for l in order.lines if l.lot_id]))) if order.lines else None
+
+    checklist = insp.checklist or {}
+    return {
+        "certificate_id": f"ASVL-{order.public_id}",
+        "order_public_id": order.public_id,
+        "issued_for_buyer_id": order.buyer_id,
+        "product": {
+            "commodity": commodity.name if commodity else None,
+            "commodity_te": commodity.name_te if commodity else None,
+            "grade": grade.label if grade else None,
+            "grade_attributes": grade.attributes if grade else None,
+            "claim_status": terms.get("claim_status"),
+        },
+        "observed": {
+            "outcome": insp.outcome,
+            "checklist": checklist,
+            "reason_codes": insp.reason_codes,
+            "evidence_refs": (insp.evidence or {}).get("refs", []),
+        },
+        "measured": {
+            "declared_qty": None if insp.declared_qty is None else str(insp.declared_qty),
+            "gross_weight_kg": None if insp.gross_weight is None else str(insp.gross_weight),
+            "tare_weight_kg": None if insp.tare_weight is None else str(insp.tare_weight),
+            "net_qty_kg": None if insp.net_qty is None else str(insp.net_qty),
+            "moisture_pct": checklist.get("moisture_pct"),
+            "scale_ref": insp.scale_ref,
+        },
+        "lot": None if lot is None else {"public_id": lot.public_id, "seal_ref": lot.seal_ref},
+        "inspected_by_agent_id": insp.agent_id,
+        "inspected_at": insp.created_at.isoformat() if insp.created_at else None,
+        "not_tested_note": _NOT_TESTED_NOTE,
+    }
+
+
 # --- Inspection assignment & buyer approval ------------------------------
 
 class AssignInspection(BaseModel):
@@ -243,6 +314,7 @@ def confirm_quote(
 ):
     """Lock the server-computed quote onto a CONFIRMED order and move to PAYMENT_PENDING."""
     from app.api.pricing import active_rule_for, order_pricing_context
+    from app.api.subscriptions import active_benefits
     from app.services import distance
     from app.services.pricing_engine import QuoteInput, compute
 
@@ -268,8 +340,13 @@ def confirm_quote(
         db, mandal_id, to_mandal_id, override=body.route_km,
     )
 
+    # A seller's active subscription can discount the commission (fee_discount_pct).
+    seller_benefits = active_benefits(db, order.seller_id)
+    discount = D(seller_benefits.get("fee_discount_pct", 0) or 0)
+
     quote = compute(rule, QuoteInput(
         product_value=product_value, billable_kg=D(terms["quantity"]), route_km=route.route_km,
+        commission_discount_pct=discount,
     ))
     qjson = quote.to_json()
     qjson["route_km_source"] = route.source
@@ -315,10 +392,12 @@ def pay(
     buyer_total = money(order.buyer_total)
     txn = f"pay:{order.public_id}"
 
+    # Platform revenue = optional service fee + the seller commission (0.7%).
+    platform_rev = money(q["service_fee"]) + money(q.get("seller_commission", "0"))
     legs = [
         Leg("cash_clearing", LedgerDirection.DEBIT, buyer_total, "buyer payment captured"),
         Leg("seller_payable", LedgerDirection.CREDIT, money(order.seller_payable), "seller proceeds"),
-        Leg("platform_revenue", LedgerDirection.CREDIT, money(q["service_fee"]), "service fee"),
+        Leg("platform_revenue", LedgerDirection.CREDIT, platform_rev, "service fee + commission"),
         Leg("transport_payable", LedgerDirection.CREDIT, money(q["transport_charge"]), "transport"),
         Leg("agent_fee_payable", LedgerDirection.CREDIT, money(q["inspection_fee"]), "inspection"),
         Leg("packing_revenue", LedgerDirection.CREDIT, money(q["packing_fee"]), "packing"),

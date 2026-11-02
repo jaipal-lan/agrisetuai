@@ -33,7 +33,12 @@ class PricingRule(Base, TimestampMixin):
     min_transport_charge: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     max_transport_charge: Mapped[float | None] = mapped_column(Numeric(10, 2))
 
-    # Platform service fee: percentage of product value OR a flat fee.
+    # Seller commission: the platform's cut, a percentage of product value,
+    # always deducted from the seller's proceeds (the locked 0.7% pilot rule).
+    seller_commission_pct: Mapped[float] = mapped_column(Numeric(6, 3), default=0)
+
+    # Optional platform service fee: percentage of product value OR a flat fee,
+    # charged to whichever side `service_fee_payer` names (0 in the pilot).
     service_fee_pct: Mapped[float] = mapped_column(Numeric(6, 3), default=0)
     service_fee_flat: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     service_fee_payer: Mapped[str] = mapped_column(String(8), default="buyer")  # buyer|seller

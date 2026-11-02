@@ -287,17 +287,18 @@ def refund_order(
     q = order.quote
     buyer_total = money(order.buyer_total)
     ratio = amount / buyer_total
-    # (ledger account, quote key, memo). seller_payable is first and largest, so
-    # it carries any sub-paisa rounding residual below.
+    # (ledger account, original amount, memo). seller_payable is first and largest,
+    # so it carries any sub-paisa rounding residual below. platform_revenue reverses
+    # both the optional service fee and the seller commission.
     debit_spec = [
-        ("seller_payable", "seller_payable", "reverse seller"),
-        ("platform_revenue", "service_fee", "reverse service fee"),
-        ("transport_payable", "transport_charge", "reverse transport"),
-        ("agent_fee_payable", "inspection_fee", "reverse inspection"),
-        ("packing_revenue", "packing_fee", "reverse packing"),
-        ("tax_payable", "tax", "reverse tax"),
+        ("seller_payable", money(q.get("seller_payable", "0")), "reverse seller"),
+        ("platform_revenue", money(q.get("service_fee", "0")) + money(q.get("seller_commission", "0")), "reverse platform revenue"),
+        ("transport_payable", money(q.get("transport_charge", "0")), "reverse transport"),
+        ("agent_fee_payable", money(q.get("inspection_fee", "0")), "reverse inspection"),
+        ("packing_revenue", money(q.get("packing_fee", "0")), "reverse packing"),
+        ("tax_payable", money(q.get("tax", "0")), "reverse tax"),
     ]
-    shares = {acct: money(money(q.get(qkey, "0")) * ratio) for acct, qkey, _ in debit_spec}
+    shares = {acct: money(amt * ratio) for acct, amt, _ in debit_spec}
     # Independently rounded shares can drift a paisa from the credited amount;
     # absorb the residual into the largest leg so debits == credit exactly.
     residual = amount - sum(shares.values())

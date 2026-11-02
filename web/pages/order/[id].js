@@ -16,10 +16,49 @@ function Quote({ q }) {
       {line("Packing", q.packing_fee)}
       {line("Inspection", q.inspection_fee)}
       {line(q.route_km_source ? `Transport (${q.route_km_source} distance)` : "Transport", q.transport_charge)}
-      {line(`Service fee (${q.service_fee_payer})`, q.service_fee)}
-      {line("Tax", q.tax)}
+      {Number(q.service_fee) > 0 && line(`Service fee (${q.service_fee_payer})`, q.service_fee)}
+      {Number(q.tax) > 0 && line("Tax", q.tax)}
       <div className="quote-line total"><span>Buyer pays</span><span>₹{q.buyer_total}</span></div>
+      {q.seller_commission !== undefined && (
+        <div className="quote-line">
+          <span className="muted">Seller commission ({q.seller_commission_pct}%)</span>
+          <span className="muted">− ₹{q.seller_commission}</span>
+        </div>
+      )}
       <div className="quote-line"><span className="muted">Seller receives</span><span className="muted">₹{q.seller_payable}</span></div>
+    </div>
+  );
+}
+
+function Certificate({ orderId }) {
+  const [cert, setCert] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    api(`/orders/${orderId}/certificate`)
+      .then(setCert)
+      .catch((e) => setErr(e.status === 409 ? null : e.message));
+  }, [orderId]);
+  if (err) return null;
+  if (!cert) return null;
+  const m = cert.measured || {};
+  return (
+    <div className="card" style={{ marginTop: 16, borderLeft: "4px solid var(--green-600)" }}>
+      <div className="between">
+        <h3>✅ AgriSetu Verified Lot</h3>
+        <span className="pill-tag">{cert.certificate_id}</span>
+      </div>
+      <div style={{ fontSize: 14 }}>
+        <b>{cert.product?.commodity}</b>
+        {cert.product?.grade ? ` · ${cert.product.grade}` : ""}
+        {cert.product?.claim_status ? ` · ${cert.product.claim_status}` : ""}
+      </div>
+      <div className="quote-line"><span>Observed outcome</span><span>{(cert.observed?.outcome || "").replace(/_/g, " ")}</span></div>
+      {m.net_qty_kg && <div className="quote-line"><span>Measured net weight</span><span>{m.net_qty_kg} kg</span></div>}
+      {m.gross_weight_kg && <div className="quote-line"><span>Gross / tare</span><span>{m.gross_weight_kg} / {m.tare_weight_kg || 0} kg</span></div>}
+      {m.moisture_pct != null && <div className="quote-line"><span>Moisture</span><span>{m.moisture_pct}%</span></div>}
+      {cert.lot && <div className="quote-line"><span>Lot / seal</span><span>{cert.lot.public_id}</span></div>}
+      <div className="quote-line"><span className="muted">Inspected</span><span className="muted">{cert.inspected_at ? new Date(cert.inspected_at).toLocaleString() : ""}</span></div>
+      <div className="disclaimer">{cert.not_tested_note}</div>
     </div>
   );
 }
@@ -112,6 +151,7 @@ export default function OrderDetail() {
       </div>
 
       <Quote q={order.quote} />
+      <Certificate orderId={id} />
 
       {err && <div className="error">{err}</div>}
 

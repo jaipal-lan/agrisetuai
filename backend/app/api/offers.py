@@ -108,8 +108,18 @@ def create_offer(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot offer on own listing")
     if qty(body.quantity) > qty(listing.available_qty):
         raise HTTPException(status.HTTP_409_CONFLICT, "Quantity exceeds available")
-    if listing.min_order_qty and qty(body.quantity) < qty(listing.min_order_qty):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Below minimum order quantity")
+    # Effective MOQ is the stricter of the per-listing and per-product minimums.
+    from app.models.catalog import Commodity
+
+    commodity = db.get(Commodity, listing.commodity_id)
+    product_moq = qty(commodity.min_order_qty) if commodity and commodity.min_order_qty else qty(0)
+    listing_moq = qty(listing.min_order_qty) if listing.min_order_qty else qty(0)
+    moq = max(product_moq, listing_moq)
+    if moq > qty(0) and qty(body.quantity) < moq:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Below minimum order quantity ({moq} {listing.unit})",
+        )
 
     offer = Offer(
         listing_id=listing.id,

@@ -29,6 +29,7 @@ class RuleDraft(BaseModel):
     fixed_pickup_fee: float = 0
     min_transport_charge: float = 0
     max_transport_charge: float | None = None
+    seller_commission_pct: float = 0
     service_fee_pct: float = 0
     service_fee_flat: float = 0
     service_fee_payer: str = "buyer"
@@ -61,6 +62,7 @@ def _rule_json(r: PricingRule) -> dict:
         "fixed_pickup_fee": str(r.fixed_pickup_fee),
         "min_transport_charge": str(r.min_transport_charge),
         "max_transport_charge": None if r.max_transport_charge is None else str(r.max_transport_charge),
+        "seller_commission_pct": str(r.seller_commission_pct),
         "service_fee_pct": str(r.service_fee_pct),
         "service_fee_flat": str(r.service_fee_flat),
         "service_fee_payer": r.service_fee_payer,

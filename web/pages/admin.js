@@ -16,26 +16,43 @@ export default function Admin() {
     rate_per_kg: "0.8",
     rate_per_km: "12",
     min_transport_charge: "300",
-    service_fee_pct: "2",
+    seller_commission_pct: "0.7",
+    service_fee_pct: "0",
     inspection_fee: "300",
     packing_fee: "500",
     reason: "",
   });
   const [sim, setSim] = useState(null);
   const [lastDraftId, setLastDraftId] = useState(null);
+  const [commodities, setCommodities] = useState([]);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
 
   async function load() {
     try {
-      const [k, l, r] = await Promise.all([
+      const [k, l, r, c] = await Promise.all([
         api("/admin/kpis"),
         api("/admin/ledger/accounts"),
         api("/pricing/rules"),
+        api("/catalog/commodities"),
       ]);
       setKpis(k);
       setLedger(l);
       setRules(r);
+      setCommodities(c);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function saveMoq(id, value) {
+    setErr(null);
+    try {
+      await api(`/catalog/commodities/${id}/moq`, {
+        method: "PATCH",
+        body: { min_order_qty: Number(value) },
+      });
+      load();
     } catch (e) {
       setErr(e.message);
     }
@@ -52,6 +69,7 @@ export default function Admin() {
       rate_per_kg: Number(draft.rate_per_kg),
       rate_per_km: Number(draft.rate_per_km),
       min_transport_charge: Number(draft.min_transport_charge),
+      seller_commission_pct: Number(draft.seller_commission_pct),
       service_fee_pct: Number(draft.service_fee_pct),
       inspection_fee: Number(draft.inspection_fee),
       packing_fee: Number(draft.packing_fee),
@@ -146,7 +164,7 @@ export default function Admin() {
       <h2>Pricing rules</h2>
       <table>
         <thead>
-          <tr><th>v</th><th>Status</th><th>Scope</th><th>₹/kg</th><th>₹/km</th><th>Svc %</th></tr>
+          <tr><th>v</th><th>Status</th><th>Scope</th><th>₹/kg</th><th>₹/km</th><th>Comm %</th><th>Svc %</th></tr>
         </thead>
         <tbody>
           {rules.map((r) => (
@@ -156,6 +174,7 @@ export default function Admin() {
               <td>{r.handling_class || "all"}</td>
               <td>{r.rate_per_kg}</td>
               <td>{r.rate_per_km}</td>
+              <td>{r.seller_commission_pct}</td>
               <td>{r.service_fee_pct}</td>
             </tr>
           ))}
@@ -169,7 +188,8 @@ export default function Admin() {
             ["rate_per_kg", "₹/kg"],
             ["rate_per_km", "₹/km"],
             ["min_transport_charge", "Min transport ₹"],
-            ["service_fee_pct", "Service fee %"],
+            ["seller_commission_pct", "Seller commission %"],
+            ["service_fee_pct", "Buyer service fee %"],
             ["inspection_fee", "Inspection ₹"],
             ["packing_fee", "Packing ₹"],
           ].map(([k, label]) => (
@@ -190,9 +210,40 @@ export default function Admin() {
           <div className="ok" style={{ marginTop: 14 }}>
             Simulated on 500 kg · 40 km · ₹12,000 → buyer pays <b>₹{sim.buyer_total}</b>
             {" "}(transport ₹{sim.transport_charge}, service ₹{sim.service_fee})
+            {sim.seller_commission !== undefined && <> · seller commission ₹{sim.seller_commission}</>}
           </div>
         )}
       </div>
+
+      <h2>Product minimum order quantities</h2>
+      <table>
+        <thead>
+          <tr><th>Product</th><th>Category</th><th>MOQ ({"kg"})</th><th></th></tr>
+        </thead>
+        <tbody>
+          {commodities.map((c) => (
+            <MoqRow key={c.id} c={c} onSave={saveMoq} />
+          ))}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+function MoqRow({ c, onSave }) {
+  const [val, setVal] = useState(c.min_order_qty);
+  const changed = String(val) !== String(c.min_order_qty);
+  return (
+    <tr>
+      <td>{c.name}</td>
+      <td className="muted">{c.category}</td>
+      <td>
+        <input value={val} onChange={(e) => setVal(e.target.value)} inputMode="decimal"
+               style={{ width: 90 }} />
+      </td>
+      <td>
+        <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>Save</button>
+      </td>
+    </tr>
   );
 }

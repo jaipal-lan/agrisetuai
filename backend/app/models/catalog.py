@@ -1,4 +1,6 @@
-from sqlalchemy import JSON, ForeignKey, String
+from decimal import Decimal
+
+from sqlalchemy import JSON, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,6 +18,9 @@ class Commodity(Base, TimestampMixin):
     unit: Mapped[str] = mapped_column(String(8), default="kg")
     # Handling class drives per-kg transport rate selection.
     handling_class: Mapped[str] = mapped_column(String(24), default="dry_grain")
+    # Minimum order quantity for this product (superadmin-configurable). Justifies
+    # inspection/packing/transport cost: e.g. rice 25 kg, dal 10 kg, chilli 5 kg.
+    min_order_qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=0)
 
     varieties: Mapped[list["Variety"]] = relationship(back_populates="commodity")
     grade_specs: Mapped[list["GradeSpec"]] = relationship(back_populates="commodity")

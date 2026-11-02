@@ -70,6 +70,7 @@ def run():
     print("\n== Catalog & listing ==")
     commodities = client.get("/api/catalog/commodities").json()
     paddy = next(c for c in commodities if c["category"] == "paddy")
+    check("product MOQ exposed (paddy 25kg)", paddy.get("min_order_qty") == "25.000")
     grades = client.get(f"/api/catalog/commodities/{paddy['id']}/grades").json()
     grade_id = grades[0]["id"]
 
@@ -91,6 +92,12 @@ def run():
     found = client.get("/api/listings", params={"commodity_id": paddy["id"]}).json()
     check("listing appears in search", any(x["id"] == listing["id"] for x in found))
     check("seller phone NOT leaked in search", "phone" not in found[0]["seller"])
+
+    # MOQ guard: an offer below the minimum order quantity is rejected.
+    r = client.post("/api/offers", headers=hdr(buyer), json={
+        "listing_id": listing["id"], "price_per_unit": 22.0, "quantity": 10,
+    })
+    check("offer below MOQ rejected", r.status_code == 400)
 
     print("\n== Negotiation (offer -> counter -> accept) ==")
     r = client.post("/api/offers", headers=hdr(buyer), json={
@@ -164,10 +171,14 @@ def run():
     # product = 24 * 500 = 12000; transport = max(300, 500*0.8 + 40*12 + 150)=max(300,1030)=1030
     check("product value 12000.00", q["product_value"] == "12000.00")
     check("transport 1030.00", q["transport_charge"] == "1030.00")
-    check("service fee 2% = 240.00", q["service_fee"] == "240.00")
-    # buyer_total = 12000 + 500 + 300 + 1030 + 240 (+0 tax) = 14070
-    check("buyer total 14070.00", q["buyer_total"] == "14070.00")
-    check("seller payable 12000.00", q["seller_payable"] == "12000.00")
+    # Locked rules: buyer pays logistics, no buyer service fee; platform takes a
+    # 0.7% seller commission from the seller's proceeds.
+    check("no buyer service fee", q["service_fee"] == "0.00")
+    check("seller commission 0.7% = 84.00", q["seller_commission"] == "84.00")
+    # buyer_total = 12000 + 500 (packing) + 300 (inspection) + 1030 (transport) = 13830
+    check("buyer total 13830.00", q["buyer_total"] == "13830.00")
+    # seller receives 12000 - 84 commission = 11916
+    check("seller payable 11916.00", q["seller_payable"] == "11916.00")
     check("explicit route_km recorded as override", q.get("route_km_source") == "override")
 
     print("\n== Logistics / distance routing ==")
@@ -193,12 +204,21 @@ def run():
     print("\n== Ledger integrity ==")
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced after payment", acct["balanced"] is True)
-    check("seller_payable credited 12000", acct["accounts"].get("seller_payable") == "12000.00")
+    # Seller proceeds net of the 0.7% commission (12000 - 84).
+    check("seller_payable credited 11916", acct["accounts"].get("seller_payable") == "11916.00")
+    # Platform earns the commission (84) — no buyer service fee in the pilot.
+    check("platform_revenue = commission 84", acct["accounts"].get("platform_revenue") == "84.00")
 
     print("\n== Packing, shipment, delivery, settlement ==")
     r = client.post(f"/api/orders/{order_id}/packing-complete", headers=hdr(agent))
     check("packing complete -> ready_for_pickup", r.json()["order"]["status"] == "ready_for_pickup")
     check("lot id issued", r.json()["lot_id"].startswith("LOT-"))
+
+    # Verified Lot Certificate: observed/measured separated, lab-testing disclaimer.
+    cert = client.get(f"/api/orders/{order_id}/certificate", headers=hdr(buyer)).json()
+    check("certificate issued for order", cert["certificate_id"].startswith("ASVL-"))
+    check("certificate records measured net weight", cert["measured"]["net_qty_kg"] is not None)
+    check("certificate discloses what was not tested", "laboratory" in cert["not_tested_note"].lower())
 
     for ev, expect in [("picked_up", "picked_up"), ("in_transit", "in_transit"),
                        ("out_for_delivery", "out_for_delivery"),

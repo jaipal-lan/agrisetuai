@@ -110,13 +110,26 @@ _CATALOG = [
 ]
 
 
+# Minimum order quantity (kg) by category — the locked pilot MOQ rules.
+_MOQ_BY_CATEGORY = {
+    "rice": 25, "paddy": 25, "cereals": 25,
+    "pulses": 10, "oilseeds": 10,
+    "spices": 5, "vegetables": 2, "fruits": 2,
+}
+
+
 def seed_catalog(db: Session) -> dict:
     out = {}
     for category, name, form, name_te, hc, varieties, grades in _CATALOG:
-        c, _ = _get_or_create(
+        moq = _MOQ_BY_CATEGORY.get(category, 5)
+        c, created = _get_or_create(
             db, Commodity, category=category, name=name, product_form=form,
-            defaults={"name_te": name_te, "unit": "kg", "handling_class": hc},
+            defaults={"name_te": name_te, "unit": "kg", "handling_class": hc,
+                      "min_order_qty": D(moq)},
         )
+        # Backfill MOQ for commodities seeded before this column existed.
+        if not created and (c.min_order_qty is None or D(c.min_order_qty) == D(0)):
+            c.min_order_qty = D(moq)
         for vname, vte in varieties:
             _get_or_create(db, Variety, commodity_id=c.id, name=vname, defaults={"name_te": vte})
         for code, label, attrs in grades:
@@ -233,14 +246,23 @@ def seed_users(db: Session, mandals: dict) -> dict:
 
 
 def seed_pricing(db: Session) -> None:
-    if db.scalar(select(PricingRule).where(PricingRule.status == "published")):
+    existing = db.scalar(select(PricingRule).where(PricingRule.status == "published"))
+    if existing:
+        # Keep the pilot rule aligned with the locked commercial rules: the
+        # platform's cut is a 0.7% seller commission, and the buyer pays logistics
+        # (no separate buyer service fee in the pilot).
+        if D(existing.seller_commission_pct) == D(0) and D(existing.service_fee_pct) != D(0):
+            existing.seller_commission_pct = 0.7
+            existing.service_fee_pct = 0.0
+            existing.reason = "Pilot tariff — 0.7% seller commission, buyer-paid logistics"
         return
     rule = PricingRule(
         version=1, status="published", handling_class=None, currency="INR",
         rate_per_kg=0.80, rate_per_km=12.0, fixed_pickup_fee=150, min_transport_charge=300,
-        max_transport_charge=None, service_fee_pct=2.0, service_fee_flat=0,
-        service_fee_payer="buyer", inspection_fee=300, packing_fee=500, tax_pct=0,
-        effective_from=utcnow(), reason="Initial pilot tariff",
+        max_transport_charge=None, seller_commission_pct=0.7, service_fee_pct=0.0,
+        service_fee_flat=0, service_fee_payer="buyer", inspection_fee=300, packing_fee=500,
+        tax_pct=0, effective_from=utcnow(),
+        reason="Pilot tariff — 0.7% seller commission, buyer-paid logistics",
     )
     db.add(rule)
 
