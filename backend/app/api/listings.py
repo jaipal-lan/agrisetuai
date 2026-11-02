@@ -10,7 +10,7 @@ from app.core.deps import get_current_user, require_roles
 from app.core.money import qty
 from app.core.rbac import Role
 from app.core.serializers import public_user
-from app.models.catalog import Commodity, Variety
+from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import ClaimStatus, ListingStatus, utcnow
 from app.models.location import Mandal
 from app.models.marketplace import Listing, ListingMedia
@@ -43,6 +43,7 @@ class ListingCreate(BaseModel):
     claim_evidence: dict | None = None
     mandal_id: int | None = None
     pickup_terms: str | None = None
+    specifications: str | None = None
 
 
 def _place(db: Session, listing: Listing, seller: User | None) -> dict:
@@ -86,6 +87,7 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         "is_organic": listing.claim_status == str(ClaimStatus.ORGANIC),
         "mandal_id": listing.mandal_id,
         "pickup_terms": listing.pickup_terms,
+        "specifications": listing.specifications,
         "status": listing.status,
         "out_of_stock": out_of_stock,
         "agent_verified": listing.agent_verified,
@@ -97,10 +99,18 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
     if db is not None:
         commodity = db.get(Commodity, listing.commodity_id)
         variety = db.get(Variety, listing.variety_id) if listing.variety_id else None
+        grade = db.get(GradeSpec, listing.grade_spec_id) if listing.grade_spec_id else None
         data["commodity"] = commodity.name if commodity else None
         data["commodity_te"] = commodity.name_te if commodity else None
+        data["unit"] = commodity.unit if commodity else listing.unit
         data["variety"] = variety.name if variety else None
+        data["grade"] = None if grade is None else {
+            "code": grade.code, "label": grade.label, "attributes": grade.attributes,
+        }
         data["place"] = _place(db, listing, seller)
+        if listing.agent_verified and listing.verified_by:
+            vb = db.get(User, listing.verified_by)
+            data["verified_by_name"] = vb.name if vb else None
     return data
 
 
@@ -131,6 +141,7 @@ def create_listing(
         claim_evidence=body.claim_evidence,
         mandal_id=body.mandal_id,
         pickup_terms=body.pickup_terms,
+        specifications=body.specifications,
         status=ListingStatus.DRAFT,
     )
     db.add(listing)

@@ -96,7 +96,7 @@ export default function OrderDetail() {
 
   useEffect(() => {
     const role = me?.role;
-    if (role && ["mandal_manager", "superadmin", "transport"].includes(role)) {
+    if (role && ["mandal_manager", "superadmin", "transport", "buyer_household", "buyer_business"].includes(role)) {
       api("/carriers?active_only=true").then((cs) => setCarriers(cs.filter((c) => c.kyc_status === "verified"))).catch(() => {});
     }
   }, [me]);
@@ -271,6 +271,27 @@ export default function OrderDetail() {
           </div>
           {order.shipment.vehicle_class && <div className="muted" style={{ fontSize: 13 }}>{order.shipment.vehicle_class}</div>}
         </div>
+      )}
+
+      {/* Buyer: choose the courier (buyer-paid logistics) */}
+      {isBuyer && !order.shipment?.courier_name &&
+        ["payment_pending", "paid", "packing", "ready_for_pickup"].includes(s) && (
+        <Action>
+          <h3>Choose your delivery courier</h3>
+          <p className="muted" style={{ fontSize: 13 }}>Transport is buyer-paid; pick a verified courier.</p>
+          <select value={courierId} onChange={(e) => setCourierId(e.target.value)}>
+            <option value="">— select courier —</option>
+            {carriers.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} ({(c.service_areas || []).join(", ")})</option>
+            ))}
+          </select>
+          <div style={{ marginTop: 12 }}>
+            <button disabled={busy || !courierId}
+                    onClick={() => act(`/orders/${id}/assign-courier`, { courier_id: Number(courierId) })}>
+              Choose courier
+            </button>
+          </div>
+        </Action>
       )}
 
       {/* Staff/transport: assign a courier */}

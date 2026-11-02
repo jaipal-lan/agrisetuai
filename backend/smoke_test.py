@@ -95,10 +95,13 @@ def run():
     r = client.post(f"/api/listings/{listing['id']}/publish", headers=hdr(farmer))
     check("listing published after images", r.json()["status"] == "open")
 
-    # Agent verifies the listing at the farm gate.
+    # Agent verifies the listing at the farm gate, leaving a comment.
     r = client.post(f"/api/listings/{listing['id']}/verify", headers=hdr(agent),
                     json={"note": "Weight sampled; grade consistent."})
-    check("agent verifies listing", r.json()["agent_verified"] is True)
+    vj = r.json()
+    check("agent verifies listing", vj["agent_verified"] is True)
+    check("agent comment stored on listing", vj["verification_note"] == "Weight sampled; grade consistent.")
+    check("listing exposes grade spec", vj.get("grade") is not None)
 
     found = client.get("/api/listings", params={"commodity_id": paddy["id"]}).json()
     check("listing appears in search", any(x["id"] == listing["id"] for x in found))
@@ -252,9 +255,14 @@ def run():
                     json={"courier_id": carrier_id, "vehicle_class": "mini_truck"})
     check("unverified carrier cannot be assigned", r.status_code == 409)
     client.patch(f"/api/carriers/{carrier_id}", headers=hdr(superadmin), json={"kyc_status": "verified"})
-    r = client.post(f"/api/orders/{order_id}/assign-courier", headers=hdr(manager),
+    # Buyer-paid logistics: the buyer picks the courier for their own order.
+    r = client.post(f"/api/orders/{order_id}/assign-courier", headers=hdr(buyer),
                     json={"courier_id": carrier_id, "vehicle_class": "mini_truck"})
-    check("verified carrier assigned to order", r.json()["courier"] == "Test Courier")
+    check("buyer chooses the courier", r.json()["courier"] == "Test Courier")
+    # Transport partner sees the job with the buyer-paid charge as earning.
+    tj = client.get("/api/transport/jobs", headers=hdr(transport)).json()
+    check("transport partner sees assigned job", any(j["order_id"] == order_id for j in tj["jobs"]))
+    check("transport job shows trip earning", float(next(j for j in tj["jobs"] if j["order_id"] == order_id)["transport_charge"]) > 0)
 
     for ev, expect in [("picked_up", "picked_up"), ("in_transit", "in_transit"),
                        ("out_for_delivery", "out_for_delivery"),

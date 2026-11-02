@@ -14,19 +14,33 @@ from app.services import audit
 
 router = APIRouter(prefix="/media", tags=["media"])
 
-_PLACEHOLDER_COLORS = ["#2e7d32", "#558b2f", "#9e6d1f", "#8d6e63", "#6a1b9a", "#00838f"]
+_PLACEHOLDER_COLORS = [
+    ("#2e7d32", "#60ad5e"), ("#558b2f", "#85bb5c"), ("#9e6d1f", "#ca9b52"),
+    ("#8d6e63", "#be9c91"), ("#6a1b9a", "#9c4dcc"), ("#00838f", "#4fb3bf"),
+]
+_PLACEHOLDER_ICON = {
+    "paddy": "🌾", "rice": "🍚", "milled": "🍚", "chilli": "🌶️", "turmeric": "🫚",
+    "pepper": "⚫", "coriander": "🌿", "cumin": "🌿", "tamarind": "🫘", "ginger": "🫚",
+    "mustard": "🌼", "groundnut": "🥜", "maize": "🌽", "gram": "🫘", "dal": "🫘",
+}
 
 
 def _placeholder_svg(label: str) -> str:
-    color = _PLACEHOLDER_COLORS[sum(ord(c) for c in label) % len(_PLACEHOLDER_COLORS)]
-    text = (label.replace("sample/", "").replace(".svg", "").replace("-", " "))[:28]
+    text = (label.replace("sample/", "").replace(".svg", "").replace("-", " ")).strip()[:28]
+    key = text.lower()
+    icon = next((v for k, v in _PLACEHOLDER_ICON.items() if k in key), "🧺")
+    c1, c2 = _PLACEHOLDER_COLORS[sum(ord(c) for c in label) % len(_PLACEHOLDER_COLORS)]
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">'
-        f'<rect width="400" height="300" fill="{color}"/>'
-        f'<text x="200" y="150" fill="#ffffff" font-family="sans-serif" font-size="22" '
+        f'<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0" stop-color="{c2}"/><stop offset="1" stop-color="{c1}"/>'
+        f'</linearGradient></defs>'
+        f'<rect width="400" height="300" fill="url(#g)"/>'
+        f'<text x="200" y="130" font-size="80" text-anchor="middle" dominant-baseline="middle">{icon}</text>'
+        f'<text x="200" y="210" fill="#ffffff" font-family="sans-serif" font-size="22" '
         f'text-anchor="middle" dominant-baseline="middle">{text}</text>'
-        f'<text x="200" y="185" fill="#ffffff" font-family="sans-serif" font-size="13" '
-        f'text-anchor="middle" opacity="0.8">sample photo</text></svg>'
+        f'<text x="200" y="240" fill="#ffffff" font-family="sans-serif" font-size="12" '
+        f'text-anchor="middle" opacity="0.85">sample photo</text></svg>'
     )
 
 _ALLOWED = {

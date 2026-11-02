@@ -98,15 +98,48 @@ export default function ListingDetail() {
           {listing.variety ? `${listing.variety} · ` : ""}
           Harvest {listing.harvest_year || "—"} · Min order {listing.min_order_qty} {listing.unit}
         </div>
-        {listing.agent_verified && listing.verification_note && (
-          <div className="ok" style={{ marginTop: 10, fontSize: 13 }}>
-            ✓ Agent verified: {listing.verification_note}
-          </div>
-        )}
         {listing.pickup_terms && (
           <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>{listing.pickup_terms}</div>
         )}
       </div>
+
+      {/* Specifications (farmer-declared + grade spec) */}
+      {(listing.specifications || (listing.grade && listing.grade.attributes)) && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h3 style={{ fontSize: 16 }}>Specifications</h3>
+          <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+            <span className="pill-tag">{listing.is_organic ? "Organic" : "Non-organic"}</span>
+            {listing.grade && <span className="pill-tag">Grade: {listing.grade.label}</span>}
+            {listing.variety && <span className="pill-tag">Variety: {listing.variety}</span>}
+          </div>
+          {listing.specifications && <div style={{ fontSize: 14 }}>{listing.specifications}</div>}
+          {listing.grade && listing.grade.attributes && (
+            <table style={{ marginTop: 8 }}>
+              <tbody>
+                {Object.entries(listing.grade.attributes).filter(([, v]) => v != null).map(([k, v]) => (
+                  <tr key={k}><td className="muted">{k.replace(/_/g, " ")}</td><td>{String(v)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Agent verification comment */}
+      {listing.agent_verified && (
+        <div className="card" style={{ marginTop: 14, borderLeft: "4px solid var(--green-600)" }}>
+          <div className="between">
+            <b>✓ Agent verified</b>
+            {listing.verified_by_name && <span className="muted" style={{ fontSize: 13 }}>by {listing.verified_by_name}</span>}
+          </div>
+          {listing.verification_note && (
+            <div style={{ fontSize: 14, marginTop: 6 }}>“{listing.verification_note}”</div>
+          )}
+          {listing.verified_at && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{new Date(listing.verified_at).toLocaleString()}</div>
+          )}
+        </div>
+      )}
 
       {err && <div className="error">{err}</div>}
 

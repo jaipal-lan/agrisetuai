@@ -477,13 +477,20 @@ class AssignCourier(BaseModel):
 def assign_courier(
     order_id: int,
     body: AssignCourier,
-    user=Depends(require_roles(Role.MANDAL_MANAGER, Role.SUPERADMIN, Role.TRANSPORT)),
+    user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Assign a tied-up transport courier to the order's shipment."""
+    """Assign a tied-up transport courier to the order's shipment.
+
+    Logistics are buyer-paid, so the buyer may choose the courier for their own
+    order; staff and transport operators can also assign.
+    """
     from app.models.carrier import Carrier
 
     order = _get_order(order_id, db)
+    staff = user.role in (Role.MANDAL_MANAGER, Role.SUPERADMIN, Role.TRANSPORT)
+    if not staff and user.id != order.buyer_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the buyer or staff can assign a courier")
     carrier = db.get(Carrier, body.courier_id)
     if not carrier or not carrier.active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Carrier not available")

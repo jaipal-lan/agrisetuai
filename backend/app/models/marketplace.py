@@ -34,6 +34,8 @@ class Listing(Base, TimestampMixin):
 
     mandal_id: Mapped[int | None] = mapped_column(ForeignKey("mandals.id"), index=True)
     pickup_terms: Mapped[str | None] = mapped_column(Text)
+    # Farmer-entered product specifications (moisture, cleanliness, drying, packing…).
+    specifications: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
         String(16), default=ListingStatus.DRAFT, index=True
     )

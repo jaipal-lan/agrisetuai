@@ -169,20 +169,34 @@ def seed_listings(db: Session, catalog: dict, mandals: dict) -> int:
     def first(model, cid):
         return db.scalar(select(model).where(model.commodity_id == cid))
 
-    # (commodity name, qty kg, price/kg, claim)
+    # (commodity name, qty kg, price/kg, claim). Several farmers list the SAME
+    # product so the product page shows multiple offerings from multiple places.
     listing_defs = [
-        ("Turmeric", 4000, 92.0, "conventional"),
-        ("Turmeric", 2500, 112.0, "organic"),
-        ("Black Pepper", 800, 520.0, "conventional"),
+        # Paddy — 4 farmers, 4 mandals, different prices (one sold out).
+        ("Paddy", 20000, 22.5, "conventional"),
+        ("Paddy", 15000, 23.0, "conventional"),
+        ("Paddy", 8000, 24.0, "organic"),
+        ("Paddy", 12000, 22.0, "conventional"),
+        # Red Chilli — 3 farmers/places.
         ("Red Chilli", 6000, 185.0, "conventional"),
         ("Red Chilli", 3000, 240.0, "organic"),
+        ("Red Chilli", 4500, 178.0, "conventional"),
+        # Turmeric — 3 farmers/places.
+        ("Turmeric", 4000, 92.0, "conventional"),
+        ("Turmeric", 2500, 112.0, "organic"),
+        ("Turmeric", 3200, 98.0, "conventional"),
+        # Toor Dal — 2 farmers/places.
+        ("Toor Dal", 5000, 98.0, "conventional"),
+        ("Toor Dal", 3500, 104.0, "conventional"),
+        # Singles for breadth.
+        ("Black Pepper", 800, 520.0, "conventional"),
         ("Coriander Seed", 3500, 95.0, "conventional"),
         ("Cumin Seed", 1200, 290.0, "conventional"),
         ("Dry Ginger", 1500, 140.0, "conventional"),
         ("Tamarind", 2000, 85.0, "conventional"),
-        ("Paddy", 20000, 22.5, "conventional"),
-        ("Toor Dal", 5000, 98.0, "conventional"),
         ("Groundnut", 8000, 68.0, "conventional"),
+        ("Green Gram", 4000, 86.0, "conventional"),
+        ("Maize", 10000, 21.0, "conventional"),
     ]
     agent = db.scalar(select(User).where(User.phone == "919000000002"))
     fcycle = itertools.cycle(farmers)
@@ -199,10 +213,16 @@ def seed_listings(db: Session, catalog: dict, mandals: dict) -> int:
         v = first(Variety, c.id)
         g = first(GradeSpec, c.id)
         evidence = {"certificate_no": f"NPOP-DEMO-{i}", "scope": "organic"} if claim == "organic" else None
-        # Every third listing is sold out, to demonstrate the out-of-stock state.
+        # Every fourth listing is sold out, to demonstrate the out-of-stock state.
         sold_out = (i % 4 == 3)
-        verified = (i % 2 == 0)  # roughly half are agent-verified at the farm gate
+        # Most listings are agent-verified at the farm gate (skip every 3rd).
+        verified = (i % 3 != 2)
         slug = cname.lower().replace(" ", "-")
+        spec = (
+            f"{'Certified/claimed organic. ' if claim == 'organic' else ''}"
+            f"Moisture within {g.attributes.get('max_moisture_pct', 12) if g and g.attributes else 12}%. "
+            "Well dried, cleaned and sorted; machine-filled bags of 25-50 kg; single filling, current season."
+        )
         lst = Listing(
             seller_id=u.id, commodity_id=c.id,
             variety_id=v.id if v else None, grade_spec_id=g.id if g else None,
@@ -213,10 +233,14 @@ def seed_listings(db: Session, catalog: dict, mandals: dict) -> int:
             mandal_id=m.id if m else None,
             status=str(ListingStatus.SOLD_OUT if sold_out else ListingStatus.OPEN),
             pickup_terms="Farm-gate pickup; bags included.", harvest_year=2026,
+            specifications=spec,
             agent_verified=verified,
             verified_by=agent.id if (verified and agent) else None,
             verified_at=utcnow() if verified else None,
-            verification_note="Field-gate visual check: weight sampled, grade consistent." if verified else None,
+            verification_note=(
+                "Farm-gate visual check done: representative sample weighed on a calibrated "
+                "scale, moisture spot-checked, grade and cleanliness consistent with the listing."
+            ) if verified else None,
         )
         db.add(lst)
         db.flush()

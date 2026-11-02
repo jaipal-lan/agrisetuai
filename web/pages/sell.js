@@ -32,6 +32,7 @@ export default function Sell() {
     asking_price: "",
     harvest_year: new Date().getFullYear(),
     claim_status: "conventional",
+    specifications: "",
   });
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -72,6 +73,7 @@ export default function Sell() {
         asking_price: Number(form.asking_price),
         harvest_year: Number(form.harvest_year),
         claim_status: form.claim_status,
+        specifications: form.specifications || undefined,
       };
       await api("/listings", { method: "POST", body });
       setMsg("Listing created as a draft — publish it to go live.");
@@ -172,14 +174,17 @@ export default function Sell() {
             <input value={form.harvest_year} onChange={(e) => set("harvest_year", e.target.value)} inputMode="numeric" />
           </div>
           <div style={{ flex: 1 }}>
-            <label>Cultivation claim</label>
+            <label>Organic / non-organic</label>
             <select value={form.claim_status} onChange={(e) => set("claim_status", e.target.value)}>
-              <option value="conventional">Conventional</option>
+              <option value="conventional">Non-organic (conventional)</option>
               <option value="in_conversion">In conversion</option>
               <option value="organic">Organic (needs evidence)</option>
             </select>
           </div>
         </div>
+        <label>Product specifications (moisture, drying, cleaning, packing, variety notes…)</label>
+        <textarea rows={2} value={form.specifications} onChange={(e) => set("specifications", e.target.value)}
+          placeholder="e.g. Moisture 7%, hand-cleaned, single filling, 50 kg bags" />
         <div style={{ marginTop: 16 }}>
           <button onClick={create} disabled={busy || !form.commodity_id || !form.total_qty || !form.asking_price}>
             {t("create_listing")}
