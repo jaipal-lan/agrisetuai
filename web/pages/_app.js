@@ -113,6 +113,11 @@ function Nav() {
       {user && <Link href="/orders">{t("my_orders")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
       {staff && <Link href="/admin">{t("admin")}</Link>}
+      {user && user.onboarding_complete === false && (
+        <Link href="/onboarding" className="pill" style={{ background: "var(--amber-600)", color: "#fff" }}>
+          {t("complete_profile")}
+        </Link>
+      )}
       <span className="spacer" />
       {user && <Bell />}
       <button

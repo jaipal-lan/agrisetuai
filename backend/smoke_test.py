@@ -318,6 +318,29 @@ def run():
     notes2 = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
     check("mark-read clears unread", all(n["read_at"] for n in notes2))
 
+    print("\n== Onboarding + payment/SMS sandbox ==")
+    # A new farmer onboards: completes profile + submits KYC.
+    newf = login(client, "919000000031", role="farmer", name="New Farmer")
+    r = client.patch("/api/auth/me", headers=hdr(newf), json={
+        "village": "Peddapuram", "mandal_id": mandal_id, "submit_kyc": True})
+    check("onboarding sets profile complete", r.json().get("onboarding_complete") is True)
+    mej = client.get("/api/auth/me", headers=hdr(newf)).json()
+    check("onboarding saved village + KYC pending",
+          mej["farmer"]["village"] == "Peddapuram" and mej["farmer"]["verification_status"] == "pending")
+
+    # Payment intent for an order.
+    pi = client.get(f"/api/payments/intent/{order_id}", headers=hdr(buyer)).json()
+    check("payment intent created", pi["reference"].startswith("intent_"))
+    # Signed webhook: bad signature rejected; valid signature reaches the handler.
+    from app.services import payments as _pay
+    bad = client.post("/api/payments/webhook", content=b'{"type":"payment.succeeded"}',
+                      headers={"x-webhook-signature": "deadbeef"})
+    check("webhook rejects bad signature", bad.status_code == 401)
+    body = b'{"type":"payment.succeeded","data":{"order_public_id":"NOPE","reference":"x"}}'
+    good = client.post("/api/payments/webhook", content=body,
+                       headers={"x-webhook-signature": _pay.sign(body)})
+    check("valid-signature webhook runs (unknown order -> 404)", good.status_code == 404)
+
     print("\n== Pricing admin (draft/simulate/publish) ==")
     r = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin), json={
         "handling_class": "dry_grain", "rate_per_kg": 1.0, "rate_per_km": 10,

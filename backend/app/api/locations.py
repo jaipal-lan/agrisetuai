@@ -25,10 +25,11 @@ def districts(state_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/mandals")
-def mandals(district_id: int, db: Session = Depends(get_db)):
-    rows = db.scalars(
-        select(Mandal).where(Mandal.district_id == district_id).order_by(Mandal.name)
-    )
+def mandals(district_id: int | None = None, db: Session = Depends(get_db)):
+    stmt = select(Mandal).order_by(Mandal.name)
+    if district_id is not None:
+        stmt = stmt.where(Mandal.district_id == district_id)
+    rows = db.scalars(stmt)
     return [
         {
             "id": m.id,

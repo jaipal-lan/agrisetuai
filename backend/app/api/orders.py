@@ -361,30 +361,20 @@ def confirm_quote(
     return _order_json(order, db, user)
 
 
-# --- Payment (mock provider) ---------------------------------------------
+# --- Payment capture (shared by mock /pay and the provider webhook) -------
 
-@router.post("/{order_id}/pay")
-def pay(
-    order_id: int,
-    idempotency_key: str | None = Header(default=None),
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Mock payment capture. Posts the full double-entry ledger for the order.
+def capture_order_payment(db: Session, order: Order, *, idempotency_key: str,
+                          provider: str = "mock", provider_ref: str | None = None,
+                          actor_id: int | None = None) -> bool:
+    """Idempotently capture an order's payment and post the full ledger.
 
-    A real provider webhook would do this server-side; the mock keeps the same
-    idempotent, ledger-backed path so swapping it in is isolated.
+    Returns True if a capture was performed, False on idempotent replay. Does NOT
+    commit — the caller commits. The same path backs the mock /pay endpoint and a
+    real/sandbox provider webhook, so swapping the provider is isolated.
     """
-    order = _get_order(order_id, db)
-    _require_party(order, user, buyer=True)
-
-    # Idempotent replay: a repeated key returns the (already paid) order, even
-    # though the order has moved past PAYMENT_PENDING.
-    idem = idempotency_key or gen_idem()
-    existing = db.scalar(select(Payment).where(Payment.idempotency_key == idem))
+    existing = db.scalar(select(Payment).where(Payment.idempotency_key == idempotency_key))
     if existing:
-        return _order_json(order, db, user)
-
+        return False
     if order.status != S.PAYMENT_PENDING:
         raise HTTPException(status.HTTP_409_CONFLICT, "Order not awaiting payment")
     if order.quote is None:
@@ -393,8 +383,6 @@ def pay(
     q = order.quote
     buyer_total = money(order.buyer_total)
     txn = f"pay:{order.public_id}"
-
-    # Platform revenue = optional service fee + the seller commission (0.7%).
     platform_rev = money(q["service_fee"]) + money(q.get("seller_commission", "0"))
     legs = [
         Leg("cash_clearing", LedgerDirection.DEBIT, buyer_total, "buyer payment captured"),
@@ -405,17 +393,30 @@ def pay(
         Leg("packing_revenue", LedgerDirection.CREDIT, money(q["packing_fee"]), "packing"),
         Leg("tax_payable", LedgerDirection.CREDIT, money(q["tax"]), "tax"),
     ]
-    # Drop zero legs to keep the ledger tidy (balance is preserved).
     legs = [l for l in legs if money(l.amount) != money(0)]
     ledger.post(db, txn_group=txn, legs=legs, order_id=order.id, currency=q["currency"])
-
     db.add(Payment(
-        order_id=order.id, provider="mock", provider_ref=txn, idempotency_key=idem,
-        amount=buyer_total, currency=q["currency"], status="paid",
+        order_id=order.id, provider=provider, provider_ref=provider_ref or txn,
+        idempotency_key=idempotency_key, amount=buyer_total, currency=q["currency"], status="paid",
     ))
-    _safe_transition(db, order, S.PAID, actor_id=user.id, reason_code="payment_captured")
-    audit.record(db, actor_id=user.id, action="order.pay", object_type="order",
-                 object_id=order.public_id, new_values={"amount": str(buyer_total)})
+    _safe_transition(db, order, S.PAID, actor_id=actor_id, reason_code="payment_captured")
+    audit.record(db, actor_id=actor_id, action="order.pay", object_type="order",
+                 object_id=order.public_id, new_values={"amount": str(buyer_total), "provider": provider})
+    return True
+
+
+@router.post("/{order_id}/pay")
+def pay(
+    order_id: int,
+    idempotency_key: str | None = Header(default=None),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mock payment capture (in-app). Posts the full double-entry ledger."""
+    order = _get_order(order_id, db)
+    _require_party(order, user, buyer=True)
+    idem = idempotency_key or gen_idem()
+    capture_order_payment(db, order, idempotency_key=idem, provider="mock", actor_id=user.id)
     db.commit()
     return _order_json(order, db, user)
 

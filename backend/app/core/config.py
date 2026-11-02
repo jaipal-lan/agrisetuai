@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     road_distance_factor: float = 1.3
     default_route_km: float = 40.0
 
+    # SMS provider: "console" logs the OTP (dev/sandbox); swap for a real gateway
+    # (Twilio/MSG91/Gupshup) by setting the provider + keys in production.
+    sms_provider: str = "console"
+    sms_api_key: str = ""
+    sms_sender_id: str = "AGRSTU"
+
+    # Payment provider: "mock" (in-app capture) or "sandbox" (intent + signed
+    # webhook flow, same shape as a real marketplace provider). Real keys plug in.
+    payment_provider: str = "mock"
+    payment_webhook_secret: str = "dev-sandbox-webhook-secret"
+
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7
 

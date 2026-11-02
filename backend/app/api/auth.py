@@ -14,7 +14,7 @@ from app.core.serializers import self_user
 from app.models.common import utcnow
 from app.models.support import ConsentRecord, Notification
 from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
-from app.services import audit
+from app.services import audit, sms
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,8 +39,12 @@ class MePatch(BaseModel):
     preferred_language: str | None = None
     village: str | None = None
     pickup_point: str | None = None
+    mandal_id: int | None = None
     skill_level: str | None = None
     languages: str | None = None
+    service_mandals: list[int] | None = None
+    buyer_type: str | None = None
+    submit_kyc: bool = False
 
 
 class ConsentBody(BaseModel):
@@ -61,6 +65,7 @@ def request_otp(body: OtpRequest, db: Session = Depends(get_db)):
         )
     code = f"{secrets.randbelow(1_000_000):06d}"
     set_otp(phone, code)
+    sms.send_otp(phone, code)  # console provider in dev/sandbox; real gateway in prod
     resp = {"sent": True}
     if settings.dev_mode:
         # Dev convenience only — never in production.
@@ -150,13 +155,29 @@ def patch_me(body: MePatch, user: User = Depends(get_current_user), db: Session 
             fp.village = body.village
         if body.pickup_point is not None:
             fp.pickup_point = body.pickup_point
+        if body.mandal_id is not None:
+            fp.mandal_id = body.mandal_id
+        if body.submit_kyc:
+            fp.verification_status = "pending"
+    bp = user.buyer_profile
+    if bp:
+        if body.buyer_type is not None:
+            bp.buyer_type = body.buyer_type
+        if body.submit_kyc:
+            bp.verification_status = "pending"
     ap = user.agent_profile
     if ap:
         if body.skill_level is not None:
             ap.skill_level = body.skill_level
         if body.languages is not None:
             ap.languages = body.languages
+        if body.service_mandals is not None:
+            ap.service_mandals = body.service_mandals
+        if body.submit_kyc:
+            ap.verification_status = "pending"
     user.onboarding_complete = True
+    audit.record(db, actor_id=user.id, action="user.onboard", object_type="user",
+                 object_id=user.id, new_values={"submit_kyc": body.submit_kyc})
     db.commit()
     db.refresh(user)
     return self_user(user)
