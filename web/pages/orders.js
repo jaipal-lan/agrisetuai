@@ -53,7 +53,11 @@ export default function Orders() {
       {loading ? (
         <p className="muted">{t("loading")}</p>
       ) : orders.length === 0 ? (
-        <p className="muted">No orders yet.</p>
+        <div className="empty">
+          <span className="emoji">📦</span>
+          <p>No orders yet. Orders appear here once an offer is accepted.</p>
+          {isBuyer && <Link href="/" className="btn">Browse the market</Link>}
+        </div>
       ) : (
         <table>
           <thead>

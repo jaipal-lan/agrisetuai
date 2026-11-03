@@ -39,7 +39,11 @@ export default function Invoices() {
       {loading ? (
         <p className="muted">{t("loading")}</p>
       ) : billable.length === 0 ? (
-        <p className="muted">No invoices yet — they appear once an order’s quote is confirmed.</p>
+        <div className="empty">
+          <span className="emoji">🧾</span>
+          <p>No invoices yet — they appear once an order’s quote is confirmed.</p>
+          <Link href="/" className="btn">Browse the market</Link>
+        </div>
       ) : (
         <table>
           <thead>

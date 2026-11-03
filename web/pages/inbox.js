@@ -68,7 +68,10 @@ export default function Inbox() {
       </div>
 
       {shown.length === 0 ? (
-        <p className="muted">Nothing here.</p>
+        <div className="empty">
+          <span className="emoji">📭</span>
+          <p>{filter === "all" ? "No messages yet." : "Nothing in this filter."}</p>
+        </div>
       ) : (
         <ul className="timeline">
           {shown.map((n) => {
