@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 function OfferCard({ offer, me, onChange }) {
   const router = useRouter();
@@ -125,14 +126,8 @@ export default function Offers() {
   useEffect(() => { setMe(getUser()); }, []);
   usePoll(load, 15000);
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Log in to see your negotiations.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.shopper, { label: "offers & negotiations" });
+  if (gate) return gate;
 
   return (
     <div>

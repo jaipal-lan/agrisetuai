@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api, getToken, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
 
@@ -126,14 +127,8 @@ export default function Advisory() {
     }
   }
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Log in to use the crop assistant.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.advisor, { label: "the crop assistant" });
+  if (gate) return gate;
 
   return (
     <div style={{ maxWidth: 700 }}>

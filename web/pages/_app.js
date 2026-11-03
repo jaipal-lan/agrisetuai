@@ -108,6 +108,7 @@ function Nav() {
       {shopper && <Link href="/requests">{t("requests")}</Link>}
       {shopper && <Link href="/offers">{t("my_offers")}</Link>}
       {shopper && <Link href="/orders">{t("my_orders")}</Link>}
+      {shopper && <Link href="/invoices">{t("invoices")}</Link>}
       {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
       {carrier && <Link href="/transport">{t("transport")}</Link>}
       {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
@@ -123,19 +124,24 @@ function Nav() {
       )}
       <span className="spacer" />
       {user && <Bell />}
-      <button
-        className="pill"
-        onClick={() => setLang(lang === "te" ? "en" : "te")}
-        aria-label="language"
-      >
-        {lang === "te" ? "English" : "తెలుగు"}
-      </button>
+      <LangToggle lang={lang} setLang={setLang} />
       {user ? (
         <button className="pill" onClick={doLogout}>{t("logout")}</button>
       ) : (
         <Link href="/login" className="pill">{t("login")}</Link>
       )}
     </nav>
+  );
+}
+
+function LangToggle({ lang, setLang }) {
+  const order = ["te", "en", "hi"];
+  const labels = { te: "తెలుగు", en: "English", hi: "हिन्दी" };
+  const next = order[(order.indexOf(lang) + 1) % order.length];
+  return (
+    <button className="pill" aria-label="language" onClick={() => setLang(next)}>
+      {labels[next]}
+    </button>
   );
 }
 

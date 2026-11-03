@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 // Offline-first inspection capture for field agents. Drafts are held in
 // localStorage and flushed when connectivity returns; the backend dedupes on
@@ -253,14 +254,8 @@ export default function AgentJobs() {
     }
   }
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Field agents only. Please log in.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.agent, { label: "inspection jobs" });
+  if (gate) return gate;
 
   return (
     <div style={{ maxWidth: 680 }}>

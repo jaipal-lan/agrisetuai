@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api, downloadCsv, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 export default function Admin() {
   const { t } = useI18n();
@@ -203,14 +204,8 @@ export default function Admin() {
     }
   }
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Staff login required.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.staff, { label: "the admin console" });
+  if (gate) return gate;
 
   return (
     <div>

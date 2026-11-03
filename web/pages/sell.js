@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api, getToken, getUser, mediaUrl } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
 
@@ -117,14 +118,8 @@ export default function Sell() {
 
   const cname = (c) => (c ? (lang === "te" && c.name_te ? c.name_te : c.name) : "—");
 
-  if (!user) {
-    return (
-      <div>
-        <p className="muted">Log in as a farmer to manage listings.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(user, GROUPS.seller, { label: "selling produce" });
+  if (gate) return gate;
 
   return (
     <div>

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 export default function Orders() {
   const { t } = useI18n();
@@ -41,14 +42,8 @@ export default function Orders() {
       .finally(() => setLoading(false));
   }, 15000);
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Log in to see your orders.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.shopper, { label: "orders" });
+  if (gate) return gate;
 
   return (
     <div>

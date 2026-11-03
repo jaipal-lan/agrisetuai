@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { api, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { GROUPS, roleGate } from "../lib/roles";
 
 // Inline "offer into this RFQ" form for sellers.
 function SellerOffer({ rfq, onDone }) {
@@ -102,14 +103,8 @@ export default function Requests() {
     }
   }
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Log in as a buyer or farmer to use requests.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.shopper, { label: "requests (RFQ)" });
+  if (gate) return gate;
 
   return (
     <div>

@@ -71,6 +71,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             {"label": "My offers", "href": "/offers"},
             {"label": "My orders", "href": "/orders"},
             {"label": "Earnings", "href": "/earnings"},
+            {"label": "Invoices", "href": "/invoices"},
             {"label": "Crop advice", "href": "/advisory"},
         ]
 
@@ -91,6 +92,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             {"label": "Post a requirement", "href": "/requests"},
             {"label": "My offers", "href": "/offers"},
             {"label": "My orders", "href": "/orders"},
+            {"label": "Invoices", "href": "/invoices"},
         ]
 
     elif role == Role.FIELD_AGENT:

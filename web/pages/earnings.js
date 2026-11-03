@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api, downloadCsv, getUser } from "../lib/api";
+import { GROUPS, roleGate } from "../lib/roles";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
@@ -16,14 +17,8 @@ export default function Earnings() {
     api("/auth/me/earnings").then(setData).catch((e) => setErr(e.message));
   }, 20000);
 
-  if (!me) {
-    return (
-      <div>
-        <p className="muted">Log in as a farmer to see earnings.</p>
-        <Link href="/login" className="btn">{t("login")}</Link>
-      </div>
-    );
-  }
+  const gate = roleGate(me, GROUPS.seller, { label: "earnings" });
+  if (gate) return gate;
 
   return (
     <div>
