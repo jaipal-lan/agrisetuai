@@ -130,6 +130,10 @@ def run():
     check("buyer opens offer", r.status_code == 201)
     offer = r.json()
     check("offer has version 1", offer["versions"][0]["version_no"] == 1)
+    check("offer carries product context", bool(offer["product"]) and offer["product"]["commodity"] == "Paddy")
+    check("new offer awaits the seller", offer["awaiting_role"] == "seller" and offer["expired"] is False)
+    check("offer exposes a latest-terms summary + countdown",
+          offer["latest"]["version_no"] == 1 and offer["expires_in_seconds"] > 0)
 
     # Buyer cannot accept own proposal.
     r = client.post(f"/api/offers/{offer['id']}/accept", headers=hdr(buyer))
@@ -140,6 +144,7 @@ def run():
         "price_per_unit": 24.0, "quantity": 500,
     })
     check("seller counters (v2)", len(r.json()["versions"]) == 2)
+    check("after counter it awaits the buyer", r.json()["awaiting_role"] == "buyer")
 
     # Seller cannot counter again (awaiting buyer).
     r = client.post(f"/api/offers/{offer['id']}/counter", headers=hdr(farmer), json={
@@ -162,6 +167,18 @@ def run():
     relisting = client.get(f"/api/listings/{listing['id']}").json()
     check("500 kg reserved on listing", relisting["reserved_qty"] == "500.000")
     check("available now 500 kg", relisting["available_qty"] == "500.000")
+
+    # Offer-expiry: a zero-TTL offer lapses and cannot be acted on.
+    r = client.post("/api/offers", headers=hdr(buyer), json={
+        "listing_id": listing["id"], "price_per_unit": 22.0, "quantity": 100, "ttl_hours": 0,
+    })
+    check("zero-TTL offer reports expired on creation", r.json()["expired"] is True)
+    exp_id = r.json()["id"]
+    lst_offers = client.get("/api/offers", headers=hdr(buyer)).json()
+    exp_o = next(o for o in lst_offers if o["id"] == exp_id)
+    check("expired offer auto-flips to expired status", exp_o["status"] == "expired")
+    r = client.post(f"/api/offers/{exp_id}/accept", headers=hdr(farmer))
+    check("cannot accept an expired offer", r.status_code == 409)
 
     print("\n== Inspection ==")
     r = client.post(f"/api/orders/{order_id}/assign-inspection", headers=hdr(manager),

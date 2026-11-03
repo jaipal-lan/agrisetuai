@@ -70,12 +70,63 @@ def _version_json(v: OfferVersion) -> dict:
     }
 
 
+def _product_snapshot(offer: Offer, db: Session) -> dict | None:
+    """Commodity/place/asking-price context so the UI shows the real product,
+    not just "Listing #id". Covers both listing- and RFQ-based offers."""
+    from app.models.catalog import Commodity
+    from app.models.location import Mandal
+    from app.models.marketplace import ListingMedia
+
+    commodity_id = mandal_id = None
+    asking_price = available_qty = image = None
+    if offer.listing_id:
+        listing = db.get(Listing, offer.listing_id)
+        if listing:
+            commodity_id = listing.commodity_id
+            mandal_id = listing.mandal_id
+            asking_price = str(listing.asking_price)
+            available_qty = str(qty(listing.available_qty))
+            m = next((mm for mm in listing.media if mm.media_type == "image"), None)
+            image = m.object_key if m else None
+    elif offer.rfq_id:
+        rfq = db.get(RFQ, offer.rfq_id)
+        if rfq:
+            commodity_id = rfq.commodity_id
+            mandal_id = rfq.destination_mandal_id
+    if commodity_id is None:
+        return None
+    c = db.get(Commodity, commodity_id)
+    m = db.get(Mandal, mandal_id) if mandal_id else None
+    if not image and c:
+        image = f"sample/{c.name.lower().replace(' ', '-')}.svg"
+    return {
+        "commodity_id": commodity_id,
+        "commodity": c.name if c else None,
+        "commodity_te": c.name_te if c else None,
+        "category": c.category if c else None,
+        "place": m.name if m else None,
+        "asking_price": asking_price,
+        "available_qty": available_qty,
+        "image": image,
+    }
+
+
 def _offer_json(offer: Offer, db: Session) -> dict:
-    versions = db.scalars(
+    versions = list(db.scalars(
         select(OfferVersion)
         .where(OfferVersion.offer_id == offer.id)
         .order_by(OfferVersion.version_no)
-    )
+    ))
+    latest = versions[-1] if versions else None
+    live = offer.status in (OfferStatus.OPEN, OfferStatus.COUNTERED)
+    expires_in = None
+    expired = False
+    awaiting_role = None
+    if latest is not None and live:
+        expires_in = int((ensure_aware(latest.expires_at) - utcnow()).total_seconds())
+        expired = expires_in <= 0
+        if not expired:
+            awaiting_role = "seller" if latest.proposer_role == "buyer" else "buyer"
     return {
         "id": offer.id,
         "listing_id": offer.listing_id,
@@ -85,6 +136,11 @@ def _offer_json(offer: Offer, db: Session) -> dict:
         "status": offer.status,
         "accepted_version_id": offer.accepted_version_id,
         "versions": [_version_json(v) for v in versions],
+        "latest": _version_json(latest) if latest else None,
+        "expires_in_seconds": expires_in,
+        "expired": expired,
+        "awaiting_role": awaiting_role,
+        "product": _product_snapshot(offer, db),
     }
 
 
@@ -94,6 +150,18 @@ def _latest(offer: Offer, db: Session) -> OfferVersion:
         .where(OfferVersion.offer_id == offer.id)
         .order_by(OfferVersion.version_no.desc())
     ).first()
+
+
+def _maybe_expire(offer: Offer, db: Session) -> bool:
+    """Flip a still-open offer to EXPIRED once its latest version lapses. Returns
+    True if it changed, so the caller knows to commit."""
+    if offer.status not in (OfferStatus.OPEN, OfferStatus.COUNTERED):
+        return False
+    latest = _latest(offer, db)
+    if latest and ensure_aware(latest.expires_at) < utcnow():
+        offer.status = OfferStatus.EXPIRED
+        return True
+    return False
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -158,11 +226,16 @@ def my_offers(user: User = Depends(get_current_user), db: Session = Depends(get_
     """All negotiation threads where the caller is the buyer or the seller."""
     from sqlalchemy import or_
 
-    rows = db.scalars(
+    rows = list(db.scalars(
         select(Offer)
         .where(or_(Offer.buyer_id == user.id, Offer.seller_id == user.id))
         .order_by(Offer.created_at.desc())
-    )
+    ))
+    changed = False
+    for o in rows:
+        changed = _maybe_expire(o, db) or changed
+    if changed:
+        db.commit()
     return [_offer_json(o, db) for o in rows]
 
 
@@ -172,6 +245,8 @@ def get_offer(offer_id: int, user: User = Depends(get_current_user), db: Session
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
     _party_role(offer, user)
+    if _maybe_expire(offer, db):
+        db.commit()
     return _offer_json(offer, db)
 
 
