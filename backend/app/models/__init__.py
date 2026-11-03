@@ -16,6 +16,7 @@ from app.models.finance import LedgerEntry, Payment, Payout, Refund
 from app.models.location import District, Mandal, State
 from app.models.marketplace import (
     RFQ,
+    CropInterest,
     Listing,
     ListingMedia,
     Offer,
@@ -73,6 +74,7 @@ __all__ = [
     "OfferVersion",
     "SavedSearch",
     "Watch",
+    "CropInterest",
     "Inspection",
     "Lot",
     "LotEvent",

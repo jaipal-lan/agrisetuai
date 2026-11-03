@@ -616,6 +616,26 @@ def seed_demo_saved_searches(db: Session) -> int:
     return 1
 
 
+def seed_demo_crop_interests(db: Session, catalog: dict) -> int:
+    """Demo farmer opts into RFQ alerts for a crop they don't currently list,
+    so the Request alerts page is populated. Idempotent per (seller, commodity)."""
+    from app.models.marketplace import CropInterest
+
+    ravi = db.scalar(select(User).where(User.phone == "919000000003"))
+    if not ravi:
+        return 0
+    n = 0
+    for cname, minp in [("Turmeric", 90.0), ("Groundnut", None)]:
+        c = catalog.get(cname)
+        if c and not db.scalar(select(CropInterest).where(
+                CropInterest.user_id == ravi.id, CropInterest.commodity_id == c.id)):
+            db.add(CropInterest(user_id=ravi.id, commodity_id=c.id,
+                                min_price=D(minp) if minp else None))
+            n += 1
+    db.flush()
+    return n
+
+
 def seed_demo_watches(db: Session, catalog: dict) -> int:
     """Demo buyer watches a couple of products (one with a price-alert target).
     Idempotent per watch, so it runs even when offers already exist."""
@@ -683,6 +703,7 @@ def main() -> None:
         n_activity = seed_demo_activity(db, catalog, mandals)
         n_activity += seed_demo_watches(db, catalog)
         n_activity += seed_demo_saved_searches(db)
+        n_activity += seed_demo_crop_interests(db, catalog)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "

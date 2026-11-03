@@ -801,6 +801,56 @@ def run():
     check("buyer dashboard surfaces saved searches",
           any(a["href"] == "/saved" for a in client.get("/api/dashboard", headers=hdr(buyer)).json()["actions"]))
 
+    print("\n== Seller-side RFQ alerts (crop interests + auto from listings) ==")
+    greengram = next(c for c in commodities if c["name"] == "Green Gram")
+
+    def fcount():
+        return len(client.get("/api/auth/notifications", headers=hdr(farmer)).json())
+
+    # Explicit crop interest for a crop the farmer does NOT list, with a min price.
+    r = client.post("/api/crop-interests", headers=hdr(farmer),
+                    json={"commodity_id": greengram["id"], "min_price": 80})
+    check("seller adds a crop interest", r.json()["watching"] is True)
+    ci = client.get("/api/crop-interests", headers=hdr(farmer)).json()
+    check("crop interest listed", any(c["commodity_id"] == greengram["id"] for c in ci))
+    st = client.get(f"/api/crop-interests/{greengram['id']}", headers=hdr(farmer)).json()
+    check("crop interest state reflects min price", st["watching"] and st["min_price"] == "80.00")
+
+    # A matching RFQ (target >= min) alerts the interested seller.
+    before = fcount()
+    r = client.post("/api/rfqs", headers=hdr(buyer),
+                    json={"commodity_id": greengram["id"], "requested_qty": 400, "target_price": 85})
+    check("buyer posts matching RFQ", r.status_code == 201)
+    notes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
+    check("interested seller alerted to RFQ", len(notes) > before
+          and any(n.get("object_type") == "rfq" for n in notes[:2]))
+    # A below-min RFQ does NOT alert this seller (they don't list green gram).
+    before = fcount()
+    client.post("/api/rfqs", headers=hdr(buyer),
+                json={"commodity_id": greengram["id"], "requested_qty": 400, "target_price": 70})
+    check("below-min-price RFQ does not alert", fcount() == before)
+
+    # Auto-alert from a live listing: the farmer lists paddy, so a paddy RFQ alerts
+    # them with no explicit interest.
+    before = fcount()
+    client.post("/api/rfqs", headers=hdr(buyer),
+                json={"commodity_id": paddy["id"], "requested_qty": 300, "target_price": 24})
+    check("seller auto-alerted for a listed commodity", fcount() > before)
+
+    # Upsert min price, role guard, delete.
+    r = client.post("/api/crop-interests", headers=hdr(farmer),
+                    json={"commodity_id": greengram["id"], "min_price": 100})
+    check("crop interest min price updated", r.json()["min_price"] == "100.00")
+    r = client.post("/api/crop-interests", headers=hdr(buyer), json={"commodity_id": paddy["id"]})
+    check("non-seller cannot set crop interests", r.status_code in (401, 403))
+    r = client.delete(f"/api/crop-interests/{greengram['id']}", headers=hdr(farmer))
+    check("seller removes a crop interest", r.json()["watching"] is False)
+    # Seller dashboard surfaces matching buyer requests.
+    fd2 = client.get("/api/dashboard", headers=hdr(farmer)).json()
+    check("seller dashboard shows buyer-requests card",
+          any(c["label"] == "Buyer requests for you" for c in fd2["cards"])
+          and any(a["href"] == "/interests" for a in fd2["actions"]))
+
     print("\n== FPO multi-member (group lead, pooled view, members) ==")
     fpo_lead = login(client, "919000000050", role="fpo", name="Green Valley FPO")
     lead_id = client.get("/api/auth/me", headers=hdr(fpo_lead)).json()["id"]

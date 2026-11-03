@@ -8,6 +8,7 @@ from app.api import (
     auth,
     carriers,
     catalog,
+    crop_interests,
     dashboard,
     fpo,
     insights,
@@ -60,7 +61,7 @@ for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
     pricing, admin, advisory, insights, lots, media, support, logistics,
     subscriptions, carriers, transport, reviews, payments, dashboard, watchlist, fpo,
-    saved_searches,
+    saved_searches, crop_interests,
 ):
     app.include_router(module.router, prefix=API)
 

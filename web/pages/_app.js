@@ -118,6 +118,7 @@ function Nav() {
       {seller && <Link href="/sell">{t("sell")}</Link>}
       {seller && <Link href="/earnings">{t("earnings")}</Link>}
       {shopper && <Link href="/requests">{t("requests")}</Link>}
+      {seller && <Link href="/interests">{t("request_alerts")}</Link>}
       {shopper && <Link href="/offers">{t("my_offers")}</Link>}
       {shopper && <Link href="/orders">{t("my_orders")}</Link>}
       {shopper && <Link href="/invoices">{t("invoices")}</Link>}

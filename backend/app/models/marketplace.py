@@ -168,3 +168,22 @@ class SavedSearch(Base, TimestampMixin):
     criteria: Mapped[dict] = mapped_column(JSON, default=dict)
     alert: Mapped[bool] = mapped_column(default=True)
     last_match_id: Mapped[int] = mapped_column(default=0)
+
+
+class CropInterest(Base, TimestampMixin):
+    """A seller's standing interest in a commodity for buyer-request (RFQ) alerts.
+
+    The seller-side mirror of a buyer's [[Watch]]: when a buyer posts an RFQ for
+    this commodity, the seller is alerted (unless ``min_price`` is set and the
+    RFQ's target is below it). Sellers are also alerted automatically for any
+    commodity they currently have an open listing in, so this is opt-in extra
+    coverage, not a prerequisite.
+    """
+
+    __tablename__ = "crop_interests"
+    __table_args__ = (UniqueConstraint("user_id", "commodity_id", name="uq_cropinterest_user_commodity"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    commodity_id: Mapped[int] = mapped_column(ForeignKey("commodities.id"), index=True)
+    min_price: Mapped[float | None] = mapped_column(Numeric(12, 2))

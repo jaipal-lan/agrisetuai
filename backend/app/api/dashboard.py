@@ -47,6 +47,20 @@ def _saved_search_new_count(db: Session, s: SavedSearch) -> int:
     return sum(1 for l in _matching_listings(db, s.criteria or {}) if l.id > (s.last_match_id or 0))
 
 
+def _seller_matching_rfqs(db: Session, seller_id: int) -> int:
+    """Open buyer RFQs whose commodity the seller lists or has a crop interest in."""
+    from app.models.marketplace import CropInterest
+    listed = set(db.scalars(select(Listing.commodity_id).where(
+        Listing.seller_id == seller_id, Listing.status == "open")))
+    interested = set(db.scalars(select(CropInterest.commodity_id).where(
+        CropInterest.user_id == seller_id)))
+    commodity_ids = listed | interested
+    if not commodity_ids:
+        return 0
+    return _count(db, select(func.count(RFQ.id)).where(
+        RFQ.status == "open", RFQ.commodity_id.in_(commodity_ids), RFQ.buyer_id != seller_id))
+
+
 @router.get("")
 def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     role = user.role
@@ -66,14 +80,18 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         pending_payout = money(0)
         for p in db.scalars(select(Payout).where(Payout.seller_id == user.id, Payout.status == "pending")):
             pending_payout += money(p.amount)
+        matching_rfqs = _seller_matching_rfqs(db, user.id)
         cards = [
             {"label": "Active listings", "value": active_listings, "href": "/sell"},
             {"label": "Open negotiations", "value": open_negotiations, "href": "/offers", "alert": open_negotiations > 0},
+            {"label": "Buyer requests for you", "value": matching_rfqs, "href": "/requests", "alert": matching_rfqs > 0},
             {"label": "Orders in progress", "value": active_orders, "href": "/orders"},
             {"label": "Awaiting payout", "value": f"₹{pending_payout}", "href": "/earnings"},
         ]
         actions = [
             {"label": "List produce", "href": "/sell", "primary": True},
+            {"label": "Buyer requests", "href": "/requests"},
+            {"label": "Request alerts", "href": "/interests"},
             {"label": "My offers", "href": "/offers"},
             {"label": "My orders", "href": "/orders"},
             {"label": "Earnings", "href": "/earnings"},

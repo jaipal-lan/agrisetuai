@@ -78,6 +78,10 @@ def create_rfq(body: RFQCreate, user: User = Depends(_buyer), db: Session = Depe
         status=RFQStatus.OPEN,
     )
     db.add(rfq)
+    db.flush()
+    # Alert matching sellers (active listers + opt-in crop interests). Never blocks.
+    from app.api.crop_interests import notify_rfq_matches
+    notify_rfq_matches(db, rfq)
     db.commit()
     db.refresh(rfq)
     return _rfq_json(rfq)
