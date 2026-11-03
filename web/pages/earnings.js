@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, downloadCsv, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
@@ -27,7 +27,15 @@ export default function Earnings() {
 
   return (
     <div>
-      <h1>Earnings</h1>
+      <div className="between">
+        <h1>Earnings</h1>
+        {data && data.orders.length > 0 && (
+          <button className="ghost" onClick={() =>
+            downloadCsv("/auth/me/earnings.csv", "agrisetu-earnings.csv").catch((e) => setErr(e.message))}>
+            ⬇ Download CSV
+          </button>
+        )}
+      </div>
       {err && <div className="error">{err}</div>}
       {data && (
         <>

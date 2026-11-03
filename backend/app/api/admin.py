@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -46,8 +47,7 @@ def kpis(user=Depends(_staff), db: Session = Depends(get_db)):
     }
 
 
-@router.get("/reports")
-def reports(user=Depends(_staff), db: Session = Depends(get_db)):
+def _compute_reports(db: Session) -> dict:
     """GMV and order counts broken down by commodity, mandal, state and agent.
 
     GMV is the product value of PAID-or-beyond trades (revenue-recognised).
@@ -114,6 +114,33 @@ def reports(user=Depends(_staff), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/reports")
+def reports(user=Depends(_staff), db: Session = Depends(get_db)):
+    return _compute_reports(db)
+
+
+@router.get("/reports.csv")
+def reports_csv(user=Depends(_staff), db: Session = Depends(get_db)):
+    """Same GMV breakdown as /admin/reports, as a downloadable CSV."""
+    import csv
+    import io
+
+    rep = _compute_reports(db)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["dimension", "key", "gmv_inr", "orders"])
+    w.writerow(["total", "ALL", rep["total_gmv"], rep["total_orders"]])
+    for dim, rows in (("commodity", rep["by_commodity"]), ("mandal", rep["by_mandal"]),
+                      ("state", rep["by_state"]), ("agent", rep["by_agent"])):
+        for r in rows:
+            w.writerow([dim, r["key"], r["gmv"], r["orders"]])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="agrisetu-gmv-report.csv"'},
+    )
+
+
 @router.get("/ledger/accounts")
 def ledger_accounts(user=Depends(_staff), db: Session = Depends(get_db)):
     """Net balance per account + global balance check (should be zero)."""
@@ -178,6 +205,44 @@ def kyc_decision(user_id: int, body: KycDecision,
                  object_id=target.id, new_values={"status": new_status}, reason=body.reason)
     db.commit()
     return {"user_id": target.id, "verification_status": new_status}
+
+
+class Broadcast(BaseModel):
+    title: str
+    body: str
+    audience: str = "all"  # all | farmers | buyers | agents | couriers | staff
+
+
+_AUDIENCE_ROLES = {
+    "farmers": [Role.FARMER, Role.FPO],
+    "buyers": [Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS],
+    "agents": [Role.FIELD_AGENT],
+    "couriers": [Role.TRANSPORT],
+    "staff": [Role.SUPPORT, Role.FINANCE, Role.MANDAL_MANAGER, Role.SUPERADMIN],
+}
+
+
+@router.post("/broadcast")
+def broadcast(body: Broadcast,
+              actor=Depends(require_roles(Role.SUPERADMIN, Role.MANDAL_MANAGER)),
+              db: Session = Depends(get_db)):
+    """Send an in-app announcement to every active user in the chosen audience."""
+    if not body.title.strip() or not body.body.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Title and message are required")
+    stmt = select(User).where(User.status == "active")
+    if body.audience != "all":
+        roles = _AUDIENCE_ROLES.get(body.audience)
+        if not roles:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown audience")
+        stmt = stmt.where(User.role.in_([str(r) for r in roles]))
+    recipients = list(db.scalars(stmt))
+    for u in recipients:
+        notify.send(db, user_id=u.id, title=body.title.strip(), body=body.body.strip(),
+                    object_type="announcement", object_id=None)
+    audit.record(db, actor_id=actor.id, action="admin.broadcast", object_type="announcement",
+                 object_id=None, new_values={"audience": body.audience, "count": len(recipients)})
+    db.commit()
+    return {"sent": len(recipients), "audience": body.audience}
 
 
 @router.get("/audit-logs")

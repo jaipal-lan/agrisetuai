@@ -553,6 +553,59 @@ def run():
     r = client.post(f"/api/listings/{created[3]}/publish", headers=hdr(capfarmer))
     check("upgraded plan lifts the cap", r.status_code == 200)
 
+    print("\n== Dispute resolution with evidence + decision-driven refund ==")
+    # Re-open a dispute WITH photo evidence on the (partially refunded) RFQ order.
+    r = client.post("/api/disputes", headers=hdr(buyer), json={
+        "order_id": rfq_order_id, "issue_type": "quality",
+        "description": "Second bag also off-spec",
+        "evidence": {"media": ["sample/evidence-1.svg", "sample/evidence-2.svg"]},
+    })
+    check("dispute with evidence opened", r.status_code == 201)
+    ev_dispute_id = r.json()["id"]
+    dlist = client.get("/api/disputes", headers=hdr(superadmin)).json()
+    mine = next(d for d in dlist if d["id"] == ev_dispute_id)
+    check("evidence photos persisted on dispute", len(mine["evidence"].get("media", [])) == 2)
+    # Ops resolves with a FULL refund of the remaining balance via the decision endpoint.
+    r = client.post(f"/api/disputes/{ev_dispute_id}/decision", headers=hdr(superadmin),
+                    json={"decision": "full_refund", "note": "Lot rejected on re-inspection"})
+    check("dispute decision posts refund", r.json()["decision"] == "full_refund")
+    check("decision records refund amount", r.json()["financial_consequence"].get("refund_amount") is not None)
+    oj = client.get(f"/api/orders/{rfq_order_id}", headers=hdr(buyer)).json()
+    check("order fully refunded after decision", oj["status"] == "refunded")
+    notes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
+    check("opener notified of resolution", any("resolved" in n["title"].lower() for n in notes))
+    r = client.post(f"/api/disputes/{ev_dispute_id}/decision", headers=hdr(superadmin),
+                    json={"decision": "uphold"})
+    check("already-decided dispute rejected", r.status_code == 409)
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger balanced after decision refund", acct["balanced"] is True)
+    r = client.post(f"/api/disputes/{ev_dispute_id}/decision", headers=hdr(buyer),
+                    json={"decision": "uphold"})
+    check("non-staff cannot decide disputes", r.status_code in (401, 403))
+
+    print("\n== Admin broadcast announcement (audience targeting) ==")
+    r = client.post("/api/admin/broadcast", headers=hdr(superadmin),
+                    json={"title": "Market holiday", "body": "Mandis closed Sunday.", "audience": "farmers"})
+    check("broadcast sent to farmers", r.json()["sent"] >= 1 and r.json()["audience"] == "farmers")
+    fnotes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
+    check("farmer receives announcement", any(n["title"] == "Market holiday" for n in fnotes))
+    bnotes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
+    check("audience targeting excludes buyer", not any(n["title"] == "Market holiday" for n in bnotes))
+    r = client.post("/api/admin/broadcast", headers=hdr(superadmin),
+                    json={"title": "x", "body": "y", "audience": "aliens"})
+    check("unknown audience rejected", r.status_code == 400)
+    r = client.post("/api/admin/broadcast", headers=hdr(buyer), json={"title": "x", "body": "y"})
+    check("non-staff cannot broadcast", r.status_code in (401, 403))
+
+    print("\n== CSV exports (GMV report + farmer earnings) ==")
+    r = client.get("/api/admin/reports.csv", headers=hdr(superadmin))
+    check("GMV report CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+    check("GMV CSV has header row", r.text.splitlines()[0].startswith("dimension,key,gmv"))
+    check("GMV CSV has a total row", any(line.startswith("total,ALL,") for line in r.text.splitlines()))
+    r = client.get("/api/auth/me/earnings.csv", headers=hdr(farmer))
+    check("earnings CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+    check("earnings CSV has header", r.text.splitlines()[0].startswith("order,status,gross_inr"))
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

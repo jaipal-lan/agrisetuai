@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, downloadCsv, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
 export default function Admin() {
@@ -29,8 +29,11 @@ export default function Admin() {
   const [newCarrier, setNewCarrier] = useState({ name: "", code: "", contact_phone: "" });
   const [reports, setReports] = useState(null);
   const [kyc, setKyc] = useState([]);
+  const [ann, setAnn] = useState({ title: "", body: "", audience: "all" });
+  const [annMsg, setAnnMsg] = useState(null);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  const setA = (k, v) => setAnn((a) => ({ ...a, [k]: v }));
   const setC = (k, v) => setNewCarrier((c) => ({ ...c, [k]: v }));
 
   async function load() {
@@ -80,6 +83,18 @@ export default function Admin() {
     try {
       await api(`/carriers/${id}`, { method: "PATCH", body: patch });
       load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function sendAnnouncement() {
+    setErr(null);
+    setAnnMsg(null);
+    try {
+      const r = await api("/admin/broadcast", { method: "POST", body: ann });
+      setAnnMsg(`Sent to ${r.sent} ${r.audience === "all" ? "users" : r.audience}.`);
+      setAnn({ title: "", body: "", audience: ann.audience });
     } catch (e) {
       setErr(e.message);
     }
@@ -267,7 +282,13 @@ export default function Admin() {
 
       {reports && (
         <>
-          <h2>Reports — GMV ₹{reports.total_gmv} · {reports.total_orders} orders</h2>
+          <div className="between">
+            <h2>Reports — GMV ₹{reports.total_gmv} · {reports.total_orders} orders</h2>
+            <button className="ghost" onClick={() =>
+              downloadCsv("/admin/reports.csv", "agrisetu-gmv-report.csv").catch((e) => setErr(e.message))}>
+              ⬇ Download CSV
+            </button>
+          </div>
           <div className="grid">
             {[["By commodity", reports.by_commodity], ["By state", reports.by_state],
               ["By mandal", reports.by_mandal], ["By agent", reports.by_agent]].map(([title, rows]) => (
@@ -288,6 +309,37 @@ export default function Admin() {
           </div>
         </>
       )}
+
+      <h2>Broadcast announcement</h2>
+      <div className="card">
+        {annMsg && <div className="ok" style={{ marginBottom: 10 }}>{annMsg}</div>}
+        <div className="row">
+          <div style={{ flex: 2 }}>
+            <label>Title</label>
+            <input value={ann.title} onChange={(e) => setA("title", e.target.value)}
+                   placeholder="e.g. Market holiday on Sunday" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label>Audience</label>
+            <select value={ann.audience} onChange={(e) => setA("audience", e.target.value)}>
+              <option value="all">Everyone</option>
+              <option value="farmers">Farmers</option>
+              <option value="buyers">Buyers</option>
+              <option value="agents">Field agents</option>
+              <option value="couriers">Couriers</option>
+              <option value="staff">Staff</option>
+            </select>
+          </div>
+        </div>
+        <label>Message</label>
+        <textarea rows={3} value={ann.body} onChange={(e) => setA("body", e.target.value)}
+                  placeholder="This appears as an in-app alert for the chosen audience." />
+        <div style={{ marginTop: 12 }}>
+          <button disabled={!ann.title.trim() || !ann.body.trim()} onClick={sendAnnouncement}>
+            Send announcement
+          </button>
+        </div>
+      </div>
 
       <h2>KYC approval queue {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>
       {kyc.length === 0 ? (

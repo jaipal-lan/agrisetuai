@@ -43,6 +43,42 @@ export function logout() {
   } catch {}
 }
 
+// Upload a single file (image/pdf) as multipart; returns { object_key, ... }.
+export async function uploadMedia(file) {
+  const token = getToken();
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${BASE}/media/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(typeof detail === "string" ? detail : "Upload failed");
+  }
+  return res.json();
+}
+
+// Fetch an authenticated endpoint and save the response as a file download.
+export async function downloadCsv(path, filename) {
+  const token = getToken();
+  const res = await fetch(`${BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Download failed");
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export async function api(path, { method = "GET", body, headers = {} } = {}) {
   const token = getToken();
   const h = { "Content-Type": "application/json", ...headers };

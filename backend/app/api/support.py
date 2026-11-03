@@ -52,7 +52,10 @@ def _dispute_json(d: Dispute) -> dict:
         "status": d.status,
         "decision": d.decision,
         "decision_note": d.decision_note,
+        "decided_by": d.decided_by,
+        "evidence": d.evidence or {},
         "financial_consequence": d.financial_consequence,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
     }
 
 
@@ -212,6 +215,9 @@ class DisputeDecision(BaseModel):
     refund_amount: float | None = None
 
 
+_REFUND_DECISIONS = {"partial_refund", "full_refund"}
+
+
 @router.post("/disputes/{dispute_id}/decision")
 def decide_dispute(
     dispute_id: int,
@@ -222,17 +228,40 @@ def decide_dispute(
     d = db.get(Dispute, dispute_id)
     if not d:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dispute not found")
+    if d.status == "decided":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Dispute is already decided")
     order = db.get(Order, d.order_id)
-    d.status = "decided"
-    d.decision = body.decision
-    d.decision_note = body.note
-    d.decided_by = user.id
-    d.financial_consequence = {"refund_amount": body.refund_amount}
-    if body.decision == "reject":
+
+    refund_result = None
+    if body.decision in _REFUND_DECISIONS:
+        # full_refund => remaining balance (amount=None); partial => the named amount.
+        amount = None if body.decision == "full_refund" else body.refund_amount
+        if body.decision == "partial_refund" and not amount:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "refund_amount is required for a partial refund")
+        refund_result = perform_refund(
+            db, order, amount=amount, reason_code="dispute_resolution",
+            note=body.note, actor_id=user.id, idem=f"dispute-{d.public_id}",
+        )
+    elif body.decision == "reject":
         try:
             transition(db, order, S.COMPLETED, actor_id=user.id, reason_code="dispute_rejected")
         except InvalidTransition:
             pass
+
+    d.status = "decided"
+    d.decision = body.decision
+    d.decision_note = body.note
+    d.decided_by = user.id
+    d.financial_consequence = {
+        "refund_amount": refund_result.get("amount") if refund_result else body.refund_amount,
+        "refund_id": refund_result.get("refund_id") if refund_result else None,
+    }
+    # Tell the opener the outcome regardless of which party raised it.
+    notify.send(
+        db, user_id=d.opener_id, title="Dispute resolved",
+        body=f"Your dispute on order {order.public_id} was resolved: {body.decision.replace('_', ' ')}.",
+        object_type="order", object_id=order.public_id,
+    )
     audit.record(
         db,
         actor_id=user.id,
@@ -252,6 +281,94 @@ class RefundBody(BaseModel):
     note: str | None = None
 
 
+def perform_refund(
+    db: Session,
+    order: Order,
+    *,
+    amount: float | None = None,
+    reason_code: str = "partial_refund",
+    note: str | None = None,
+    actor_id: int,
+    idem: str | None = None,
+) -> dict:
+    """Post a balanced refund against an order's captured payment.
+
+    Shared by the finance refund endpoint and dispute resolution so both paths
+    reverse the original quote legs identically and keep the ledger balanced.
+    Raises HTTPException on invalid state; commits on success.
+    """
+    if order.quote is None or order.buyer_total is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Order has no captured quote")
+    paid = db.scalar(select(Payment).where(Payment.order_id == order.id, Payment.status == "paid"))
+    if not paid:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No captured payment to refund")
+
+    idem = idem or gen_idem()
+    existing = db.scalar(select(Refund).where(Refund.idempotency_key == idem))
+    if existing:
+        return {"refund_id": existing.id, "duplicate": True, "order_status": order.status}
+
+    already = money(0)
+    for r in db.scalars(select(Refund).where(Refund.order_id == order.id)):
+        already += money(r.amount)
+    remaining = money(order.buyer_total) - already
+    refund_amount = money(amount if amount is not None else remaining)
+    if refund_amount <= money(0) or refund_amount > remaining:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid refund amount")
+
+    # Reverse proportionally against the original quote legs so history stays intact.
+    q = order.quote
+    buyer_total = money(order.buyer_total)
+    ratio = refund_amount / buyer_total
+    debit_spec = [
+        ("seller_payable", money(q.get("seller_payable", "0")), "reverse seller"),
+        ("platform_revenue", money(q.get("service_fee", "0")) + money(q.get("seller_commission", "0")), "reverse platform revenue"),
+        ("transport_payable", money(q.get("transport_charge", "0")), "reverse transport"),
+        ("agent_fee_payable", money(q.get("inspection_fee", "0")), "reverse inspection"),
+        ("packing_revenue", money(q.get("packing_fee", "0")), "reverse packing"),
+        ("tax_payable", money(q.get("tax", "0")), "reverse tax"),
+    ]
+    shares = {acct: money(amt * ratio) for acct, amt, _ in debit_spec}
+    residual = refund_amount - sum(shares.values())
+    if residual != money(0):
+        biggest = max(shares, key=lambda k: shares[k])
+        shares[biggest] = money(shares[biggest] + residual)
+
+    legs = [Leg("cash_clearing", LedgerDirection.CREDIT, refund_amount, "refund to buyer")]
+    legs += [Leg(acct, LedgerDirection.DEBIT, shares[acct], memo)
+             for acct, _, memo in debit_spec]
+    legs = [l for l in legs if money(l.amount) != money(0)]
+    ledger.post(db, txn_group=f"refund:{order.public_id}:{idem[:8]}", legs=legs, order_id=order.id, currency=q["currency"])
+
+    rec = Refund(
+        order_id=order.id,
+        amount=refund_amount,
+        currency=q["currency"],
+        reason_code=reason_code,
+        note=note,
+        actor_id=actor_id,
+        idempotency_key=idem,
+    )
+    db.add(rec)
+    target = S.REFUNDED if refund_amount == remaining else S.PARTIALLY_REFUNDED
+    try:
+        if order.status != target:
+            transition(db, order, target, actor_id=actor_id, reason_code=reason_code, note=note)
+    except InvalidTransition as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+    audit.record(
+        db,
+        actor_id=actor_id,
+        action="order.refund",
+        object_type="order",
+        object_id=order.public_id,
+        reason=reason_code,
+        new_values={"amount": str(refund_amount)},
+    )
+    db.commit()
+    return {"refund_id": rec.id, "amount": str(refund_amount), "order_status": order.status, "duplicate": False}
+
+
 @router.post("/orders/{order_id}/refunds")
 def refund_order(
     order_id: int,
@@ -264,78 +381,8 @@ def refund_order(
     order = db.get(Order, order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
-    if order.quote is None or order.buyer_total is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Order has no captured quote")
-    paid = db.scalar(select(Payment).where(Payment.order_id == order.id, Payment.status == "paid"))
-    if not paid:
-        raise HTTPException(status.HTTP_409_CONFLICT, "No captured payment to refund")
-
-    idem = idempotency_key or gen_idem()
-    existing = db.scalar(select(Refund).where(Refund.idempotency_key == idem))
-    if existing:
-        return {"refund_id": existing.id, "duplicate": True, "status": order.status}
-
-    already = money(0)
-    for r in db.scalars(select(Refund).where(Refund.order_id == order.id)):
-        already += money(r.amount)
-    remaining = money(order.buyer_total) - already
-    amount = money(body.amount if body.amount is not None else remaining)
-    if amount <= money(0) or amount > remaining:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid refund amount")
-
-    # Reverse proportionally against the original quote legs so history stays intact.
-    q = order.quote
-    buyer_total = money(order.buyer_total)
-    ratio = amount / buyer_total
-    # (ledger account, original amount, memo). seller_payable is first and largest,
-    # so it carries any sub-paisa rounding residual below. platform_revenue reverses
-    # both the optional service fee and the seller commission.
-    debit_spec = [
-        ("seller_payable", money(q.get("seller_payable", "0")), "reverse seller"),
-        ("platform_revenue", money(q.get("service_fee", "0")) + money(q.get("seller_commission", "0")), "reverse platform revenue"),
-        ("transport_payable", money(q.get("transport_charge", "0")), "reverse transport"),
-        ("agent_fee_payable", money(q.get("inspection_fee", "0")), "reverse inspection"),
-        ("packing_revenue", money(q.get("packing_fee", "0")), "reverse packing"),
-        ("tax_payable", money(q.get("tax", "0")), "reverse tax"),
-    ]
-    shares = {acct: money(amt * ratio) for acct, amt, _ in debit_spec}
-    # Independently rounded shares can drift a paisa from the credited amount;
-    # absorb the residual into the largest leg so debits == credit exactly.
-    residual = amount - sum(shares.values())
-    if residual != money(0):
-        biggest = max(shares, key=lambda k: shares[k])
-        shares[biggest] = money(shares[biggest] + residual)
-
-    legs = [Leg("cash_clearing", LedgerDirection.CREDIT, amount, "refund to buyer")]
-    legs += [Leg(acct, LedgerDirection.DEBIT, shares[acct], memo)
-             for acct, _, memo in debit_spec]
-    legs = [l for l in legs if money(l.amount) != money(0)]
-    ledger.post(db, txn_group=f"refund:{order.public_id}:{idem[:8]}", legs=legs, order_id=order.id, currency=q["currency"])
-
-    rec = Refund(
-        order_id=order.id,
-        amount=amount,
-        currency=q["currency"],
-        reason_code=body.reason_code,
-        note=body.note,
-        actor_id=user.id,
-        idempotency_key=idem,
+    return perform_refund(
+        db, order, amount=body.amount, reason_code=body.reason_code,
+        note=body.note, actor_id=user.id, idem=idempotency_key,
     )
-    db.add(rec)
-    target = S.REFUNDED if amount == remaining else S.PARTIALLY_REFUNDED
-    try:
-        if order.status != target:
-            transition(db, order, target, actor_id=user.id, reason_code=body.reason_code, note=body.note)
-    except InvalidTransition as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
-    audit.record(
-        db,
-        actor_id=user.id,
-        action="order.refund",
-        object_type="order",
-        object_id=order.public_id,
-        reason=body.reason_code,
-        new_values={"amount": str(amount)},
-    )
-    db.commit()
-    return {"refund_id": rec.id, "amount": str(amount), "order_status": order.status, "duplicate": False}
+

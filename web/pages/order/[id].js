@@ -1,9 +1,85 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../../lib/api";
+import { api, getUser, mediaUrl, uploadMedia } from "../../lib/api";
 import { usePoll } from "../../lib/hooks";
 import { useI18n } from "../../lib/i18n";
+
+function DisputeBox({ orderId, onDone }) {
+  const [issueType, setIssueType] = useState("quality");
+  const [description, setDescription] = useState("");
+  const [keys, setKeys] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function addFiles(fileList) {
+    setErr(null);
+    const files = Array.from(fileList || []).slice(0, 5);
+    for (const f of files) {
+      try {
+        const r = await uploadMedia(f);
+        setKeys((k) => [...k, r.object_key]);
+      } catch (e) {
+        setErr(e.message);
+      }
+    }
+  }
+
+  async function submit() {
+    if (!description.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api("/disputes", {
+        method: "POST",
+        body: {
+          order_id: Number(orderId),
+          issue_type: issueType,
+          description: description.trim(),
+          evidence: keys.length ? { media: keys } : undefined,
+        },
+      });
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16, borderLeft: "4px solid #f59e0b" }}>
+      <h3>Report a problem</h3>
+      {err && <div className="error">{err}</div>}
+      <label>Issue type</label>
+      <select value={issueType} onChange={(e) => setIssueType(e.target.value)}>
+        <option value="quality">Quality</option>
+        <option value="quantity">Quantity / weight</option>
+        <option value="delivery">Delivery</option>
+        <option value="payment">Payment</option>
+        <option value="other">Other</option>
+      </select>
+      <label>What went wrong?</label>
+      <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe the problem clearly." />
+      <label>Evidence photos (optional, up to 5)</label>
+      <input type="file" accept="image/*,application/pdf" multiple
+             onChange={(e) => addFiles(e.target.files)} />
+      {keys.length > 0 && (
+        <div className="thumb-row" style={{ marginTop: 8 }}>
+          {keys.map((k) => (
+            <img key={k} src={mediaUrl(k)} alt="evidence"
+                 style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6, marginRight: 6 }} />
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <button className="amber" disabled={busy || !description.trim()} onClick={submit}>
+          Submit dispute
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function Quote({ q }) {
   if (!q) return null;
@@ -143,6 +219,7 @@ export default function OrderDetail() {
   const [outcome, setOutcome] = useState("pass");
   const [carriers, setCarriers] = useState([]);
   const [courierId, setCourierId] = useState("");
+  const [showDispute, setShowDispute] = useState(false);
 
   useEffect(() => {
     setMe(getUser());
@@ -169,24 +246,6 @@ export default function OrderDetail() {
     setBusy(true);
     try {
       await api(path, { method: "POST", body, headers });
-      await load();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function openDispute() {
-    const description = window.prompt("Describe the problem (quality, quantity, delivery…)");
-    if (!description) return;
-    setErr(null);
-    setBusy(true);
-    try {
-      await api("/disputes", {
-        method: "POST",
-        body: { order_id: Number(id), issue_type: "quality", description },
-      });
       await load();
     } catch (e) {
       setErr(e.message);
@@ -432,9 +491,15 @@ export default function OrderDetail() {
         )}
         {(isBuyer || me.id === order.seller_id) &&
           ["paid", "packing", "ready_for_pickup", "picked_up", "in_transit", "out_for_delivery", "delivered_pending_acceptance"].includes(s) && (
-            <button className="ghost" disabled={busy} onClick={openDispute}>Report a problem</button>
+            <button className="ghost" disabled={busy} onClick={() => setShowDispute((v) => !v)}>
+              {showDispute ? "Close" : "Report a problem"}
+            </button>
           )}
       </div>
+
+      {showDispute && (
+        <DisputeBox orderId={id} onDone={() => { setShowDispute(false); load(); }} />
+      )}
     </div>
   );
 }

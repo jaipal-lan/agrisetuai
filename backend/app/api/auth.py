@@ -231,8 +231,7 @@ def notifications(user: User = Depends(get_current_user), db: Session = Depends(
     ]
 
 
-@router.get("/me/earnings")
-def my_earnings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def _earnings_data(db: Session, user: User) -> dict:
     """Farmer/FPO earnings statement: per-order gross, commission, net, payout."""
     from app.core.money import money
     from app.models.common import OrderStatus as OS
@@ -272,6 +271,35 @@ def my_earnings(user: User = Depends(get_current_user), db: Session = Depends(ge
                    "net": str(tot_net), "paid": str(tot_paid)},
         "orders": lines,
     }
+
+
+@router.get("/me/earnings")
+def my_earnings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _earnings_data(db, user)
+
+
+@router.get("/me/earnings.csv")
+def my_earnings_csv(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Earnings statement as a downloadable CSV."""
+    import csv
+    import io
+
+    from fastapi.responses import Response
+
+    data = _earnings_data(db, user)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["order", "status", "gross_inr", "commission_inr", "net_inr", "payout_status", "paid_inr"])
+    for o in data["orders"]:
+        w.writerow([o["order_public_id"], o["status"], o["gross"], o["commission"],
+                    o["net"], o["payout_status"], o["paid"]])
+    tot = data["totals"]
+    w.writerow(["TOTAL", "", tot["gross"], tot["commission"], tot["net"], "", tot["paid"]])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="agrisetu-earnings.csv"'},
+    )
 
 
 @router.post("/notifications/read")

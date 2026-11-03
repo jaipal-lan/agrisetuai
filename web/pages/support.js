@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, getUser, mediaUrl } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
@@ -49,31 +49,25 @@ export default function Support() {
     }
   }
 
-  async function decide(id, decision) {
+  async function decide(id, decision, refund_amount) {
     setErr(null);
+    setMsg(null);
     try {
-      await api(`/disputes/${id}/decision`, { method: "POST", body: { decision } });
+      await api(`/disputes/${id}/decision`, {
+        method: "POST",
+        body: { decision, refund_amount },
+      });
+      setMsg(`Dispute resolved: ${decision.replace(/_/g, " ")}.`);
       load();
     } catch (e) {
       setErr(e.message);
     }
   }
 
-  async function refund(orderId) {
-    setErr(null);
-    const amt = window.prompt("Refund amount (₹). Leave blank for remaining balance.");
-    if (amt === null) return;
-    try {
-      await api(`/orders/${orderId}/refunds`, {
-        method: "POST",
-        body: { amount: amt ? Number(amt) : undefined, reason_code: "dispute_resolution" },
-        headers: { "Idempotency-Key": `ui-refund-${orderId}-${Date.now()}` },
-      });
-      setMsg("Refund posted.");
-      load();
-    } catch (e) {
-      setErr(e.message);
-    }
+  async function partialRefund(id) {
+    const amt = window.prompt("Partial refund amount (₹) to the buyer:");
+    if (amt === null || amt.trim() === "") return;
+    decide(id, "partial_refund", Number(amt));
   }
 
   if (!me) {
@@ -151,35 +145,50 @@ export default function Support() {
       {disputes.length === 0 ? (
         <p className="muted">No disputes.</p>
       ) : (
-        <table>
-          <thead>
-            <tr><th>#</th><th>Order</th><th>Issue</th><th>{t("status")}</th>{isOps && <th>Action</th>}</tr>
-          </thead>
-          <tbody>
-            {disputes.map((d) => (
-              <tr key={d.id}>
-                <td>{d.public_id}</td>
-                <td><Link href={`/order/${d.order_id}`}>#{d.order_id}</Link></td>
-                <td>{d.issue_type}</td>
-                <td>
-                  <span className="badge grey">{d.status}</span>
-                  {d.decision ? <span className="pill-tag" style={{ marginLeft: 6 }}>{d.decision}</span> : null}
-                </td>
-                {isOps && (
-                  <td>
-                    {d.status !== "decided" && (
+        <div>
+          {disputes.map((d) => {
+            const media = (d.evidence && d.evidence.media) || [];
+            return (
+              <div className="card" key={d.id} style={{ marginBottom: 12 }}>
+                <div className="between">
+                  <div>
+                    <b>{d.public_id}</b> ·{" "}
+                    <Link href={`/order/${d.order_id}`}>order #{d.order_id}</Link>{" "}
+                    <span className="pill-tag">{d.issue_type}</span>
+                  </div>
+                  <div>
+                    <span className="badge grey">{d.status}</span>
+                    {d.decision && <span className="pill-tag" style={{ marginLeft: 6 }}>{d.decision.replace(/_/g, " ")}</span>}
+                  </div>
+                </div>
+                {d.description && <p style={{ marginTop: 8 }}>{d.description}</p>}
+                {media.length > 0 && (
+                  <div className="thumb-row" style={{ marginTop: 8 }}>
+                    {media.map((k) => (
+                      <a key={k} href={mediaUrl(k)} target="_blank" rel="noreferrer">
+                        <img src={mediaUrl(k)} alt="evidence"
+                             style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, marginRight: 6 }} />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {d.decision_note && <p className="muted" style={{ marginTop: 6 }}>Resolution note: {d.decision_note}</p>}
+                {isOps && d.status !== "decided" && (
+                  <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+                    <button className="ghost" onClick={() => decide(d.id, "uphold")}>Uphold (no refund)</button>
+                    <button className="ghost" onClick={() => decide(d.id, "reject")}>Reject</button>
+                    {canRefund && (
                       <>
-                        <button className="ghost" onClick={() => decide(d.id, "reject")}>Reject</button>{" "}
-                        <button className="ghost" onClick={() => decide(d.id, "uphold")}>Uphold</button>{" "}
+                        <button className="amber" onClick={() => partialRefund(d.id)}>Partial refund…</button>
+                        <button className="amber" onClick={() => decide(d.id, "full_refund")}>Full refund</button>
                       </>
                     )}
-                    {canRefund && <button className="amber" onClick={() => refund(d.order_id)}>Refund</button>}
-                  </td>
+                  </div>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
