@@ -1,3 +1,4 @@
+import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -181,6 +182,15 @@ export default function App({ Component, pageProps }) {
   return (
     <I18nProvider>
       <ToastProvider>
+        <Head>
+          <title>AgriSetuAI — verified farm-to-market</title>
+          <meta name="description" content="AI advisory plus a verified farm-to-market for Andhra Pradesh & Telangana." />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <meta name="theme-color" content="#14532d" />
+          <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+          <link rel="apple-touch-icon" href="/favicon.svg" />
+          <link rel="manifest" href="/manifest.webmanifest" />
+        </Head>
         <Nav />
         <div className="container">
           <Component {...pageProps} />

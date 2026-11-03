@@ -202,12 +202,20 @@ def my_listings(user: User = Depends(_seller), db: Session = Depends(get_db)):
 # Declared before /{listing_id} so "products" is not parsed as a listing id.
 
 @router.get("/products")
-def products(category: str | None = None, db: Session = Depends(get_db)):
+def products(category: str | None = None, q: str | None = None,
+             sort: str = "name", db: Session = Depends(get_db)):
     """Product catalog grouped by commodity, each with how many farmers/places
-    currently offer it and the price range — the marketplace's product grid."""
+    currently offer it and the price range — the marketplace's product grid.
+
+    `q` searches the commodity name (English or Telugu); `sort` is one of
+    name | price_asc | price_desc | verified | availability.
+    """
     stmt = select(Commodity)
     if category:
         stmt = stmt.where(Commodity.category == category)
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where((Commodity.name.ilike(like)) | (Commodity.name_te.ilike(like)))
     out = []
     for c in db.scalars(stmt.order_by(Commodity.category, Commodity.name)):
         rows = list(db.scalars(
@@ -243,6 +251,21 @@ def products(category: str | None = None, db: Session = Depends(get_db)):
             "price_max": max(prices) if prices else None,
             "any_verified": any(l.agent_verified for l in live),
         })
+
+    def price_key(p, hi=False):
+        v = p["price_max"] if hi else p["price_min"]
+        # Out-of-stock (no price) sorts last either way.
+        return v if v is not None else (float("inf") if not hi else float("-inf"))
+
+    if sort == "price_asc":
+        out.sort(key=lambda p: price_key(p, hi=False))
+    elif sort == "price_desc":
+        out.sort(key=lambda p: price_key(p, hi=True), reverse=True)
+    elif sort == "verified":
+        out.sort(key=lambda p: (not p["any_verified"], p["commodity"]))
+    elif sort == "availability":
+        out.sort(key=lambda p: (-p["offering_count"], p["commodity"]))
+    # else: keep the default category/name order from the query.
     return out
 
 

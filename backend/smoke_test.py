@@ -667,6 +667,41 @@ def run():
           and any("payout" in c["label"].lower() for c in sd["cards"]))
     check("staff actions include Admin console", any(a["href"] == "/admin" for a in sd["actions"]))
 
+    print("\n== Marketplace search + sort ==")
+    allp = client.get("/api/listings/products").json()
+    check("products list non-empty", len(allp) >= 1)
+    check("product card carries an image", all("image" in p for p in allp))
+    srch = client.get("/api/listings/products", params={"q": "paddy"}).json()
+    check("search narrows the catalog", len(srch) < len(allp) and len(srch) >= 1)
+    check("search matches the term", all("paddy" in p["commodity"].lower() for p in srch))
+    asc = client.get("/api/listings/products", params={"sort": "price_asc"}).json()
+    priced = [p["price_min"] for p in asc if p["price_min"] is not None]
+    check("price_asc sorted ascending", priced == sorted(priced))
+    desc = client.get("/api/listings/products", params={"sort": "price_desc"}).json()
+    priced_d = [p["price_max"] for p in desc if p["price_max"] is not None]
+    check("price_desc sorted descending", priced_d == sorted(priced_d, reverse=True))
+
+    print("\n== Admin user management ==")
+    login(client, "919000000044", role="fpo", name="Temp FPO")  # throwaway target
+    us = client.get("/api/admin/users", headers=hdr(superadmin)).json()
+    check("admin lists users", len(us) >= 6)
+    check("staff (manager) can list users too",
+          client.get("/api/admin/users", headers=hdr(manager)).status_code == 200)
+    target = next(u for u in us if u["phone"] == "919000000044")
+    r = client.post(f"/api/admin/users/{target['id']}/status", headers=hdr(superadmin),
+                    json={"status": "suspended", "reason": "test"})
+    check("superadmin suspends a user", r.json()["status"] == "suspended")
+    again = client.get("/api/admin/users", headers=hdr(superadmin), params={"q": "919000000044"}).json()
+    check("suspension persisted", again[0]["status"] == "suspended")
+    r = client.post(f"/api/admin/users/{target['id']}/status", headers=hdr(superadmin),
+                    json={"status": "active"})
+    check("superadmin reactivates a user", r.json()["status"] == "active")
+    su = next(u for u in us if u["role"] == "superadmin")
+    r = client.post(f"/api/admin/users/{su['id']}/status", headers=hdr(superadmin), json={"status": "suspended"})
+    check("cannot suspend self", r.status_code == 400)
+    r = client.post(f"/api/admin/users/{target['id']}/status", headers=hdr(manager), json={"status": "suspended"})
+    check("non-superadmin cannot change status", r.status_code in (401, 403))
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

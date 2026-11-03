@@ -118,6 +118,13 @@ input, select, textarea {
 }
 input:focus, select:focus { outline: 2px solid var(--green-600); border-color: transparent; }
 
+/* Keyboard a11y: a clear focus ring on every interactive element */
+a:focus-visible, button:focus-visible, .btn:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid var(--green-600); outline-offset: 2px; border-radius: 6px;
+}
+.nav a:focus-visible, .nav .pill:focus-visible { outline: 3px solid #86efac; outline-offset: 2px; }
+
 button, .btn {
   display: inline-block; cursor: pointer; border: none;
   background: var(--green-700); color: #fff; font-weight: 600; font-size: 15px;

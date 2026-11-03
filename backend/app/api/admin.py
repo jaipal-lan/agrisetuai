@@ -328,6 +328,54 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
     return {"batch": batch.public_id, "payout_count": len(pending), "total_amount": str(total)}
 
 
+@router.get("/users")
+def list_users(q: str | None = None, role: str | None = None, status_filter: str | None = None,
+               user=Depends(_staff), db: Session = Depends(get_db)):
+    """Directory of all users with optional search/role/status filters."""
+    stmt = select(User).order_by(User.id.desc())
+    if role:
+        stmt = stmt.where(User.role == role)
+    if status_filter:
+        stmt = stmt.where(User.status == status_filter)
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where((User.name.ilike(like)) | (User.phone.ilike(like)))
+    rows = list(db.scalars(stmt.limit(200)))
+    return [{"id": u.id, "name": u.name, "phone": u.phone, "role": u.role,
+             "status": u.status, "onboarding_complete": u.onboarding_complete} for u in rows]
+
+
+class UserStatus(BaseModel):
+    status: str  # active | suspended
+    reason: str | None = None
+
+
+@router.post("/users/{user_id}/status")
+def set_user_status(user_id: int, body: UserStatus,
+                    actor=Depends(require_roles(Role.SUPERADMIN)),
+                    db: Session = Depends(get_db)):
+    """Suspend or reactivate a user. Suspending also revokes their active sessions."""
+    if body.status not in ("active", "suspended"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "status must be active or suspended")
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if target.id == actor.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own status")
+    target.status = body.status
+    if body.status == "suspended":
+        target.token_version = int(target.token_version or 0) + 1  # force logout
+    notify.send(db, user_id=target.id,
+                title="Account " + ("suspended" if body.status == "suspended" else "reactivated"),
+                body=(f"Your account was suspended. {body.reason or ''}".strip()
+                      if body.status == "suspended" else "Your account is active again."),
+                object_type="user", object_id=target.id)
+    audit.record(db, actor_id=actor.id, action="user.status", object_type="user",
+                 object_id=target.id, new_values={"status": body.status}, reason=body.reason)
+    db.commit()
+    return {"user_id": target.id, "status": target.status}
+
+
 @router.get("/audit-logs")
 def audit_logs(limit: int = 100, user=Depends(_staff), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))

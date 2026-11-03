@@ -8,15 +8,19 @@ export default function Marketplace() {
   const { t, lang } = useI18n();
   const [products, setProducts] = useState([]);
   const [category, setCategory] = useState("");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("name");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  async function load() {
+  async function load(search) {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
       if (category) params.set("category", category);
+      if (search) params.set("q", search);
+      if (sort) params.set("sort", sort);
       setProducts(await api(`/listings/products?${params.toString()}`));
     } catch (e) {
       setErr(e.message);
@@ -25,10 +29,12 @@ export default function Marketplace() {
     }
   }
 
+  // Debounce the search box so we don't fire a request per keystroke.
   useEffect(() => {
-    load();
+    const id = setTimeout(() => load(q.trim()), q ? 300 : 0);
+    return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
+  }, [category, q, sort]);
 
   const pname = (p) => (lang === "te" && p.commodity_te ? p.commodity_te : p.commodity);
   const categories = [...new Set(products.map((p) => p.category))];
@@ -39,16 +45,40 @@ export default function Marketplace() {
       <p className="tagline">{t("tagline")}</p>
 
       <div className="card" style={{ marginBottom: 20 }}>
-        <label>Category</label>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ maxWidth: 240 }}>
-          <option value="">All products</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <div style={{ flex: "2 1 220px" }}>
+            <label>{t("search")}</label>
+            <input value={q} onChange={(e) => setQ(e.target.value)}
+                   placeholder="Search produce (e.g. paddy, turmeric)…" />
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label>Category</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value)}>
+              <option value="">All products</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label>Sort</label>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="name">Name</option>
+              <option value="price_asc">Price: low to high</option>
+              <option value="price_desc">Price: high to low</option>
+              <option value="verified">Verified first</option>
+              <option value="availability">Most offerings</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {err && <div className="error">{err}</div>}
       {loading ? (
         <p className="muted">{t("loading")}</p>
+      ) : products.length === 0 ? (
+        <div className="empty">
+          <span className="emoji">🔍</span>
+          <p>No products match your search.</p>
+        </div>
       ) : (
         <div className="grid">
           {products.map((p) => {

@@ -216,6 +216,11 @@ export default function OrderDetail() {
   const [agentId, setAgentId] = useState("3");
   const [routeKm, setRouteKm] = useState("");
   const [gross, setGross] = useState("");
+  const [tare, setTare] = useState("");
+  const [moisture, setMoisture] = useState("");
+  const [clean, setClean] = useState(true);
+  const [pestFree, setPestFree] = useState(true);
+  const [inspKeys, setInspKeys] = useState([]);
   const [outcome, setOutcome] = useState("pass");
   const [carriers, setCarriers] = useState([]);
   const [courierId, setCourierId] = useState("");
@@ -321,23 +326,61 @@ export default function OrderDetail() {
               <input value={gross} onChange={(e) => setGross(e.target.value)} inputMode="decimal" />
             </div>
             <div style={{ flex: 1 }}>
-              <label>Outcome</label>
-              <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-                <option value="pass">Pass</option>
-                <option value="pass_with_adjustment">Pass with adjustment</option>
-                <option value="hold">Hold</option>
-                <option value="fail">Fail</option>
-              </select>
+              <label>Tare / bags (kg)</label>
+              <input value={tare} onChange={(e) => setTare(e.target.value)} inputMode="decimal" placeholder="0" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label>Moisture %</label>
+              <input value={moisture} onChange={(e) => setMoisture(e.target.value)} inputMode="decimal" placeholder="e.g. 12" />
             </div>
           </div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <label style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={clean} onChange={(e) => setClean(e.target.checked)} />
+              Cleaned & sorted
+            </label>
+            <label style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={pestFree} onChange={(e) => setPestFree(e.target.checked)} />
+              No pest / damage
+            </label>
+          </div>
+          <label>Outcome</label>
+          <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+            <option value="pass">Pass</option>
+            <option value="pass_with_adjustment">Pass with adjustment</option>
+            <option value="hold">Hold</option>
+            <option value="fail">Fail</option>
+          </select>
+          <label>Inspection photos (optional)</label>
+          <input type="file" accept="image/*" multiple
+                 onChange={async (e) => {
+                   const files = Array.from(e.target.files || []).slice(0, 5);
+                   for (const f of files) {
+                     try { const r = await uploadMedia(f); setInspKeys((k) => [...k, r.object_key]); }
+                     catch (ex) { setErr(ex.message); }
+                   }
+                 }} />
+          {inspKeys.length > 0 && (
+            <div className="thumb-row" style={{ marginTop: 8 }}>
+              {inspKeys.map((k) => (
+                <img key={k} src={mediaUrl(k)} alt="inspection" style={{ width: 56, height: 56, objectFit: "cover" }} />
+              ))}
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
             <button
               disabled={busy}
               onClick={() =>
                 act(`/agent/orders/${id}/inspection`, {
                   gross_weight: gross ? Number(gross) : undefined,
-                  tare_weight: 0,
+                  tare_weight: tare ? Number(tare) : 0,
                   outcome,
+                  checklist: {
+                    moisture_pct: moisture ? Number(moisture) : undefined,
+                    cleaned_sorted: clean,
+                    pest_free: pestFree,
+                  },
+                  evidence: inspKeys.length ? inspKeys : undefined,
                 })
               }
             >

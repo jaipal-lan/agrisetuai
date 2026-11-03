@@ -34,6 +34,9 @@ export default function Admin() {
   const [annMsg, setAnnMsg] = useState(null);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [userQ, setUserQ] = useState("");
+  const [userRole, setUserRole] = useState("");
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setA = (k, v) => setAnn((a) => ({ ...a, [k]: v }));
@@ -86,6 +89,27 @@ export default function Admin() {
     try {
       await api(`/carriers/${id}`, { method: "PATCH", body: patch });
       load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function loadUsers() {
+    try {
+      const p = new URLSearchParams();
+      if (userQ.trim()) p.set("q", userQ.trim());
+      if (userRole) p.set("role", userRole);
+      setUsers(await api(`/admin/users?${p.toString()}`));
+    } catch {
+      setUsers([]);
+    }
+  }
+
+  async function setUserStatus(id, status) {
+    setErr(null);
+    try {
+      await api(`/admin/users/${id}/status`, { method: "POST", body: { status } });
+      loadUsers();
     } catch (e) {
       setErr(e.message);
     }
@@ -151,7 +175,15 @@ export default function Admin() {
     setMe(getUser());
     load();
     loadPayouts();
+    loadUsers();
   }, []);
+
+  // Re-query the user directory when the search/role filter changes.
+  useEffect(() => {
+    const id = setTimeout(loadUsers, 300);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userQ, userRole]);
 
   function body() {
     return {
@@ -425,6 +457,53 @@ export default function Admin() {
                   <button className="ghost" onClick={() => kycDecide(u.user_id, true)}>Approve</button>{" "}
                   <button className="ghost" onClick={() => kycDecide(u.user_id, false)}>Reject</button>
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h2>Users</h2>
+      <div className="card" style={{ marginBottom: 10 }}>
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <div style={{ flex: "2 1 220px" }}>
+            <label>Search name or phone</label>
+            <input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="e.g. Ravi or 9190…" />
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label>Role</label>
+            <select value={userRole} onChange={(e) => setUserRole(e.target.value)}>
+              <option value="">All roles</option>
+              {["farmer", "fpo", "buyer_household", "buyer_business", "field_agent",
+                "agronomist", "transport", "support", "mandal_manager", "finance", "superadmin"]
+                .map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      {users.length === 0 ? (
+        <p className="muted">No users match.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Phone</th><th>Role</th><th>Status</th>{me.role === "superadmin" && <th></th>}</tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.name || "—"}</td>
+                <td>{u.phone}</td>
+                <td>{u.role}</td>
+                <td><span className={`badge ${u.status === "active" ? "" : "amber"}`}>{u.status}</span></td>
+                {me.role === "superadmin" && (
+                  <td>
+                    {u.status === "active" ? (
+                      <button className="ghost" onClick={() => setUserStatus(u.id, "suspended")}>Suspend</button>
+                    ) : (
+                      <button className="ghost" onClick={() => setUserStatus(u.id, "active")}>Reactivate</button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
