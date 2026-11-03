@@ -346,6 +346,9 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
         )
     listing.status = ListingStatus.OPEN
     _notify_watchers(db, listing)
+    # Alert buyers whose saved search matches this new listing (never blocks).
+    from app.api.saved_searches import notify_saved_search_matches
+    notify_saved_search_matches(db, listing)
     db.commit()
     return _serialize(listing, user, db)
 

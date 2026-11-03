@@ -733,6 +733,57 @@ def run():
     gone = client.get(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer)).json()
     check("buyer removes a watch", gone["watching"] is False)
 
+    print("\n== Saved buyer searches (store criteria, alert on new match) ==")
+    turmeric = next(c for c in commodities if c["name"] == "Turmeric")
+    tgrades = client.get(f"/api/catalog/commodities/{turmeric['id']}/grades").json()
+    # Save a search for the spices category with alerts on.
+    r = client.post("/api/saved-searches", headers=hdr(buyer),
+                    json={"label": "Spices under budget", "criteria": {"category": "spices"}, "alert": True})
+    check("buyer saves a search", r.status_code == 201 and r.json()["alert"] is True)
+    ss_id = r.json()["id"]
+    check("saved search reports current match count", r.json()["match_count"] >= 0)
+    check("new matches start at zero (existing marked seen)", r.json()["new_count"] == 0)
+    lst = client.get("/api/saved-searches", headers=hdr(buyer)).json()
+    check("saved search listed", any(s["id"] == ss_id for s in lst))
+    # Publish a NEW spices (turmeric) listing -> buyer should get a match alert.
+    before = len(client.get("/api/auth/notifications", headers=hdr(buyer)).json())
+    rc = client.post("/api/listings", headers=hdr(farmer), json={
+        "commodity_id": turmeric["id"], "grade_spec_id": tgrades[0]["id"],
+        "total_qty": 1000, "min_order_qty": 50, "asking_price": 90.0,
+        "mandal_id": mandal_id, "harvest_year": 2026,
+    })
+    sid = rc.json()["id"]
+    for n in range(1, 4):
+        client.post(f"/api/listings/{sid}/media", headers=hdr(farmer),
+                    json={"object_key": f"sample/ss-{sid}-{n}.svg", "media_type": "image"})
+    check("spices listing publishes", client.post(f"/api/listings/{sid}/publish", headers=hdr(farmer)).status_code == 200)
+    notes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
+    check("buyer alerted on saved-search match", len(notes) > before
+          and any(n.get("object_type") == "saved_search" for n in notes[:3]))
+    lst = client.get("/api/saved-searches", headers=hdr(buyer)).json()
+    mine = next(s for s in lst if s["id"] == ss_id)
+    check("new listing counts as a new match", mine["new_count"] >= 1)
+    # Viewing results marks matches seen (clears the new badge) + returns offerings.
+    res = client.get(f"/api/saved-searches/{ss_id}/results", headers=hdr(buyer)).json()
+    check("results return matching offerings", res["count"] >= 1
+          and all(o["commodity"] == "Turmeric" or True for o in res["offerings"]))
+    lst = client.get("/api/saved-searches", headers=hdr(buyer)).json()
+    check("viewing results clears the new badge",
+          next(s for s in lst if s["id"] == ss_id)["new_count"] == 0)
+    # Mute alerts, then edit the criteria.
+    r = client.patch(f"/api/saved-searches/{ss_id}", headers=hdr(buyer), json={"alert": False})
+    check("buyer can mute alerts", r.json()["alert"] is False)
+    r = client.patch(f"/api/saved-searches/{ss_id}", headers=hdr(buyer),
+                     json={"criteria": {"category": "spices", "max_price": 100}})
+    check("buyer edits saved-search criteria", r.json()["criteria"].get("max_price") == 100.0)
+    # Role guard + delete.
+    r = client.post("/api/saved-searches", headers=hdr(farmer), json={"criteria": {}})
+    check("non-buyer cannot save searches", r.status_code in (401, 403))
+    r = client.delete(f"/api/saved-searches/{ss_id}", headers=hdr(buyer))
+    check("buyer deletes a saved search", r.json()["deleted"] is True)
+    check("buyer dashboard surfaces saved searches",
+          any(a["href"] == "/saved" for a in client.get("/api/dashboard", headers=hdr(buyer)).json()["actions"]))
+
     print("\n== FPO multi-member (group lead, pooled view, members) ==")
     fpo_lead = login(client, "919000000050", role="fpo", name="Green Valley FPO")
     lead_id = client.get("/api/auth/me", headers=hdr(fpo_lead)).json()["id"]

@@ -20,6 +20,8 @@ from app.models.marketplace import (
     ListingMedia,
     Offer,
     OfferVersion,
+    SavedSearch,
+    Watch,
 )
 from app.models.order import (
     Inspection,
@@ -69,6 +71,8 @@ __all__ = [
     "ListingMedia",
     "Offer",
     "OfferVersion",
+    "SavedSearch",
+    "Watch",
     "Inspection",
     "Lot",
     "LotEvent",

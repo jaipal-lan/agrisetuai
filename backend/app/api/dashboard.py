@@ -17,7 +17,7 @@ from app.core.rbac import Role
 from app.models.advisory import AdvisoryLog, CropCase
 from app.models.common import OrderStatus as S
 from app.models.finance import Payout
-from app.models.marketplace import Listing, Offer, RFQ, Watch
+from app.models.marketplace import Listing, Offer, RFQ, SavedSearch, Watch
 from app.models.order import Inspection, Order, Shipment
 from app.models.support import Dispute, Notification
 from app.models.user import BuyerProfile, FarmerProfile, User
@@ -39,6 +39,12 @@ _ACTIVE_SHIPMENT = (S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT, S.OUT_FOR_DEL
 
 def _count(db: Session, stmt) -> int:
     return db.scalar(stmt) or 0
+
+
+def _saved_search_new_count(db: Session, s: SavedSearch) -> int:
+    """How many matching listings are newer than the buyer last looked."""
+    from app.api.saved_searches import _matching_listings
+    return sum(1 for l in _matching_listings(db, s.criteria or {}) if l.id > (s.last_match_id or 0))
 
 
 @router.get("")
@@ -93,14 +99,19 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         open_rfqs = _count(db, select(func.count(RFQ.id)).where(
             RFQ.buyer_id == user.id, RFQ.status == "open"))
         watching = _count(db, select(func.count(Watch.id)).where(Watch.user_id == user.id))
+        new_matches = 0
+        for s in db.scalars(select(SavedSearch).where(SavedSearch.user_id == user.id)):
+            new_matches += _saved_search_new_count(db, s)
         cards = [
             {"label": "Open offers", "value": open_offers, "href": "/offers", "alert": open_offers > 0},
             {"label": "Orders in progress", "value": active_orders, "href": "/orders"},
             {"label": "Open requests (RFQ)", "value": open_rfqs, "href": "/requests"},
             {"label": "Watched products", "value": watching, "href": "/favorites"},
+            {"label": "New search matches", "value": new_matches, "href": "/saved", "alert": new_matches > 0},
         ]
         actions = [
             {"label": "Browse market", "href": "/", "primary": True},
+            {"label": "Saved searches", "href": "/saved"},
             {"label": "Favorites", "href": "/favorites"},
             {"label": "Post a requirement", "href": "/requests"},
             {"label": "My offers", "href": "/offers"},

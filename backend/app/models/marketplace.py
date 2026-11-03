@@ -148,3 +148,23 @@ class Watch(Base, TimestampMixin):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     commodity_id: Mapped[int] = mapped_column(ForeignKey("commodities.id"), index=True)
     target_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+
+
+class SavedSearch(Base, TimestampMixin):
+    """A buyer's saved marketplace search (criteria JSON) with optional alerts.
+
+    When a new listing is published that matches the criteria, the buyer is
+    alerted (if ``alert`` is on). ``last_match_id`` tracks the highest matching
+    listing id already alerted or viewed, so "new since you last looked" and the
+    alert de-duplication both work off one marker.
+    """
+
+    __tablename__ = "saved_searches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    label: Mapped[str | None] = mapped_column(String(120))
+    # {q, category, mandal_id, claim_status, max_price, min_qty} — any subset.
+    criteria: Mapped[dict] = mapped_column(JSON, default=dict)
+    alert: Mapped[bool] = mapped_column(default=True)
+    last_match_id: Mapped[int] = mapped_column(default=0)

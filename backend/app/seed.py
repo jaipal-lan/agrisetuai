@@ -594,6 +594,28 @@ def seed_demo_activity(db: Session, catalog: dict, mandals: dict) -> int:
     return created
 
 
+def seed_demo_saved_searches(db: Session) -> int:
+    """Demo buyer has a saved search so the Saved searches page is populated.
+    Idempotent — one per buyer. last_match_id starts at the current max matching
+    listing so the buyer is only alerted to genuinely new ones."""
+    from app.models.marketplace import Listing, SavedSearch
+    from app.models.common import ListingStatus
+
+    buyer = db.scalar(select(User).where(User.phone == "919000000004"))
+    if not buyer or db.scalar(select(SavedSearch).where(SavedSearch.user_id == buyer.id)):
+        return 0
+    criteria = {"category": "spices", "max_price": 250}
+    # Mark current spice listings as seen so only new ones alert.
+    seen = db.scalars(
+        select(Listing.id).join(Commodity, Commodity.id == Listing.commodity_id)
+        .where(Commodity.category == "spices", Listing.status == ListingStatus.OPEN)
+    ).all()
+    db.add(SavedSearch(user_id=buyer.id, label="Spices under ₹250",
+                       criteria=criteria, alert=True, last_match_id=max(seen, default=0)))
+    db.flush()
+    return 1
+
+
 def seed_demo_watches(db: Session, catalog: dict) -> int:
     """Demo buyer watches a couple of products (one with a price-alert target).
     Idempotent per watch, so it runs even when offers already exist."""
@@ -660,6 +682,7 @@ def main() -> None:
         seed_demo_fpo(db, mandals)
         n_activity = seed_demo_activity(db, catalog, mandals)
         n_activity += seed_demo_watches(db, catalog)
+        n_activity += seed_demo_saved_searches(db)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "

@@ -1,17 +1,36 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, mediaUrl } from "../lib/api";
+import { api, getUser, mediaUrl } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
 export default function Marketplace() {
   const { t, lang } = useI18n();
+  const router = useRouter();
   const [products, setProducts] = useState([]);
   const [category, setCategory] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("name");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [me, setMe] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setMe(getUser()); }, []);
+  const isBuyer = me && ["buyer_household", "buyer_business"].includes(me.role);
+
+  async function saveSearch() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const criteria = {};
+      if (q.trim()) criteria.q = q.trim();
+      if (category) criteria.category = category;
+      await api("/saved-searches", { method: "POST", body: { criteria, alert: true } });
+      router.push("/saved");
+    } catch (e) { setErr(e.message); setSaving(false); }
+  }
 
   async function load(search) {
     setLoading(true);
@@ -69,6 +88,16 @@ export default function Marketplace() {
             </select>
           </div>
         </div>
+        {isBuyer && (
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="ghost" onClick={saveSearch} disabled={saving}>
+              🔖 {saving ? "…" : t("save_search")}
+            </button>
+            <span className="muted" style={{ fontSize: 13 }}>
+              Get alerted when a new matching listing is published.
+            </span>
+          </div>
+        )}
       </div>
 
       {err && <div className="error">{err}</div>}
