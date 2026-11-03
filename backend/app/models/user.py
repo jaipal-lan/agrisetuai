@@ -18,6 +18,9 @@ class User(Base, TimestampMixin):
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     # Bump to revoke all outstanding sessions (staff leave, logout-all).
     token_version: Mapped[int] = mapped_column(default=0)
+    # Muted proactive-notification categories (keys from notify.MUTEABLE_CATEGORIES).
+    # Transactional order/account alerts are never muteable and ignore this.
+    muted_notifications: Mapped[list | None] = mapped_column(JSON, default=list)
 
     # Optional organisation membership (FPO / business).
     organisation_id: Mapped[int | None] = mapped_column(

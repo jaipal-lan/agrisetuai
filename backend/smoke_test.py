@@ -851,6 +851,38 @@ def run():
           any(c["label"] == "Buyer requests for you" for c in fd2["cards"])
           and any(a["href"] == "/interests" for a in fd2["actions"]))
 
+    print("\n== Notification preferences (mute proactive categories) ==")
+    prefs = client.get("/api/auth/notification-preferences", headers=hdr(farmer)).json()
+    check("prefs list muteable categories", len(prefs["categories"]) >= 5
+          and all(c["muted"] is False for c in prefs["categories"]))
+    # Mute 'requests' -> a matching paddy RFQ should no longer alert the farmer.
+    r = client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"muted": ["requests"]})
+    check("farmer mutes buyer-request alerts",
+          any(c["key"] == "requests" and c["muted"] for c in r.json()["categories"]))
+    before = fcount()
+    client.post("/api/rfqs", headers=hdr(buyer),
+                json={"commodity_id": paddy["id"], "requested_qty": 300, "target_price": 24})
+    check("muted category suppresses the alert", fcount() == before)
+    # Unmute -> alerts resume.
+    client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"muted": []})
+    before = fcount()
+    client.post("/api/rfqs", headers=hdr(buyer),
+                json={"commodity_id": paddy["id"], "requested_qty": 300, "target_price": 24})
+    check("unmuting restores the alert", fcount() > before)
+    # Unknown keys are ignored.
+    r = client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"muted": ["bogus", "offers"]})
+    muted_keys = {c["key"] for c in r.json()["categories"] if c["muted"]}
+    check("unknown pref keys ignored", muted_keys == {"offers"})
+    client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"muted": []})
+    # Announcements are muteable too (broadcast respects the preference).
+    client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"muted": ["announcements"]})
+    before = len(client.get("/api/auth/notifications", headers=hdr(buyer)).json())
+    client.post("/api/admin/broadcast", headers=hdr(superadmin),
+                json={"title": "Muted broadcast", "body": "should not arrive", "audience": "buyers"})
+    after = len(client.get("/api/auth/notifications", headers=hdr(buyer)).json())
+    check("muted buyer skips the broadcast", after == before)
+    client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"muted": []})
+
     print("\n== FPO multi-member (group lead, pooled view, members) ==")
     fpo_lead = login(client, "919000000050", role="fpo", name="Green Valley FPO")
     lead_id = client.get("/api/auth/me", headers=hdr(fpo_lead)).json()["id"]

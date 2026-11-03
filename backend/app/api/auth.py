@@ -308,6 +308,43 @@ def my_earnings_csv(user: User = Depends(get_current_user), db: Session = Depend
     )
 
 
+class NotifPrefs(BaseModel):
+    muted: list[str] = Field(default_factory=list)
+
+
+@router.get("/notification-preferences")
+def get_notification_preferences(user: User = Depends(get_current_user)):
+    """The muteable notification categories and whether the user has muted each."""
+    from app.services.notify import MUTEABLE_CATEGORIES
+
+    muted = set(user.muted_notifications or [])
+    return {
+        "categories": [
+            {"key": k, "label": label, "muted": k in muted}
+            for k, label in MUTEABLE_CATEGORIES
+        ]
+    }
+
+
+@router.put("/notification-preferences")
+def set_notification_preferences(
+    body: NotifPrefs, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Replace the user's muted categories (unknown keys are ignored)."""
+    from app.services.notify import MUTEABLE_CATEGORIES
+
+    valid = {k for k, _ in MUTEABLE_CATEGORIES}
+    user.muted_notifications = sorted(valid.intersection(body.muted))
+    db.commit()
+    muted = set(user.muted_notifications)
+    return {
+        "categories": [
+            {"key": k, "label": label, "muted": k in muted}
+            for k, label in MUTEABLE_CATEGORIES
+        ]
+    }
+
+
 @router.post("/notifications/read")
 def mark_notifications_read(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Mark all of the caller's notifications as read (clears the bell badge)."""

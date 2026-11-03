@@ -12,11 +12,26 @@ export default function Profile() {
   const [me, setMe] = useState(null);
   const [detail, setDetail] = useState(null);
   const [err, setErr] = useState(null);
+  const [prefs, setPrefs] = useState(null);
+  const [savingPref, setSavingPref] = useState(null);
 
   useEffect(() => {
     setMe(getUser());
     api("/auth/me").then(setDetail).catch((e) => setErr(e.message));
+    api("/auth/notification-preferences").then(setPrefs).catch(() => {});
   }, []);
+
+  async function toggleMute(key) {
+    if (!prefs) return;
+    setSavingPref(key);
+    const muted = prefs.categories.filter((c) => c.muted).map((c) => c.key);
+    const next = muted.includes(key) ? muted.filter((k) => k !== key) : [...muted, key];
+    try {
+      const r = await api("/auth/notification-preferences", { method: "PUT", body: { muted: next } });
+      setPrefs(r);
+    } catch (e) { setErr(e.message); }
+    finally { setSavingPref(null); }
+  }
 
   const gate = roleGate(me, null, { label: "your profile" });
   if (gate) return gate;
@@ -66,6 +81,26 @@ export default function Profile() {
           </Row>
         </div>
       </div>
+
+      {prefs && (
+        <>
+          <h2>Notifications</h2>
+          <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
+            Choose which proactive alerts to receive. Order updates and account messages are always sent.
+          </p>
+          <div className="card">
+            {prefs.categories.map((c) => (
+              <div key={c.key} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <span>{c.label}</span>
+                <button className={c.muted ? "ghost" : ""} disabled={savingPref === c.key}
+                        onClick={() => toggleMute(c.key)} style={{ minWidth: 86 }}>
+                  {savingPref === c.key ? "…" : c.muted ? "Muted" : "On"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <h2>Language</h2>
       <div className="row">
