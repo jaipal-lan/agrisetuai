@@ -84,6 +84,7 @@ function Nav() {
   const staff = user && ["superadmin", "finance", "mandal_manager", "support"].includes(user.role);
   const seller = user && ["farmer", "fpo"].includes(user.role);
   const buyer = user && ["buyer_household", "buyer_business"].includes(user.role);
+  const shopper = buyer || seller; // the roles that browse/negotiate/trade
   const advisor = user && ["agronomist", "superadmin", "mandal_manager", "field_agent"].includes(user.role);
   const agent = user && ["field_agent", "mandal_manager", "superadmin"].includes(user.role);
   const carrier = user && ["transport", "mandal_manager", "superadmin"].includes(user.role);
@@ -99,21 +100,22 @@ function Nav() {
 
   return (
     <nav className="nav">
-      <Link href="/welcome" className="brand">{t("app_name")}</Link>
-      <Link href="/">{t("marketplace")}</Link>
+      <Link href={user ? "/dashboard" : "/welcome"} className="brand">{t("app_name")}</Link>
+      {user && <Link href="/dashboard">{t("dashboard")}</Link>}
+      {(!user || shopper) && <Link href="/">{t("marketplace")}</Link>}
       {seller && <Link href="/sell">{t("sell")}</Link>}
       {seller && <Link href="/earnings">{t("earnings")}</Link>}
-      {(buyer || seller) && <Link href="/requests">{t("requests")}</Link>}
-      {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
+      {shopper && <Link href="/requests">{t("requests")}</Link>}
+      {shopper && <Link href="/offers">{t("my_offers")}</Link>}
+      {shopper && <Link href="/orders">{t("my_orders")}</Link>}
       {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
       {carrier && <Link href="/transport">{t("transport")}</Link>}
-      <Link href="/insights">{t("insights")}</Link>
-      {(!user || buyer || seller) && <Link href="/subscriptions">{t("plans")}</Link>}
-      {user && <Link href="/offers">{t("my_offers")}</Link>}
-      {user && <Link href="/orders">{t("my_orders")}</Link>}
+      {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
+      {(!user || shopper || advisor) && <Link href="/insights">{t("insights")}</Link>}
+      {(!user || shopper) && <Link href="/subscriptions">{t("plans")}</Link>}
+      {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && <Link href="/inbox">{t("inbox")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
-      {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && user.onboarding_complete === false && (
         <Link href="/onboarding" className="pill" style={{ background: "var(--amber-600)", color: "#fff" }}>
           {t("complete_profile")}

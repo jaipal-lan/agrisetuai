@@ -506,6 +506,94 @@ def seed_carriers(db: Session) -> int:
     return n
 
 
+def seed_demo_activity(db: Session, catalog: dict, mandals: dict) -> int:
+    """Open offers + RFQs (and a listing for the primary demo farmer) so the
+    role dashboards show real numbers out of the box. Idempotent — skips once
+    any offer exists."""
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    from app.models.common import OfferStatus, RFQStatus
+    from app.models.marketplace import Offer, OfferVersion, RFQ
+
+    if db.scalar(select(func.count(Offer.id))):
+        return 0
+
+    buyer = db.scalar(select(User).where(User.phone == "919000000004"))
+    ravi = db.scalar(select(User).where(User.phone == "919000000003"))
+    if not buyer:
+        return 0
+
+    created = 0
+
+    # Give the primary demo farmer (Ravi) an open listing so his seller
+    # dashboard shows an active listing + an incoming negotiation.
+    ravi_listing = None
+    if ravi:
+        paddy = catalog.get("Paddy")
+        ravi_listing = db.scalar(select(Listing).where(Listing.seller_id == ravi.id))
+        if paddy and ravi_listing is None:
+            v = db.scalar(select(Variety).where(Variety.commodity_id == paddy.id))
+            g = db.scalar(select(GradeSpec).where(GradeSpec.commodity_id == paddy.id))
+            tenali = mandals.get("Tenali")
+            ravi_listing = Listing(
+                seller_id=ravi.id, commodity_id=paddy.id,
+                variety_id=v.id if v else None, grade_spec_id=g.id if g else None,
+                total_qty=D(10000), reserved_qty=D(0), sold_qty=D(0),
+                min_order_qty=D(500), asking_price=D(23.5), negotiable=True,
+                claim_status="conventional", mandal_id=tenali.id if tenali else None,
+                status=str(ListingStatus.OPEN), pickup_terms="Farm-gate pickup.",
+                harvest_year=2026, specifications="Well dried, cleaned, 25-50kg bags.",
+                agent_verified=False,
+            )
+            db.add(ravi_listing)
+            db.flush()
+            for n in range(1, 4):
+                db.add(ListingMedia(listing_id=ravi_listing.id, object_key=f"sample/paddy-{n}.svg",
+                                    media_type="image", access_class="public"))
+
+    # Open offers from the demo buyer: one on Ravi's listing, two on others.
+    targets = []
+    if ravi_listing is not None:
+        targets.append(ravi_listing)
+    others = db.scalars(
+        select(Listing).where(Listing.status == "open", Listing.seller_id != buyer.id)
+        .order_by(Listing.id).limit(6)
+    ).all()
+    for lst in others:
+        if ravi_listing is None or lst.id != ravi_listing.id:
+            targets.append(lst)
+        if len(targets) >= 3:
+            break
+
+    exp = utcnow() + timedelta(days=3)
+    for lst in targets[:3]:
+        off = Offer(listing_id=lst.id, buyer_id=buyer.id, seller_id=lst.seller_id,
+                    status=str(OfferStatus.OPEN))
+        db.add(off)
+        db.flush()
+        qty = float(lst.min_order_qty) or 500.0
+        db.add(OfferVersion(
+            offer_id=off.id, version_no=1, proposer_role="buyer", proposer_id=buyer.id,
+            price_per_unit=D(round(float(lst.asking_price) * 0.96, 2)), quantity=D(qty),
+            unit="kg", grade_spec_id=lst.grade_spec_id, expires_at=exp, created_at=utcnow(),
+        ))
+        created += 1
+
+    # A couple of open RFQs so the buyer's "Open requests" is non-zero.
+    for cname, qty, tp in [("Turmeric", 2000, 95.0), ("Groundnut", 5000, 66.0)]:
+        c = catalog.get(cname)
+        if c:
+            db.add(RFQ(buyer_id=buyer.id, commodity_id=c.id, requested_qty=D(qty),
+                       unit="kg", target_price=D(tp), status=str(RFQStatus.OPEN),
+                       inspection_required=True))
+            created += 1
+
+    db.flush()
+    return created
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -519,10 +607,11 @@ def main() -> None:
         n_carriers = seed_carriers(db)
         seed_advisory(db)
         seed_insights(db, mandals)
+        n_activity = seed_demo_activity(db, catalog, mandals)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "
-              f"{n_carriers} couriers, advisory + insights.")
+              f"{n_carriers} couriers, advisory + insights, {n_activity} demo offers/RFQs.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

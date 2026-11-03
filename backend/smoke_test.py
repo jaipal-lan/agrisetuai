@@ -638,6 +638,35 @@ def run():
     r = client.post("/api/admin/payouts/run", headers=hdr(agent), json={})
     check("non-finance cannot run payouts", r.status_code in (401, 403))
 
+    print("\n== Role-based dashboards (each role gets its own) ==")
+    fd = client.get("/api/dashboard", headers=hdr(farmer)).json()
+    check("farmer dashboard labelled", fd["role_label"] in ("Farmer", "FPO"))
+    check("farmer dashboard has listing/payout cards",
+          any(c["label"] == "Active listings" for c in fd["cards"])
+          and any("payout" in c["label"].lower() for c in fd["cards"]))
+    check("farmer actions include List produce", any(a["href"] == "/sell" for a in fd["actions"]))
+
+    bd = client.get("/api/dashboard", headers=hdr(buyer)).json()
+    check("buyer dashboard labelled", "buyer" in bd["role_label"].lower())
+    check("buyer dashboard has offers/RFQ cards",
+          any(c["label"] == "Open offers" for c in bd["cards"])
+          and any("RFQ" in c["label"] for c in bd["cards"]))
+    check("buyer actions include Browse market", any(a["href"] == "/" for a in bd["actions"]))
+    check("buyer dashboard differs from farmer", bd["actions"] != fd["actions"])
+
+    ad = client.get("/api/dashboard", headers=hdr(agent)).json()
+    check("agent dashboard has inspection card", any("Inspection" in c["label"] for c in ad["cards"]))
+
+    td = client.get("/api/dashboard", headers=hdr(transport)).json()
+    check("transport dashboard has shipments card", any("shipment" in c["label"].lower() for c in td["cards"]))
+
+    sd = client.get("/api/dashboard", headers=hdr(superadmin)).json()
+    check("staff dashboard shows GMV + disputes + payouts",
+          any("GMV" in c["label"] for c in sd["cards"])
+          and any("disput" in c["label"].lower() for c in sd["cards"])
+          and any("payout" in c["label"].lower() for c in sd["cards"]))
+    check("staff actions include Admin console", any(a["href"] == "/admin" for a in sd["actions"]))
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

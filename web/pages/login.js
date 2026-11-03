@@ -51,7 +51,7 @@ export default function Login() {
         body: { phone, code, role, name: name || undefined },
       });
       setSession(r.token, r.user);
-      router.push(r.user.role === "farmer" || r.user.role === "fpo" ? "/sell" : "/");
+      router.push("/dashboard");
     } catch (e) {
       setErr(e.message);
     } finally {
