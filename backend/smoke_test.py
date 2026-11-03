@@ -282,16 +282,31 @@ def run():
     check("transport job shows trip earning", float(next(j for j in tj["jobs"] if j["order_id"] == order_id)["transport_charge"]) > 0)
 
     for ev, expect in [("picked_up", "picked_up"), ("in_transit", "in_transit"),
-                       ("out_for_delivery", "out_for_delivery"),
-                       ("delivered", "delivered_pending_acceptance")]:
+                       ("out_for_delivery", "out_for_delivery")]:
         r = client.post(f"/api/orders/{order_id}/shipment/event", headers=hdr(transport),
                         json={"event": ev})
         check(f"shipment {ev}", r.json()["order"]["status"] == expect)
 
-    # Tracking timeline visible to the buyer, with courier + milestones.
+    # Mid-flight tracking: a 5-step timeline, pickup place, ETA, and the buyer's
+    # delivery code (shown to the courier at handoff) — not visible to the seller.
     trk = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(buyer)).json()
     check("tracking shows assigned courier", trk["shipment"]["courier_name"] == "Test Courier")
-    check("tracking lists shipment milestones", len(trk["events"]) >= 3)
+    check("tracking builds a 5-step timeline", len(trk["steps"]) == 5)
+    check("earlier milestones marked done", trk["steps"][0]["done"] and trk["steps"][1]["done"])
+    check("a current step is highlighted", any(s["current"] for s in trk["steps"]))
+    check("tracking knows the pickup place", trk["from_place"] is not None)
+    check("tracking estimates an ETA", trk["eta"] is not None)
+    check("buyer sees the delivery code out-for-delivery", bool(trk.get("delivery_code")))
+    trk_s = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(farmer)).json()
+    check("seller does not see the delivery code", "delivery_code" not in trk_s)
+
+    r = client.post(f"/api/orders/{order_id}/shipment/event", headers=hdr(transport),
+                    json={"event": "delivered"})
+    check("shipment delivered", r.json()["order"]["status"] == "delivered_pending_acceptance")
+    trk = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(buyer)).json()
+    check("all milestones done after delivery", all(s["done"] for s in trk["steps"]))
+    check("delivered tracking reports proof + actual time",
+          trk.get("proof") is not None and trk["eta_basis"] == "delivered")
 
     r = client.post(f"/api/orders/{order_id}/acceptance", headers=hdr(buyer))
     check("buyer accepts delivery -> settled", r.json()["status"] == "settled")

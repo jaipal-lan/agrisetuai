@@ -592,20 +592,93 @@ def assign_courier(
             "courier": carrier.name}
 
 
+# The buyer-facing delivery journey (shipment-centric milestones).
+_TRACK_STEPS = [
+    ("packed", "Packed & sealed"),
+    ("picked_up", "Picked up"),
+    ("in_transit", "In transit"),
+    ("out_for_delivery", "Out for delivery"),
+    ("delivered", "Delivered"),
+]
+
+
+def _estimate_eta(order: Order, picked_at, packed_at):
+    """Rough ETA from the quote's route distance. Returns (iso, basis) or (None, None)."""
+    q = order.quote or {}
+    raw = (q.get("breakdown") or {}).get("route_km", q.get("route_km"))
+    try:
+        dist = float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        dist = None
+    if dist is None:
+        return None, None
+    from datetime import timedelta
+    # ~40 km/h effective on rural routes + a 1h handling buffer, min 2h.
+    hours = max(2.0, dist / 40.0 + 1.0)
+    base = picked_at or packed_at
+    if base is None:
+        return None, "pending_pickup"
+    return (base + timedelta(hours=hours)).isoformat(), "estimated"
+
+
 @router.get("/{order_id}/tracking")
 def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Live tracking timeline visible to the buyer, seller and staff."""
+    """Live delivery timeline (milestones, ETA, courier, delivery code) for the
+    buyer, seller and staff."""
+    from app.models.location import Mandal
+
     order = _get_order(order_id, db)
     _require_party(order, user)
     shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+
+    ship_at: dict[str, object] = {}
     events = []
     if shipment is not None:
-        rows = db.scalars(
-            select(ShipmentEvent).where(ShipmentEvent.shipment_id == shipment.id)
-            .order_by(ShipmentEvent.at)
-        )
-        events = [{"event": e.event, "at": e.at.isoformat(), "evidence_ref": e.evidence_ref} for e in rows]
-    return {
+        for e in db.scalars(
+            select(ShipmentEvent).where(ShipmentEvent.shipment_id == shipment.id).order_by(ShipmentEvent.at)
+        ):
+            ship_at.setdefault(e.event, e.at)
+            events.append({"event": e.event, "at": e.at.isoformat(), "evidence_ref": e.evidence_ref})
+
+    # "packed" / terminal times come from the order's own status log.
+    order_at: dict[str, object] = {}
+    for ev in order.status_events:
+        order_at[ev.to_status] = ev.at
+    packed_at = order_at.get(S.READY_FOR_PICKUP)
+    delivered_at = ship_at.get("delivered") or order_at.get(S.DELIVERED_PENDING_ACCEPTANCE)
+
+    at_for = {
+        "packed": packed_at,
+        "picked_up": ship_at.get("picked_up"),
+        "in_transit": ship_at.get("in_transit"),
+        "out_for_delivery": ship_at.get("out_for_delivery"),
+        "delivered": delivered_at,
+    }
+    steps = []
+    current_set = False
+    accepted = order.status in (S.COMPLETED, S.SETTLED)
+    for key, label in _TRACK_STEPS:
+        when = at_for.get(key)
+        done = when is not None
+        step = {"key": key, "label": label, "done": done,
+                "at": when.isoformat() if done else None, "current": False}
+        if not done and not current_set and not accepted:
+            step["current"] = True
+            current_set = True
+        steps.append(step)
+
+    eta, eta_basis = _estimate_eta(order, ship_at.get("picked_up"), packed_at)
+    if delivered_at is not None:
+        eta, eta_basis = delivered_at.isoformat(), "delivered"
+
+    # Pickup place (the seller's mandal, from the accepted-terms snapshot).
+    from_place = None
+    mid = (order.accepted_terms or {}).get("mandal_id")
+    if mid:
+        m = db.get(Mandal, mid)
+        from_place = m.name if m else None
+
+    out = {
         "order_public_id": order.public_id,
         "order_status": order.status,
         "shipment": None if shipment is None else {
@@ -614,8 +687,26 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
             "courier_name": shipment.courier_name,
             "vehicle_class": shipment.vehicle_class,
         },
+        "steps": steps,
         "events": events,
+        "from_place": from_place,
+        "eta": eta,
+        "eta_basis": eta_basis,
     }
+    # Delivery code: the buyer shows it to the courier at handoff. Only the
+    # buyer/staff ever see it, and only once the courier is out for delivery.
+    pod = (shipment.proof_of_delivery or {}) if shipment else {}
+    staff = user.role in (Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER, Role.TRANSPORT)
+    if pod.get("otp") and (staff or user.id == order.buyer_id) and not pod.get("otp_ok"):
+        out["delivery_code"] = pod["otp"]
+    if delivered_at is not None:
+        out["proof"] = {
+            "otp_ok": bool(pod.get("otp_ok")),
+            "has_photo": bool(pod.get("photo_ref")),
+            "has_signature": bool(pod.get("signature_ref")),
+            "recipient_note": pod.get("recipient_note"),
+        }
+    return out
 
 
 # --- Shipment milestones --------------------------------------------------

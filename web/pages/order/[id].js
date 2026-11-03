@@ -205,6 +205,70 @@ function Certificate({ orderId }) {
   );
 }
 
+function fmtWhen(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function TrackingTimeline({ orderId, isBuyer }) {
+  const [tr, setTr] = useState(null);
+  usePoll(() => { if (orderId) api(`/orders/${orderId}/tracking`).then(setTr).catch(() => {}); }, 12000, [orderId]);
+  if (!tr || !tr.steps) return null;
+
+  const delivered = tr.steps[tr.steps.length - 1].done;
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="between">
+        <h3 style={{ margin: 0 }}>🚚 Delivery</h3>
+        {tr.shipment?.courier_name && <span className="badge grey">{tr.shipment.status.replace(/_/g, " ")}</span>}
+      </div>
+
+      {tr.shipment?.courier_name && (
+        <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+          {tr.shipment.courier_name}{tr.shipment.vehicle_class ? ` · ${tr.shipment.vehicle_class}` : ""}
+          {tr.from_place ? ` · pickup from ${tr.from_place}` : ""}
+        </div>
+      )}
+
+      {tr.eta && (
+        <div className={`eta ${delivered ? "ok" : ""}`} style={{ marginTop: 10 }}>
+          {delivered ? "Delivered " : "Estimated delivery: "}<b>{fmtWhen(tr.eta)}</b>
+          {!delivered && tr.eta_basis === "estimated" ? <span className="muted"> (estimate)</span> : null}
+        </div>
+      )}
+
+      {/* Buyer's delivery code — shown to the courier at handoff. */}
+      {isBuyer && tr.delivery_code && (
+        <div className="code-callout" style={{ marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 12 }}>Give this code to the courier at delivery</div>
+          <div className="code">{tr.delivery_code}</div>
+        </div>
+      )}
+
+      <ol className="track" style={{ marginTop: 14 }}>
+        {tr.steps.map((st) => (
+          <li key={st.key} className={st.done ? "done" : st.current ? "current" : "pending"}>
+            <span className="dot">{st.done ? "✓" : st.current ? "●" : "○"}</span>
+            <span className="track-label">{st.label}</span>
+            {st.at && <span className="track-at">{fmtWhen(st.at)}</span>}
+          </li>
+        ))}
+      </ol>
+
+      {tr.proof && (
+        <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>
+          Proof of delivery:
+          {tr.proof.otp_ok ? " code verified" : ""}
+          {tr.proof.has_photo ? " · photo" : ""}
+          {tr.proof.has_signature ? " · signature" : ""}
+          {tr.proof.recipient_note ? ` · “${tr.proof.recipient_note}”` : ""}
+          {!tr.proof.otp_ok && !tr.proof.has_photo && !tr.proof.has_signature && !tr.proof.recipient_note ? " recorded" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrderDetail() {
   const { t } = useI18n();
   const router = useRouter();
@@ -438,15 +502,10 @@ export default function OrderDetail() {
         </Action>
       )}
 
-      {/* Courier info (all parties) */}
-      {order.shipment && order.shipment.courier_name && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="between">
-            <div>🚚 Courier: <b>{order.shipment.courier_name}</b></div>
-            <span className="badge grey">{order.shipment.status.replace(/_/g, " ")}</span>
-          </div>
-          {order.shipment.vehicle_class && <div className="muted" style={{ fontSize: 13 }}>{order.shipment.vehicle_class}</div>}
-        </div>
+      {/* Delivery timeline (all parties) once the order is packed or moving. */}
+      {["ready_for_pickup", "picked_up", "in_transit", "out_for_delivery",
+        "delivered_pending_acceptance", "completed", "settled"].includes(s) && (
+        <TrackingTimeline orderId={id} isBuyer={isBuyer} />
       )}
 
       {/* Buyer: choose the courier (buyer-paid logistics) */}
