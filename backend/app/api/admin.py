@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -50,10 +52,35 @@ def kpis(user=Depends(_staff), db: Session = Depends(get_db)):
     }
 
 
-def _compute_reports(db: Session) -> dict:
+def _parse_window(from_: str | None, to: str | None):
+    """Parse YYYY-MM-DD from/to into a [start, end) UTC datetime window. `to` is
+    inclusive (end-of-day). Either side may be None (open-ended)."""
+    def parse(s):
+        return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    start = end = None
+    try:
+        if from_:
+            start = parse(from_)
+        if to:
+            end = parse(to) + timedelta(days=1)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Dates must be YYYY-MM-DD")
+    return start, end
+
+
+def _window(stmt, col, start, end):
+    if start is not None:
+        stmt = stmt.where(col >= start)
+    if end is not None:
+        stmt = stmt.where(col < end)
+    return stmt
+
+
+def _compute_reports(db: Session, start=None, end=None) -> dict:
     """GMV and order counts broken down by commodity, mandal, state and agent.
 
     GMV is the product value of PAID-or-beyond trades (revenue-recognised).
+    Optionally restricted to orders created within [start, end).
     """
     paid_states = [S.PAID, S.PACKING, S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT,
                    S.OUT_FOR_DELIVERY, S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED]
@@ -77,7 +104,8 @@ def _compute_reports(db: Session) -> dict:
     total_gmv = 0.0
     total_orders = 0
 
-    for o in db.scalars(select(Order).where(Order.status.in_(paid_states))):
+    for o in db.scalars(_window(select(Order).where(Order.status.in_(paid_states)),
+                                 Order.created_at, start, end)):
         t = o.accepted_terms or {}
         value = float(t.get("price_per_unit", 0)) * float(t.get("quantity", 0))
         total_gmv += value
@@ -118,17 +146,21 @@ def _compute_reports(db: Session) -> dict:
 
 
 @router.get("/reports")
-def reports(user=Depends(_staff), db: Session = Depends(get_db)):
-    return _compute_reports(db)
+def reports(from_: str | None = Query(None, alias="from"), to: str | None = None,
+            user=Depends(_staff), db: Session = Depends(get_db)):
+    start, end = _parse_window(from_, to)
+    return {**_compute_reports(db, start, end), "from": from_, "to": to}
 
 
 @router.get("/reports.csv")
-def reports_csv(user=Depends(_staff), db: Session = Depends(get_db)):
+def reports_csv(from_: str | None = Query(None, alias="from"), to: str | None = None,
+                user=Depends(_staff), db: Session = Depends(get_db)):
     """Same GMV breakdown as /admin/reports, as a downloadable CSV."""
     import csv
     import io
 
-    rep = _compute_reports(db)
+    start, end = _parse_window(from_, to)
+    rep = _compute_reports(db, start, end)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["dimension", "key", "gmv_inr", "orders"])
@@ -148,11 +180,10 @@ def _pct(num: int, den: int) -> float:
     return round(100.0 * num / den, 1) if den else 0.0
 
 
-def _compute_ops_report(db: Session) -> dict:
+def _compute_ops_report(db: Session, start=None, end=None) -> dict:
     """Operational scorecard: field-agent throughput/quality, courier delivery
-    performance, dispute rate + outcomes, and payout standing."""
-    from datetime import datetime
-
+    performance, dispute rate + outcomes, and payout standing. Optionally
+    restricted to records created within [start, end)."""
     from app.models.advisory import AdvisoryLog
     from app.models.order import Shipment, ShipmentEvent
 
@@ -168,7 +199,7 @@ def _compute_ops_report(db: Session) -> dict:
             "orders_assigned": 0, "advisories": 0,
         })
 
-    for insp in db.scalars(select(Inspection)):
+    for insp in db.scalars(_window(select(Inspection), Inspection.created_at, start, end)):
         a = agent(insp.agent_id)
         a["inspections"] += 1
         oc = (insp.outcome or "").lower()
@@ -178,11 +209,13 @@ def _compute_ops_report(db: Session) -> dict:
             a["hold"] += 1
         elif oc == "fail":
             a["fail"] += 1
-    for aid, in db.execute(
-        select(Order.assigned_agent_id).where(Order.assigned_agent_id.is_not(None))
-    ):
+    for aid, in db.execute(_window(
+        select(Order.assigned_agent_id).where(Order.assigned_agent_id.is_not(None)),
+        Order.created_at, start, end)):
         agent(aid)["orders_assigned"] += 1
-    for aid, in db.execute(select(AdvisoryLog.agent_id).where(AdvisoryLog.agent_id.is_not(None))):
+    for aid, in db.execute(_window(
+        select(AdvisoryLog.agent_id).where(AdvisoryLog.agent_id.is_not(None)),
+        AdvisoryLog.created_at, start, end)):
         agent(aid)["advisories"] += 1
 
     agent_rows = []
@@ -199,7 +232,9 @@ def _compute_ops_report(db: Session) -> dict:
 
     couriers: dict[int, dict] = {}
     transit_acc: dict[int, list] = {}
-    for sh in db.scalars(select(Shipment).where(Shipment.courier_id.is_not(None))):
+    for sh in db.scalars(_window(
+            select(Shipment).where(Shipment.courier_id.is_not(None)),
+            Shipment.created_at, start, end)):
         c = couriers.setdefault(sh.courier_id, {
             "courier_id": sh.courier_id, "name": sh.courier_name or f"courier {sh.courier_id}",
             "shipments": 0, "delivered": 0, "active": 0, "failed": 0,
@@ -228,11 +263,13 @@ def _compute_ops_report(db: Session) -> dict:
     # --- Disputes: rate against revenue-recognised orders + outcome mix -------
     paid_states = [S.PAID, S.PACKING, S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT,
                    S.OUT_FOR_DELIVERY, S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED]
-    paid_orders = db.scalar(select(func.count(Order.id)).where(Order.status.in_(paid_states))) or 0
-    total_disputes = db.scalar(select(func.count(Dispute.id))) or 0
+    paid_orders = db.scalar(_window(
+        select(func.count(Order.id)).where(Order.status.in_(paid_states)),
+        Order.created_at, start, end)) or 0
+    total_disputes = db.scalar(_window(select(func.count(Dispute.id)), Dispute.created_at, start, end)) or 0
     by_outcome: dict[str, int] = {}
     decided = 0
-    for d in db.scalars(select(Dispute)):
+    for d in db.scalars(_window(select(Dispute), Dispute.created_at, start, end)):
         if d.decision:
             decided += 1
             by_outcome[d.decision] = by_outcome.get(d.decision, 0) + 1
@@ -251,14 +288,18 @@ def _compute_ops_report(db: Session) -> dict:
             tot += money(p.amount)
         return tot
 
-    pending_q = select(Payout).where(Payout.status == "pending")
-    processed_q = select(Payout).where(Payout.status == "processed")
+    def _pq(status_val):
+        return _window(select(Payout).where(Payout.status == status_val), Payout.created_at, start, end)
+
+    def _pc(status_val):
+        return _window(select(func.count(Payout.id)).where(Payout.status == status_val),
+                       Payout.created_at, start, end)
     payouts = {
-        "pending_count": db.scalar(select(func.count(Payout.id)).where(Payout.status == "pending")) or 0,
-        "pending_total": str(_sum(pending_q)),
-        "processed_count": db.scalar(select(func.count(Payout.id)).where(Payout.status == "processed")) or 0,
-        "processed_total": str(_sum(processed_q)),
-        "batches": db.scalar(select(func.count(PayoutBatch.id))) or 0,
+        "pending_count": db.scalar(_pc("pending")) or 0,
+        "pending_total": str(_sum(_pq("pending"))),
+        "processed_count": db.scalar(_pc("processed")) or 0,
+        "processed_total": str(_sum(_pq("processed"))),
+        "batches": db.scalar(_window(select(func.count(PayoutBatch.id)), PayoutBatch.created_at, start, end)) or 0,
     }
 
     return {"agents": agent_rows, "couriers": courier_rows,
@@ -266,17 +307,21 @@ def _compute_ops_report(db: Session) -> dict:
 
 
 @router.get("/ops-report")
-def ops_report(user=Depends(_staff), db: Session = Depends(get_db)):
-    return _compute_ops_report(db)
+def ops_report(from_: str | None = Query(None, alias="from"), to: str | None = None,
+               user=Depends(_staff), db: Session = Depends(get_db)):
+    start, end = _parse_window(from_, to)
+    return {**_compute_ops_report(db, start, end), "from": from_, "to": to}
 
 
 @router.get("/ops-report.csv")
-def ops_report_csv(user=Depends(_staff), db: Session = Depends(get_db)):
+def ops_report_csv(from_: str | None = Query(None, alias="from"), to: str | None = None,
+                   user=Depends(_staff), db: Session = Depends(get_db)):
     """Operational scorecard as a downloadable CSV (one section per block)."""
     import csv
     import io
 
-    rep = _compute_ops_report(db)
+    start, end = _parse_window(from_, to)
+    rep = _compute_ops_report(db, start, end)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["AGENTS"])

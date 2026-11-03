@@ -1013,6 +1013,30 @@ def run():
     r = client.get("/api/admin/ops-report", headers=hdr(buyer))
     check("non-staff cannot read ops report", r.status_code in (401, 403))
 
+    print("\n== Date-ranged reports (this-month-vs-last filtering) ==")
+    from datetime import date as _date, timedelta as _td
+    wide_from = (_date.today() - _td(days=2)).isoformat()
+    wide_to = (_date.today() + _td(days=2)).isoformat()
+    future = (_date.today() + _td(days=3)).isoformat()
+    rep_all = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
+    rep_wide = client.get(f"/api/admin/reports?from={wide_from}&to={wide_to}", headers=hdr(superadmin)).json()
+    check("window around now matches all-time (recent data)",
+          float(rep_wide["total_gmv"]) == float(rep_all["total_gmv"]) and rep_wide["total_orders"] == rep_all["total_orders"])
+    rep_future = client.get(f"/api/admin/reports?from={future}", headers=hdr(superadmin)).json()
+    check("future-only window excludes past orders",
+          rep_future["total_orders"] == 0 and float(rep_future["total_gmv"]) == 0.0)
+    check("report echoes its window", rep_future["from"] == future)
+    ops_future = client.get(f"/api/admin/ops-report?from={future}", headers=hdr(superadmin)).json()
+    check("ops report respects the window",
+          ops_future["disputes"]["total"] == 0 and ops_future["payouts"]["processed_count"] == 0
+          and len(ops_future["couriers"]) == 0 and len(ops_future["agents"]) == 0)
+    r = client.get("/api/admin/reports?from=2026-13-99", headers=hdr(superadmin))
+    check("invalid date rejected", r.status_code == 400)
+    r = client.get(f"/api/admin/reports.csv?from={wide_from}&to={wide_to}", headers=hdr(superadmin))
+    check("ranged GMV CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+    r = client.get(f"/api/admin/ops-report.csv?from={future}", headers=hdr(superadmin))
+    check("ranged ops CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

@@ -30,6 +30,7 @@ export default function Admin() {
   const [newCarrier, setNewCarrier] = useState({ name: "", code: "", contact_phone: "" });
   const [reports, setReports] = useState(null);
   const [ops, setOps] = useState(null);
+  const [range, setRange] = useState({ from: "", to: "" });
   const [kyc, setKyc] = useState([]);
   const [ann, setAnn] = useState({ title: "", body: "", audience: "all" });
   const [annMsg, setAnnMsg] = useState(null);
@@ -45,24 +46,20 @@ export default function Admin() {
 
   async function load() {
     try {
-      const [k, l, r, c, cr, rep, kq, op] = await Promise.all([
+      const [k, l, r, c, cr, kq] = await Promise.all([
         api("/admin/kpis"),
         api("/admin/ledger/accounts"),
         api("/pricing/rules"),
         api("/catalog/commodities"),
         api("/carriers"),
-        api("/admin/reports"),
         api("/admin/kyc"),
-        api("/admin/ops-report"),
       ]);
       setKpis(k);
       setLedger(l);
       setRules(r);
       setCommodities(c);
       setCarriers(cr);
-      setReports(rep);
       setKyc(kq);
-      setOps(op);
     } catch (e) {
       setErr(e.message);
     }
@@ -92,6 +89,25 @@ export default function Admin() {
     try {
       await api(`/carriers/${id}`, { method: "PATCH", body: patch });
       load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  function rangeQS() {
+    const p = new URLSearchParams();
+    if (range.from) p.set("from", range.from);
+    if (range.to) p.set("to", range.to);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  }
+
+  async function loadReports() {
+    try {
+      const qs = rangeQS();
+      const [rep, op] = await Promise.all([api(`/admin/reports${qs}`), api(`/admin/ops-report${qs}`)]);
+      setReports(rep);
+      setOps(op);
     } catch (e) {
       setErr(e.message);
     }
@@ -180,6 +196,12 @@ export default function Admin() {
     loadPayouts();
     loadUsers();
   }, []);
+
+  // Refetch both report surfaces whenever the date range changes.
+  useEffect(() => {
+    loadReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range.from, range.to]);
 
   // Re-query the user directory when the search/role filter changes.
   useEffect(() => {
@@ -334,12 +356,35 @@ export default function Admin() {
         )}
       </div>
 
+      <h2>Reporting period</h2>
+      <div className="card">
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <div style={{ flex: "0 0 auto" }}>
+            <label>From</label>
+            <input type="date" value={range.from} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
+          </div>
+          <div style={{ flex: "0 0 auto" }}>
+            <label>To</label>
+            <input type="date" value={range.to} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} />
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="ghost" onClick={() => setRange(monthRange(0))}>This month</button>
+            <button className="ghost" onClick={() => setRange(monthRange(-1))}>Last month</button>
+            <button className="ghost" onClick={() => setRange({ from: "", to: "" })}>All time</button>
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>
+          {range.from || range.to ? `Showing ${range.from || "start"} → ${range.to || "today"}` : "Showing all time"}
+          {" "}· applies to GMV and operations reports below.
+        </div>
+      </div>
+
       {reports && (
         <>
           <div className="between">
             <h2>Reports — GMV ₹{reports.total_gmv} · {reports.total_orders} orders</h2>
             <button className="ghost" onClick={() =>
-              downloadCsv("/admin/reports.csv", "agrisetu-gmv-report.csv").catch((e) => setErr(e.message))}>
+              downloadCsv(`/admin/reports.csv${rangeQS()}`, "agrisetu-gmv-report.csv").catch((e) => setErr(e.message))}>
               ⬇ Download CSV
             </button>
           </div>
@@ -369,7 +414,7 @@ export default function Admin() {
           <div className="between">
             <h2>Operations scorecard</h2>
             <button className="ghost" onClick={() =>
-              downloadCsv("/admin/ops-report.csv", "agrisetu-ops-report.csv").catch((e) => setErr(e.message))}>
+              downloadCsv(`/admin/ops-report.csv${rangeQS()}`, "agrisetu-ops-report.csv").catch((e) => setErr(e.message))}>
               ⬇ Download CSV
             </button>
           </div>
@@ -636,6 +681,15 @@ export default function Admin() {
       </table>
     </div>
   );
+}
+
+// Local calendar-month window as {from, to} in YYYY-MM-DD (offset 0 = this month).
+function monthRange(offset) {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const last = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { from: fmt(first), to: fmt(last) };
 }
 
 function MoqRow({ c, onSave }) {
