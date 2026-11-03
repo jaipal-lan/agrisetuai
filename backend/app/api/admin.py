@@ -144,6 +144,175 @@ def reports_csv(user=Depends(_staff), db: Session = Depends(get_db)):
     )
 
 
+def _pct(num: int, den: int) -> float:
+    return round(100.0 * num / den, 1) if den else 0.0
+
+
+def _compute_ops_report(db: Session) -> dict:
+    """Operational scorecard: field-agent throughput/quality, courier delivery
+    performance, dispute rate + outcomes, and payout standing."""
+    from datetime import datetime
+
+    from app.models.advisory import AdvisoryLog
+    from app.models.order import Shipment, ShipmentEvent
+
+    names = {u.id: (u.name or f"user {u.id}") for u in db.scalars(select(User))}
+
+    # --- Field agents: inspections (by outcome), orders handled, advisories ----
+    agents: dict[int, dict] = {}
+
+    def agent(aid):
+        return agents.setdefault(aid, {
+            "agent_id": aid, "name": names.get(aid, f"user {aid}"),
+            "inspections": 0, "pass": 0, "hold": 0, "fail": 0,
+            "orders_assigned": 0, "advisories": 0,
+        })
+
+    for insp in db.scalars(select(Inspection)):
+        a = agent(insp.agent_id)
+        a["inspections"] += 1
+        oc = (insp.outcome or "").lower()
+        if oc in ("pass", "pass_with_adjustment"):
+            a["pass"] += 1
+        elif oc == "hold":
+            a["hold"] += 1
+        elif oc == "fail":
+            a["fail"] += 1
+    for aid, in db.execute(
+        select(Order.assigned_agent_id).where(Order.assigned_agent_id.is_not(None))
+    ):
+        agent(aid)["orders_assigned"] += 1
+    for aid, in db.execute(select(AdvisoryLog.agent_id).where(AdvisoryLog.agent_id.is_not(None))):
+        agent(aid)["advisories"] += 1
+
+    agent_rows = []
+    for a in agents.values():
+        a["pass_rate_pct"] = _pct(a["pass"], a["inspections"])
+        agent_rows.append(a)
+    agent_rows.sort(key=lambda r: (r["inspections"], r["orders_assigned"]), reverse=True)
+
+    # --- Couriers: delivery completion + average transit time -----------------
+    # Earliest timestamp per (shipment, event) for transit-time math.
+    ev_at: dict[int, dict[str, datetime]] = {}
+    for e in db.scalars(select(ShipmentEvent).order_by(ShipmentEvent.at)):
+        ev_at.setdefault(e.shipment_id, {}).setdefault(e.event, e.at)
+
+    couriers: dict[int, dict] = {}
+    transit_acc: dict[int, list] = {}
+    for sh in db.scalars(select(Shipment).where(Shipment.courier_id.is_not(None))):
+        c = couriers.setdefault(sh.courier_id, {
+            "courier_id": sh.courier_id, "name": sh.courier_name or f"courier {sh.courier_id}",
+            "shipments": 0, "delivered": 0, "active": 0, "failed": 0,
+        })
+        c["shipments"] += 1
+        evs = ev_at.get(sh.id, {})
+        if "delivered" in evs:
+            c["delivered"] += 1
+            if "picked_up" in evs:
+                hrs = (evs["delivered"] - evs["picked_up"]).total_seconds() / 3600.0
+                if hrs >= 0:
+                    transit_acc.setdefault(sh.courier_id, []).append(hrs)
+        elif "failed_delivery" in evs or sh.status == "failed_delivery":
+            c["failed"] += 1
+        else:
+            c["active"] += 1
+
+    courier_rows = []
+    for cid, c in couriers.items():
+        c["completion_rate_pct"] = _pct(c["delivered"], c["shipments"])
+        acc = transit_acc.get(cid, [])
+        c["avg_transit_hours"] = round(sum(acc) / len(acc), 1) if acc else None
+        courier_rows.append(c)
+    courier_rows.sort(key=lambda r: r["shipments"], reverse=True)
+
+    # --- Disputes: rate against revenue-recognised orders + outcome mix -------
+    paid_states = [S.PAID, S.PACKING, S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT,
+                   S.OUT_FOR_DELIVERY, S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED]
+    paid_orders = db.scalar(select(func.count(Order.id)).where(Order.status.in_(paid_states))) or 0
+    total_disputes = db.scalar(select(func.count(Dispute.id))) or 0
+    by_outcome: dict[str, int] = {}
+    decided = 0
+    for d in db.scalars(select(Dispute)):
+        if d.decision:
+            decided += 1
+            by_outcome[d.decision] = by_outcome.get(d.decision, 0) + 1
+    disputes = {
+        "total": total_disputes,
+        "open": total_disputes - decided,
+        "decided": decided,
+        "dispute_rate_pct": _pct(total_disputes, paid_orders),
+        "by_outcome": by_outcome,
+    }
+
+    # --- Payouts: pending vs processed, batches -------------------------------
+    def _sum(stmt):
+        tot = money(0)
+        for p in db.scalars(stmt):
+            tot += money(p.amount)
+        return tot
+
+    pending_q = select(Payout).where(Payout.status == "pending")
+    processed_q = select(Payout).where(Payout.status == "processed")
+    payouts = {
+        "pending_count": db.scalar(select(func.count(Payout.id)).where(Payout.status == "pending")) or 0,
+        "pending_total": str(_sum(pending_q)),
+        "processed_count": db.scalar(select(func.count(Payout.id)).where(Payout.status == "processed")) or 0,
+        "processed_total": str(_sum(processed_q)),
+        "batches": db.scalar(select(func.count(PayoutBatch.id))) or 0,
+    }
+
+    return {"agents": agent_rows, "couriers": courier_rows,
+            "disputes": disputes, "payouts": payouts}
+
+
+@router.get("/ops-report")
+def ops_report(user=Depends(_staff), db: Session = Depends(get_db)):
+    return _compute_ops_report(db)
+
+
+@router.get("/ops-report.csv")
+def ops_report_csv(user=Depends(_staff), db: Session = Depends(get_db)):
+    """Operational scorecard as a downloadable CSV (one section per block)."""
+    import csv
+    import io
+
+    rep = _compute_ops_report(db)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["AGENTS"])
+    w.writerow(["name", "inspections", "pass", "hold", "fail", "pass_rate_pct",
+                "orders_assigned", "advisories"])
+    for a in rep["agents"]:
+        w.writerow([a["name"], a["inspections"], a["pass"], a["hold"], a["fail"],
+                    a["pass_rate_pct"], a["orders_assigned"], a["advisories"]])
+    w.writerow([])
+    w.writerow(["COURIERS"])
+    w.writerow(["name", "shipments", "delivered", "active", "failed",
+                "completion_rate_pct", "avg_transit_hours"])
+    for c in rep["couriers"]:
+        w.writerow([c["name"], c["shipments"], c["delivered"], c["active"], c["failed"],
+                    c["completion_rate_pct"], c["avg_transit_hours"]])
+    w.writerow([])
+    d = rep["disputes"]
+    w.writerow(["DISPUTES"])
+    w.writerow(["total", "open", "decided", "dispute_rate_pct"])
+    w.writerow([d["total"], d["open"], d["decided"], d["dispute_rate_pct"]])
+    w.writerow(["outcome", "count"])
+    for k, v in d["by_outcome"].items():
+        w.writerow([k, v])
+    w.writerow([])
+    p = rep["payouts"]
+    w.writerow(["PAYOUTS"])
+    w.writerow(["pending_count", "pending_total_inr", "processed_count", "processed_total_inr", "batches"])
+    w.writerow([p["pending_count"], p["pending_total"], p["processed_count"],
+                p["processed_total"], p["batches"]])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="agrisetu-ops-report.csv"'},
+    )
+
+
 @router.get("/ledger/accounts")
 def ledger_accounts(user=Depends(_staff), db: Session = Depends(get_db)):
     """Net balance per account + global balance check (should be zero)."""

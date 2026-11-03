@@ -953,6 +953,28 @@ def run():
     r = client.get("/api/fpo", headers=hdr(farmer))
     check("non-fpo blocked from group console", r.status_code == 403)
 
+    print("\n== Operations scorecard (agents, couriers, disputes, payouts) ==")
+    ops = client.get("/api/admin/ops-report", headers=hdr(superadmin)).json()
+    check("ops report has all four sections",
+          all(k in ops for k in ("agents", "couriers", "disputes", "payouts")))
+    check("agent scorecard counts inspections + pass rate",
+          any(a["inspections"] >= 1 and "pass_rate_pct" in a for a in ops["agents"]))
+    courier = next((c for c in ops["couriers"] if c["name"] == "Test Courier"), None)
+    check("courier scorecard tracks a delivered shipment",
+          courier is not None and courier["delivered"] >= 1 and courier["completion_rate_pct"] == 100.0)
+    check("courier scorecard computes avg transit time", courier["avg_transit_hours"] is not None)
+    check("dispute scorecard has rate + outcomes",
+          ops["disputes"]["total"] >= 1 and ops["disputes"]["decided"] >= 1
+          and isinstance(ops["disputes"]["dispute_rate_pct"], (int, float)))
+    check("payout scorecard shows a processed batch",
+          ops["payouts"]["processed_count"] >= 1 and ops["payouts"]["batches"] >= 1)
+    r = client.get("/api/admin/ops-report.csv", headers=hdr(superadmin))
+    check("ops report CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+    check("ops CSV has sectioned blocks",
+          "AGENTS" in r.text and "COURIERS" in r.text and "DISPUTES" in r.text and "PAYOUTS" in r.text)
+    r = client.get("/api/admin/ops-report", headers=hdr(buyer))
+    check("non-staff cannot read ops report", r.status_code in (401, 403))
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

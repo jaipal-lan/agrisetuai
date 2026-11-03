@@ -29,6 +29,7 @@ export default function Admin() {
   const [carriers, setCarriers] = useState([]);
   const [newCarrier, setNewCarrier] = useState({ name: "", code: "", contact_phone: "" });
   const [reports, setReports] = useState(null);
+  const [ops, setOps] = useState(null);
   const [kyc, setKyc] = useState([]);
   const [ann, setAnn] = useState({ title: "", body: "", audience: "all" });
   const [annMsg, setAnnMsg] = useState(null);
@@ -44,7 +45,7 @@ export default function Admin() {
 
   async function load() {
     try {
-      const [k, l, r, c, cr, rep, kq] = await Promise.all([
+      const [k, l, r, c, cr, rep, kq, op] = await Promise.all([
         api("/admin/kpis"),
         api("/admin/ledger/accounts"),
         api("/pricing/rules"),
@@ -52,6 +53,7 @@ export default function Admin() {
         api("/carriers"),
         api("/admin/reports"),
         api("/admin/kyc"),
+        api("/admin/ops-report"),
       ]);
       setKpis(k);
       setLedger(l);
@@ -60,6 +62,7 @@ export default function Admin() {
       setCarriers(cr);
       setReports(rep);
       setKyc(kq);
+      setOps(op);
     } catch (e) {
       setErr(e.message);
     }
@@ -358,6 +361,77 @@ export default function Admin() {
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {ops && (
+        <>
+          <div className="between">
+            <h2>Operations scorecard</h2>
+            <button className="ghost" onClick={() =>
+              downloadCsv("/admin/ops-report.csv", "agrisetu-ops-report.csv").catch((e) => setErr(e.message))}>
+              ⬇ Download CSV
+            </button>
+          </div>
+
+          <div className="grid">
+            <div className="card">
+              <h3 style={{ fontSize: 15 }}>Disputes</h3>
+              <div className="quote-line"><span>Total</span><span>{ops.disputes.total}</span></div>
+              <div className="quote-line"><span>Open</span><span>{ops.disputes.open}</span></div>
+              <div className="quote-line"><span>Decided</span><span>{ops.disputes.decided}</span></div>
+              <div className="quote-line">
+                <span>Dispute rate</span>
+                <span className={ops.disputes.dispute_rate_pct > 10 ? "badge amber" : ""}>{ops.disputes.dispute_rate_pct}%</span>
+              </div>
+              {Object.entries(ops.disputes.by_outcome).map(([k, v]) => (
+                <div className="quote-line" key={k}>
+                  <span className="muted">{k.replace(/_/g, " ")}</span><span className="muted">{v}</span>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <h3 style={{ fontSize: 15 }}>Payouts</h3>
+              <div className="quote-line"><span>Pending</span><span>₹{ops.payouts.pending_total} · {ops.payouts.pending_count}</span></div>
+              <div className="quote-line"><span>Processed</span><span>₹{ops.payouts.processed_total} · {ops.payouts.processed_count}</span></div>
+              <div className="quote-line"><span>Batches run</span><span>{ops.payouts.batches}</span></div>
+            </div>
+          </div>
+
+          <h3 style={{ fontSize: 15 }}>Field agents</h3>
+          {ops.agents.length === 0 ? <p className="muted">No agent activity yet.</p> : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Agent</th><th>Inspections</th><th>Pass</th><th>Hold</th><th>Fail</th><th>Pass rate</th><th>Orders</th><th>Advisories</th></tr></thead>
+                <tbody>
+                  {ops.agents.map((a) => (
+                    <tr key={a.agent_id}>
+                      <td>{a.name}</td><td>{a.inspections}</td><td>{a.pass}</td><td>{a.hold}</td><td>{a.fail}</td>
+                      <td>{a.pass_rate_pct}%</td><td>{a.orders_assigned}</td><td>{a.advisories}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <h3 style={{ fontSize: 15 }}>Couriers</h3>
+          {ops.couriers.length === 0 ? <p className="muted">No shipments yet.</p> : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Courier</th><th>Shipments</th><th>Delivered</th><th>Active</th><th>Failed</th><th>Completion</th><th>Avg transit</th></tr></thead>
+                <tbody>
+                  {ops.couriers.map((c) => (
+                    <tr key={c.courier_id}>
+                      <td>{c.name}</td><td>{c.shipments}</td><td>{c.delivered}</td><td>{c.active}</td><td>{c.failed}</td>
+                      <td>{c.completion_rate_pct}%</td>
+                      <td>{c.avg_transit_hours != null ? `${c.avg_transit_hours}h` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
