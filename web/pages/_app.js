@@ -100,7 +100,16 @@ function Nav() {
 
   return (
     <nav className="nav">
-      <Link href={user ? "/dashboard" : "/welcome"} className="brand">{t("app_name")}</Link>
+      <Link href={user ? "/dashboard" : "/welcome"} className="brand">
+        <span className="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 21c0-6 3-10 8-12-1 7-4 10-8 12z" fill="#86efac" />
+            <path d="M12 21C7 18 4 12 4 5c6 1 9 6 9 12" fill="#22c55e" />
+            <path d="M12 21v-9" stroke="#dcfce7" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          {t("app_name")}
+        </span>
+      </Link>
       {user && <Link href="/dashboard">{t("dashboard")}</Link>}
       {(!user || shopper) && <Link href="/">{t("marketplace")}</Link>}
       {seller && <Link href="/sell">{t("sell")}</Link>}
@@ -117,6 +126,7 @@ function Nav() {
       {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && <Link href="/inbox">{t("inbox")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
+      {user && <Link href="/profile">{t("profile")}</Link>}
       {user && user.onboarding_complete === false && (
         <Link href="/onboarding" className="pill" style={{ background: "var(--amber-600)", color: "#fff" }}>
           {t("complete_profile")}
@@ -124,6 +134,7 @@ function Nav() {
       )}
       <span className="spacer" />
       {user && <Bell />}
+      <ThemeToggle />
       <LangToggle lang={lang} setLang={setLang} />
       {user ? (
         <button className="pill" onClick={doLogout}>{t("logout")}</button>
@@ -131,6 +142,27 @@ function Nav() {
         <Link href="/login" className="pill">{t("login")}</Link>
       )}
     </nav>
+  );
+}
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState("light");
+  useEffect(() => {
+    let t = "light";
+    try { t = window.localStorage.getItem("agri_theme") || "light"; } catch {}
+    setTheme(t);
+    document.documentElement.dataset.theme = t;
+  }, []);
+  function toggle() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    try { window.localStorage.setItem("agri_theme", next); } catch {}
+  }
+  return (
+    <button className="pill" aria-label="theme" onClick={toggle}>
+      {theme === "dark" ? "☀️" : "🌙"}
+    </button>
   );
 }
 

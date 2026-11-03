@@ -220,11 +220,22 @@ def products(category: str | None = None, db: Session = Depends(get_db)):
             m = db.get(Mandal, l.mandal_id) if l.mandal_id else None
             if m:
                 places.add(m.name)
+        # A representative photo for the product card: first real image from any
+        # offering, else a placeholder key the media endpoint renders as produce art.
+        image_key = None
+        for l in (live or rows):
+            img = next((m for m in l.media if m.media_type == "image"), None)
+            if img:
+                image_key = img.object_key
+                break
+        if not image_key:
+            image_key = f"sample/{c.name.lower().replace(' ', '-')}.svg"
         out.append({
             "commodity_id": c.id,
             "commodity": c.name,
             "commodity_te": c.name_te,
             "category": c.category,
+            "image": image_key,
             "min_order_qty": str(qty(c.min_order_qty or 0)),
             "offering_count": len(live),
             "place_count": len(places),

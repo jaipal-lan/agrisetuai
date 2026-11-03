@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api } from "../lib/api";
+import { api, mediaUrl } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
 export default function Marketplace() {
@@ -54,7 +54,10 @@ export default function Marketplace() {
           {products.map((p) => {
             const available = p.offering_count > 0;
             return (
-              <Link key={p.commodity_id} href={`/product/${p.commodity_id}`} className="card" style={{ color: "inherit" }}>
+              <Link key={p.commodity_id} href={`/product/${p.commodity_id}`} className="card product-card" style={{ color: "inherit" }}>
+                {p.image && (
+                  <img className="product-thumb" src={mediaUrl(p.image)} alt={pname(p)} loading="lazy" />
+                )}
                 <div className="between">
                   <h3>{pname(p)}</h3>
                   {p.any_verified && <span className="badge">✓ verified</span>}
