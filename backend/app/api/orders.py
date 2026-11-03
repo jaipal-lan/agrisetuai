@@ -249,6 +249,38 @@ def verified_lot_certificate(order_id: int, user=Depends(get_current_user), db: 
     }
 
 
+@router.get("/{order_id}/invoice.pdf")
+def order_invoice_pdf(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """A4 tax-invoice / receipt PDF for the order's parties (and staff)."""
+    from fastapi.responses import Response
+
+    from app.models.catalog import Commodity
+    from app.models.user import User
+    from app.services.invoice_pdf import build_invoice_pdf
+
+    order = _get_order(order_id, db)
+    _require_party(order, user)
+    if order.quote is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Invoice unavailable until the quote is confirmed")
+
+    terms = order.accepted_terms or {}
+    commodity = db.get(Commodity, terms.get("commodity_id")) if terms.get("commodity_id") else None
+    buyer = db.get(User, order.buyer_id)
+    seller = db.get(User, order.seller_id)
+    paid_states = (S.PAID, S.PACKING, S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT,
+                   S.OUT_FOR_DELIVERY, S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED)
+    pdf = build_invoice_pdf(
+        order=order,
+        buyer_name=(buyer.name if buyer else None) or (buyer.phone if buyer else ""),
+        seller_name=(seller.name if seller else None) or (seller.phone if seller else ""),
+        commodity_name=commodity.name if commodity else "Produce",
+        paid=order.status in paid_states,
+    )
+    filename = f"agrisetu-invoice-{order.public_id}.pdf"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 # --- Inspection assignment & buyer approval ------------------------------
 
 class AssignInspection(BaseModel):
@@ -688,7 +720,10 @@ def acceptance(order_id: int, user=Depends(get_current_user), db: Session = Depe
                 listing.sold_qty = D(listing.sold_qty) + dq
         line.allocation_status = "delivered"
 
-    # Settle the seller: move seller_payable liability to cash out + Payout record.
+    # Settle the seller: reclassify the seller_payable liability to a clearing
+    # account and accrue a PENDING payout. Actual disbursement happens later when
+    # finance runs a scheduled payout batch (/admin/payouts/run), which moves
+    # seller_clearing -> cash_clearing and marks the payout processed.
     payable = money(order.seller_payable or 0)
     if payable > money(0):
         idem = f"payout:{order.public_id}"
@@ -699,12 +734,12 @@ def acceptance(order_id: int, user=Depends(get_current_user), db: Session = Depe
                 order_id=order.id,
                 currency=(order.quote or {}).get("currency", "INR"),
                 legs=[
-                    Leg("seller_payable", LedgerDirection.DEBIT, payable, "release to seller"),
-                    Leg("cash_clearing", LedgerDirection.CREDIT, payable, "seller payout"),
+                    Leg("seller_payable", LedgerDirection.DEBIT, payable, "accrue seller payout"),
+                    Leg("seller_clearing", LedgerDirection.CREDIT, payable, "payout awaiting disbursement"),
                 ],
             )
             db.add(Payout(order_id=order.id, seller_id=order.seller_id, amount=payable,
-                          status="processed", idempotency_key=idem))
+                          status="pending", idempotency_key=idem))
     _safe_transition(db, order, S.SETTLED, actor_id=user.id, reason_code="settled")
     audit.record(db, actor_id=user.id, action="order.settle", object_type="order",
                  object_id=order.public_id, new_values={"seller_payout": str(payable)})

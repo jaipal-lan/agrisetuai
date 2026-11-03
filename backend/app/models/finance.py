@@ -51,9 +51,29 @@ class Payout(Base, TimestampMixin):
     seller_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     amount: Mapped[float] = mapped_column(Numeric(14, 2))
     currency: Mapped[str] = mapped_column(String(4), default="INR")
-    status: Mapped[str] = mapped_column(String(16), default="pending")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|processed|failed
     provider_ref: Mapped[str | None] = mapped_column(String(120))
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Set when a scheduled payout batch disburses this accrued payout.
+    batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payout_batches.id", name="fk_payouts_batch_id_payout_batches"), index=True
+    )
+
+
+class PayoutBatch(Base, TimestampMixin):
+    """A scheduled disbursement run that sweeps accrued (pending) seller payouts."""
+
+    __tablename__ = "payout_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    public_id: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="processed")
+    payout_count: Mapped[int] = mapped_column(default=0)
+    total_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    currency: Mapped[str] = mapped_column(String(4), default="INR")
+    provider_ref: Mapped[str | None] = mapped_column(String(120))
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 class Refund(Base, TimestampMixin):

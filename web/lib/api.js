@@ -61,8 +61,9 @@ export async function uploadMedia(file) {
   return res.json();
 }
 
-// Fetch an authenticated endpoint and save the response as a file download.
-export async function downloadCsv(path, filename) {
+// Fetch an authenticated endpoint and save the response as a file download
+// (works for any content type: CSV, PDF, …).
+export async function downloadFile(path, filename) {
   const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -78,6 +79,9 @@ export async function downloadCsv(path, filename) {
   a.remove();
   window.URL.revokeObjectURL(url);
 }
+
+// Back-compat alias.
+export const downloadCsv = downloadFile;
 
 export async function api(path, { method = "GET", body, headers = {} } = {}) {
   const token = getToken();

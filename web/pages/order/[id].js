@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, getUser, mediaUrl, uploadMedia } from "../../lib/api";
+import { api, downloadFile, getUser, mediaUrl, uploadMedia } from "../../lib/api";
 import { usePoll } from "../../lib/hooks";
 import { useI18n } from "../../lib/i18n";
 
@@ -282,6 +282,17 @@ export default function OrderDetail() {
       </div>
 
       <Quote q={order.quote} />
+      {order.quote && (
+        <div style={{ marginTop: 12 }}>
+          <button className="ghost" onClick={() =>
+            downloadFile(`/orders/${id}/invoice.pdf`, `agrisetu-invoice-${order.public_id}.pdf`)
+              .catch((e) => setErr(e.message))}>
+            ⬇ {["paid", "packing", "ready_for_pickup", "picked_up", "in_transit",
+                 "out_for_delivery", "delivered_pending_acceptance", "completed", "settled"].includes(s)
+                 ? "Download receipt (PDF)" : "Download invoice (PDF)"}
+          </button>
+        </div>
+      )}
       <Certificate orderId={id} />
 
       {err && <div className="error">{err}</div>}

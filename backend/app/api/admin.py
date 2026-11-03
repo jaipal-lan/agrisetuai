@@ -6,19 +6,22 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_roles
+from app.core.ids import public_id
 from app.core.money import money
 from app.core.rbac import Role
 from app.models.advisory import CropCase
 from app.models.audit import AuditLog
 from app.models.catalog import Commodity
+from app.models.common import LedgerDirection
 from app.models.common import OrderStatus as S
-from app.models.finance import LedgerEntry
+from app.models.finance import LedgerEntry, Payout, PayoutBatch
 from app.models.location import District, Mandal, State
 from app.models.marketplace import Listing, Offer, RFQ
 from app.models.order import Inspection, Order
 from app.models.support import Dispute, SupportTicket
 from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
-from app.services import audit, notify
+from app.services import audit, ledger, notify
+from app.services.ledger import Leg
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -243,6 +246,86 @@ def broadcast(body: Broadcast,
                  object_id=None, new_values={"audience": body.audience, "count": len(recipients)})
     db.commit()
     return {"sent": len(recipients), "audience": body.audience}
+
+
+_finance = require_roles(Role.FINANCE, Role.SUPERADMIN)
+
+
+@router.get("/payouts")
+def payouts_overview(user=Depends(_finance), db: Session = Depends(get_db)):
+    """Accrued (pending) seller payouts awaiting disbursement, plus past batches."""
+    pending = list(db.scalars(select(Payout).where(Payout.status == "pending").order_by(Payout.id)))
+    names = {u.id: u.name for u in db.scalars(select(User))}
+    orders = {o.id: o.public_id for o in db.scalars(select(Order))}
+    total = money(sum(float(p.amount) for p in pending)) if pending else money(0)
+    batches = db.scalars(select(PayoutBatch).order_by(PayoutBatch.id.desc()).limit(20))
+    return {
+        "pending_count": len(pending),
+        "pending_total": str(total),
+        "pending": [{
+            "id": p.id, "order": orders.get(p.order_id), "seller": names.get(p.seller_id) or f"user {p.seller_id}",
+            "amount": str(money(p.amount)), "currency": p.currency,
+        } for p in pending],
+        "batches": [{
+            "public_id": b.public_id, "status": b.status, "payout_count": b.payout_count,
+            "total_amount": str(money(b.total_amount)), "note": b.note,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        } for b in batches],
+    }
+
+
+class PayoutRun(BaseModel):
+    note: str | None = None
+
+
+@router.post("/payouts/run")
+def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depends(get_db)):
+    """Sweep all pending payouts into one disbursement batch.
+
+    Moves each accrued amount seller_clearing -> cash_clearing (ledger stays
+    balanced), marks the payout processed, links it to the batch, and alerts the
+    seller. Mock disbursement in the pilot; a real bank/UPI payout API plugs in here.
+    """
+    pending = list(db.scalars(select(Payout).where(Payout.status == "pending").order_by(Payout.id)))
+    if not pending:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No pending payouts to disburse")
+
+    batch = PayoutBatch(
+        public_id=public_id("PB", 8), status="processed", payout_count=len(pending),
+        currency=pending[0].currency, created_by=user.id, note=body.note,
+        provider_ref=f"mock-{public_id('REF', 8).lower()}",
+    )
+    db.add(batch)
+    db.flush()
+
+    total = money(0)
+    for p in pending:
+        amt = money(p.amount)
+        ledger.post(
+            db,
+            txn_group=f"payout_batch:{batch.public_id}:{p.order_id}",
+            order_id=p.order_id,
+            currency=p.currency,
+            legs=[
+                Leg("seller_clearing", LedgerDirection.DEBIT, amt, "disburse to seller"),
+                Leg("cash_clearing", LedgerDirection.CREDIT, amt, "payout sent"),
+            ],
+        )
+        p.status = "processed"
+        p.batch_id = batch.id
+        p.provider_ref = batch.provider_ref
+        total += amt
+        try:
+            notify.send(db, user_id=p.seller_id, title="Payout sent",
+                        body=f"Your payout of Rs. {amt} has been disbursed (batch {batch.public_id}).",
+                        object_type="payout", object_id=batch.public_id)
+        except Exception:
+            pass
+    batch.total_amount = total
+    audit.record(db, actor_id=user.id, action="payout.batch", object_type="payout_batch",
+                 object_id=batch.public_id, new_values={"count": len(pending), "total": str(total)})
+    db.commit()
+    return {"batch": batch.public_id, "payout_count": len(pending), "total_amount": str(total)}
 
 
 @router.get("/audit-logs")

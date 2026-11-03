@@ -63,7 +63,7 @@ function Bell() {
   async function open() {
     try { await api("/auth/notifications/read", { method: "POST" }); } catch {}
     setCount(0);
-    router.push("/support");
+    router.push("/inbox");
   }
   return (
     <button className="pill" aria-label="notifications" onClick={open}>
@@ -111,6 +111,7 @@ function Nav() {
       {(!user || buyer || seller) && <Link href="/subscriptions">{t("plans")}</Link>}
       {user && <Link href="/offers">{t("my_offers")}</Link>}
       {user && <Link href="/orders">{t("my_orders")}</Link>}
+      {user && <Link href="/inbox">{t("inbox")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
       {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && user.onboarding_complete === false && (

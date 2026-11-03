@@ -606,6 +606,38 @@ def run():
     check("earnings CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
     check("earnings CSV has header", r.text.splitlines()[0].startswith("order,status,gross_inr"))
 
+    print("\n== Announcement reaches the inbox (object_type=announcement) ==")
+    fnotes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
+    check("announcement tagged for inbox filter",
+          any(n.get("object_type") == "announcement" and n["title"] == "Market holiday" for n in fnotes))
+
+    print("\n== Order invoice / receipt PDF ==")
+    r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(buyer))
+    check("invoice PDF served to buyer", r.status_code == 200 and r.headers.get("content-type") == "application/pdf")
+    check("invoice is a real PDF", r.content[:4] == b"%PDF")
+    r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(farmer))
+    check("seller can fetch invoice", r.status_code == 200)
+    r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(agronomist))
+    check("non-party cannot fetch invoice", r.status_code == 403)
+
+    print("\n== Scheduled payout batches (accrue -> disburse) ==")
+    po = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
+    check("settled order accrued a pending payout", po["pending_count"] >= 1 and float(po["pending_total"]) > 0)
+    r = client.post("/api/admin/payouts/run", headers=hdr(superadmin), json={})
+    check("payout batch disburses pending", r.json()["payout_count"] >= 1 and float(r.json()["total_amount"]) > 0)
+    po2 = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
+    check("no pending payouts after batch", po2["pending_count"] == 0)
+    check("batch recorded in history", len(po2["batches"]) >= 1)
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger balanced after payout batch", acct["balanced"] is True)
+    check("seller_clearing cleared to 0", acct["accounts"].get("seller_clearing", "0.00") == "0.00")
+    snotes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
+    check("seller notified of payout", any("payout" in n["title"].lower() for n in snotes))
+    r = client.post("/api/admin/payouts/run", headers=hdr(superadmin), json={})
+    check("empty payout run rejected", r.status_code == 409)
+    r = client.post("/api/admin/payouts/run", headers=hdr(agent), json={})
+    check("non-finance cannot run payouts", r.status_code in (401, 403))
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

@@ -31,6 +31,8 @@ export default function Admin() {
   const [kyc, setKyc] = useState([]);
   const [ann, setAnn] = useState({ title: "", body: "", audience: "all" });
   const [annMsg, setAnnMsg] = useState(null);
+  const [payouts, setPayouts] = useState(null);
+  const [payoutMsg, setPayoutMsg] = useState(null);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setA = (k, v) => setAnn((a) => ({ ...a, [k]: v }));
@@ -88,6 +90,27 @@ export default function Admin() {
     }
   }
 
+  async function loadPayouts() {
+    // Finance/superadmin only; tolerate 403 for other staff so the page still loads.
+    try {
+      setPayouts(await api("/admin/payouts"));
+    } catch {
+      setPayouts(null);
+    }
+  }
+
+  async function runPayoutBatch() {
+    setErr(null);
+    setPayoutMsg(null);
+    try {
+      const r = await api("/admin/payouts/run", { method: "POST", body: {} });
+      setPayoutMsg(`Batch ${r.batch}: disbursed ₹${r.total_amount} across ${r.payout_count} payout(s).`);
+      loadPayouts();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
   async function sendAnnouncement() {
     setErr(null);
     setAnnMsg(null);
@@ -126,6 +149,7 @@ export default function Admin() {
   useEffect(() => {
     setMe(getUser());
     load();
+    loadPayouts();
   }, []);
 
   function body() {
@@ -307,6 +331,52 @@ export default function Admin() {
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {payouts && (
+        <>
+          <h2>Seller payouts {payouts.pending_count > 0 && <span className="badge amber">{payouts.pending_count} pending</span>}</h2>
+          {payoutMsg && <div className="ok">{payoutMsg}</div>}
+          <div className="card">
+            <div className="between">
+              <div>
+                <b>₹{payouts.pending_total}</b> accrued across {payouts.pending_count} payout(s)
+                <div className="muted" style={{ fontSize: 13 }}>Settled orders accrue here until a disbursement batch runs.</div>
+              </div>
+              <button className="amber" disabled={payouts.pending_count === 0} onClick={runPayoutBatch}>
+                Run payout batch
+              </button>
+            </div>
+            {payouts.pending.length > 0 && (
+              <table>
+                <thead><tr><th>Order</th><th>Seller</th><th>Amount</th></tr></thead>
+                <tbody>
+                  {payouts.pending.map((p) => (
+                    <tr key={p.id}><td>{p.order || "—"}</td><td>{p.seller}</td><td>₹{p.amount}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          {payouts.batches.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 15 }}>Recent batches</h3>
+              <table>
+                <thead><tr><th>Batch</th><th>Payouts</th><th>Total</th><th>When</th></tr></thead>
+                <tbody>
+                  {payouts.batches.map((b) => (
+                    <tr key={b.public_id}>
+                      <td>{b.public_id}</td>
+                      <td>{b.payout_count}</td>
+                      <td>₹{b.total_amount}</td>
+                      <td className="muted">{b.created_at ? new Date(b.created_at).toLocaleString() : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </>
       )}
 
