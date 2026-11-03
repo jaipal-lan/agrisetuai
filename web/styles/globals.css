@@ -107,6 +107,10 @@ h2 { font-size: 20px; margin: 24px 0 12px; }
 .badge { color: var(--accent-text); }
 .badge.amber { background: #fef3c7; color: #92400e; }
 .badge.grey { background: var(--grey-bg); color: var(--grey-fg); }
+.badge.green { background: var(--green-100); color: var(--green-900); }
+
+/* Let wide tables scroll sideways instead of blowing out the layout on phones. */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

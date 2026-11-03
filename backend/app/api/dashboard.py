@@ -74,6 +74,16 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             {"label": "Invoices", "href": "/invoices"},
             {"label": "Crop advice", "href": "/advisory"},
         ]
+        if role == Role.FPO and user.organisation_id:
+            members = _count(db, select(func.count(User.id)).where(
+                User.organisation_id == user.organisation_id, User.id != user.id))
+            pooled_listings = _count(db, select(func.count(Listing.id)).join(
+                User, User.id == Listing.seller_id).where(
+                User.organisation_id == user.organisation_id, Listing.status == "open"))
+            cards.insert(0, {"label": "Group members", "value": members, "href": "/fpo", "alert": members == 0})
+            cards.insert(1, {"label": "Group listings", "value": pooled_listings, "href": "/fpo"})
+            actions.insert(0, {"label": "Manage group", "href": "/fpo", "primary": True})
+            actions[1]["primary"] = False  # demote "List produce" from primary
 
     elif role in (Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS):
         open_offers = _count(db, select(func.count(Offer.id)).where(

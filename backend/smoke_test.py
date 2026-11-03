@@ -733,6 +733,61 @@ def run():
     gone = client.get(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer)).json()
     check("buyer removes a watch", gone["watching"] is False)
 
+    print("\n== FPO multi-member (group lead, pooled view, members) ==")
+    fpo_lead = login(client, "919000000050", role="fpo", name="Green Valley FPO")
+    lead_id = client.get("/api/auth/me", headers=hdr(fpo_lead)).json()["id"]
+    ov = client.get("/api/fpo", headers=hdr(fpo_lead)).json()
+    check("fpo signup created an organisation", ov["organisation"]["id"] is not None)
+    check("lead is the sole initial member", ov["member_count"] == 1 and ov["members"][0]["is_lead"])
+    # Link an existing farmer who already has listings + a settled order.
+    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000003"})
+    check("existing farmer linked to group", r.status_code == 201 and r.json()["created"] is False)
+    farmer_member_id = r.json()["member"]["id"]
+    # Pre-register a brand-new member by phone.
+    r = client.post("/api/fpo/members", headers=hdr(fpo_lead),
+                    json={"phone": "919000000051", "name": "Lakshmi", "village": "Peddapuram"})
+    check("new member pre-registered", r.status_code == 201 and r.json()["created"] is True)
+    new_member_id = r.json()["member"]["id"]
+    ov = client.get("/api/fpo", headers=hdr(fpo_lead)).json()
+    check("group now has three members", ov["member_count"] == 3)
+    check("pooled view aggregates member listings", ov["pooled"]["active_listings"] >= 1)
+    check("pooled view aggregates settled GMV", float(ov["pooled"]["gross_settled"]) > 0)
+    check("lead sorts first in roster", ov["members"][0]["is_lead"] is True)
+    # Guard rails.
+    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000003"})
+    check("cannot add the same member twice", r.status_code == 409)
+    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000004"})
+    check("cannot add a non-farmer account", r.status_code == 409)
+    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "123456789"})
+    check("invalid member phone rejected", r.status_code == 400)
+    # The pre-registered member can activate and log in on their own.
+    member_tok = login(client, "919000000051")
+    check("pre-registered member can log in", bool(member_tok))
+    # Remove the new member.
+    r = client.delete(f"/api/fpo/members/{new_member_id}", headers=hdr(fpo_lead))
+    check("lead removes a member", r.json()["ok"] is True)
+    check("roster shrinks after removal",
+          client.get("/api/fpo", headers=hdr(fpo_lead)).json()["member_count"] == 2)
+    r = client.delete(f"/api/fpo/members/{lead_id}", headers=hdr(fpo_lead))
+    check("lead cannot remove themselves", r.status_code == 400)
+    # Pooled earnings statement + CSV.
+    ge = client.get("/api/fpo/earnings", headers=hdr(fpo_lead)).json()
+    check("group earnings totals populated", float(ge["totals"]["gross"]) > 0)
+    check("group earnings break down by member",
+          any(m["seller_id"] == farmer_member_id and m["orders"] >= 1 for m in ge["members"]))
+    r = client.get("/api/fpo/earnings.csv", headers=hdr(fpo_lead))
+    check("group earnings CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+    check("group earnings CSV has a total row",
+          any(line.startswith("GROUP TOTAL,") for line in r.text.splitlines()))
+    # FPO dashboard differs: group management surfaces.
+    fpd = client.get("/api/dashboard", headers=hdr(fpo_lead)).json()
+    check("fpo dashboard has a Group members card", any(c["label"] == "Group members" for c in fpd["cards"]))
+    check("fpo dashboard action manages the group",
+          any(a["href"] == "/fpo" and a.get("primary") for a in fpd["actions"]))
+    # Role guard: a plain farmer has no group console.
+    r = client.get("/api/fpo", headers=hdr(farmer))
+    check("non-fpo blocked from group console", r.status_code == 403)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

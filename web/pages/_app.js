@@ -84,6 +84,7 @@ function Nav() {
 
   const staff = user && ["superadmin", "finance", "mandal_manager", "support"].includes(user.role);
   const seller = user && ["farmer", "fpo"].includes(user.role);
+  const fpo = user && user.role === "fpo";
   const buyer = user && ["buyer_household", "buyer_business"].includes(user.role);
   const shopper = buyer || seller; // the roles that browse/negotiate/trade
   const advisor = user && ["agronomist", "superadmin", "mandal_manager", "field_agent"].includes(user.role);
@@ -113,6 +114,7 @@ function Nav() {
       </Link>
       {user && <Link href="/dashboard">{t("dashboard")}</Link>}
       {(!user || shopper) && <Link href="/">{t("marketplace")}</Link>}
+      {fpo && <Link href="/fpo">{t("group")}</Link>}
       {seller && <Link href="/sell">{t("sell")}</Link>}
       {seller && <Link href="/earnings">{t("earnings")}</Link>}
       {shopper && <Link href="/requests">{t("requests")}</Link>}

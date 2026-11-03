@@ -612,6 +612,38 @@ def seed_demo_watches(db: Session, catalog: dict) -> int:
     return n
 
 
+def seed_demo_fpo(db: Session, mandals: dict) -> int:
+    """A demo FPO lead with its own organisation and two member farmers, so the
+    group console shows a populated roster + pooled listings. Idempotent."""
+    from app.models.user import Organisation
+
+    lead = db.scalar(select(User).where(User.phone == "919000000008"))
+    created = 0
+    tenali = mandals.get("Tenali")
+    if lead is None:
+        lead = User(phone="919000000008", name="Green Valley FPO",
+                    role=str(Role.FPO), onboarding_complete=True)
+        db.add(lead)
+        db.flush()
+        db.add(FarmerProfile(user_id=lead.id, mandal_id=tenali.id if tenali else None,
+                             village="Kolakaluru", verification_status="verified"))
+        created += 1
+    if lead.organisation_id is None:
+        org = Organisation(type="fpo", legal_name="Green Valley Farmer Producer Co.",
+                           verification_status="verified")
+        db.add(org)
+        db.flush()
+        lead.organisation_id = org.id
+    # Fold two demo farmers (from seed_listings) into the group if they are free.
+    for phone in ("919000000011", "919000000012"):
+        m = db.scalar(select(User).where(User.phone == phone))
+        if m and m.organisation_id is None:
+            m.organisation_id = lead.organisation_id
+            created += 1
+    db.flush()
+    return created
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -625,6 +657,7 @@ def main() -> None:
         n_carriers = seed_carriers(db)
         seed_advisory(db)
         seed_insights(db, mandals)
+        seed_demo_fpo(db, mandals)
         n_activity = seed_demo_activity(db, catalog, mandals)
         n_activity += seed_demo_watches(db, catalog)
         db.commit()

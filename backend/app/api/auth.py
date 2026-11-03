@@ -13,7 +13,7 @@ from app.core.security import check_otp, issue_token, otp_rate_ok, set_otp
 from app.core.serializers import self_user
 from app.models.common import utcnow
 from app.models.support import ConsentRecord, Notification
-from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
+from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, Organisation, User
 from app.services import audit, sms
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -97,6 +97,12 @@ def verify_otp(body: OtpVerify, db: Session = Depends(get_db)):
         db.flush()
         if user.role in (Role.FARMER, Role.FPO):
             db.add(FarmerProfile(user_id=user.id))
+            if user.role == Role.FPO:
+                # An FPO is a group; give it an Organisation it leads from day one.
+                org = Organisation(type="fpo", legal_name=(user.name or "Farmer group"))
+                db.add(org)
+                db.flush()
+                user.organisation_id = org.id
         elif user.role in (Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS):
             kind = "household" if user.role == Role.BUYER_HOUSEHOLD else "business"
             db.add(BuyerProfile(user_id=user.id, buyer_type=kind))
