@@ -515,7 +515,7 @@ def seed_demo_activity(db: Session, catalog: dict, mandals: dict) -> int:
     from sqlalchemy import func
 
     from app.models.common import OfferStatus, RFQStatus
-    from app.models.marketplace import Offer, OfferVersion, RFQ
+    from app.models.marketplace import Offer, OfferVersion, RFQ, Watch
 
     if db.scalar(select(func.count(Offer.id))):
         return 0
@@ -594,6 +594,24 @@ def seed_demo_activity(db: Session, catalog: dict, mandals: dict) -> int:
     return created
 
 
+def seed_demo_watches(db: Session, catalog: dict) -> int:
+    """Demo buyer watches a couple of products (one with a price-alert target).
+    Idempotent per watch, so it runs even when offers already exist."""
+    from app.models.marketplace import Watch
+
+    buyer = db.scalar(select(User).where(User.phone == "919000000004"))
+    if not buyer:
+        return 0
+    n = 0
+    for cname, tgt in [("Paddy", 23.0), ("Turmeric", None)]:
+        c = catalog.get(cname)
+        if c and not db.scalar(select(Watch).where(Watch.user_id == buyer.id, Watch.commodity_id == c.id)):
+            db.add(Watch(user_id=buyer.id, commodity_id=c.id, target_price=D(tgt) if tgt else None))
+            n += 1
+    db.flush()
+    return n
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -608,6 +626,7 @@ def main() -> None:
         seed_advisory(db)
         seed_insights(db, mandals)
         n_activity = seed_demo_activity(db, catalog, mandals)
+        n_activity += seed_demo_watches(db, catalog)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "

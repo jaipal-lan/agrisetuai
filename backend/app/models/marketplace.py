@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -136,3 +136,15 @@ class OfferVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     offer: Mapped[Offer] = relationship(back_populates="versions", foreign_keys=[offer_id])
+
+
+class Watch(Base, TimestampMixin):
+    """A buyer's watched commodity with an optional target price for alerts."""
+
+    __tablename__ = "watches"
+    __table_args__ = (UniqueConstraint("user_id", "commodity_id", name="uq_watch_user_commodity"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    commodity_id: Mapped[int] = mapped_column(ForeignKey("commodities.id"), index=True)
+    target_price: Mapped[float | None] = mapped_column(Numeric(12, 2))

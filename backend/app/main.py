@@ -24,6 +24,7 @@ from app.api import (
     subscriptions,
     support,
     transport,
+    watchlist,
 )
 from app.core.config import settings
 from app.core.database import run_migrations
@@ -56,7 +57,7 @@ API = "/api"
 for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
     pricing, admin, advisory, insights, lots, media, support, logistics,
-    subscriptions, carriers, transport, reviews, payments, dashboard,
+    subscriptions, carriers, transport, reviews, payments, dashboard, watchlist,
 ):
     app.include_router(module.router, prefix=API)
 

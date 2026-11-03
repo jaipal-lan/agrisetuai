@@ -702,6 +702,37 @@ def run():
     r = client.post(f"/api/admin/users/{target['id']}/status", headers=hdr(manager), json={"status": "suspended"})
     check("non-superadmin cannot change status", r.status_code in (401, 403))
 
+    print("\n== Buyer favorites + price alerts ==")
+    # Watch a commodity with a target price; a new matching listing should alert.
+    r = client.post("/api/watchlist", headers=hdr(buyer),
+                    json={"commodity_id": paddy["id"], "target_price": 100})
+    check("buyer adds a watch", r.json()["watching"] is True)
+    wl = client.get("/api/watchlist", headers=hdr(buyer)).json()
+    check("watchlist lists the product with best price",
+          any(w["commodity_id"] == paddy["id"] and ("best_price" in w) for w in wl))
+    is_w = client.get(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer)).json()
+    check("watch state reflects target", is_w["watching"] and is_w["target_price"] == "100.00")
+    # Publish a cheap paddy listing from a farmer -> buyer should get a price alert.
+    before = len(client.get("/api/auth/notifications", headers=hdr(buyer)).json())
+    rc = client.post("/api/listings", headers=hdr(farmer), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id,
+        "total_qty": 500, "min_order_qty": 50, "asking_price": 21.0,
+        "mandal_id": mandal_id, "harvest_year": 2026,
+    })
+    wlid = rc.json()["id"]
+    for n in range(1, 4):
+        client.post(f"/api/listings/{wlid}/media", headers=hdr(farmer),
+                    json={"object_key": f"sample/watch-{wlid}-{n}.svg", "media_type": "image"})
+    pub = client.post(f"/api/listings/{wlid}/publish", headers=hdr(farmer))
+    check("watched-commodity listing publishes", pub.status_code == 200)
+    notes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
+    check("buyer alerted on new watched offering", len(notes) > before
+          and any("paddy" in n["title"].lower() for n in notes[:3]))
+    # Remove the watch.
+    client.delete(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer))
+    gone = client.get(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer)).json()
+    check("buyer removes a watch", gone["watching"] is False)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

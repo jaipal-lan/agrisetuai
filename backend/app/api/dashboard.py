@@ -17,7 +17,7 @@ from app.core.rbac import Role
 from app.models.advisory import AdvisoryLog, CropCase
 from app.models.common import OrderStatus as S
 from app.models.finance import Payout
-from app.models.marketplace import Listing, Offer, RFQ
+from app.models.marketplace import Listing, Offer, RFQ, Watch
 from app.models.order import Inspection, Order, Shipment
 from app.models.support import Dispute, Notification
 from app.models.user import BuyerProfile, FarmerProfile, User
@@ -82,13 +82,16 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             Order.buyer_id == user.id, Order.status.not_in(_TERMINAL)))
         open_rfqs = _count(db, select(func.count(RFQ.id)).where(
             RFQ.buyer_id == user.id, RFQ.status == "open"))
+        watching = _count(db, select(func.count(Watch.id)).where(Watch.user_id == user.id))
         cards = [
             {"label": "Open offers", "value": open_offers, "href": "/offers", "alert": open_offers > 0},
             {"label": "Orders in progress", "value": active_orders, "href": "/orders"},
             {"label": "Open requests (RFQ)", "value": open_rfqs, "href": "/requests"},
+            {"label": "Watched products", "value": watching, "href": "/favorites"},
         ]
         actions = [
             {"label": "Browse market", "href": "/", "primary": True},
+            {"label": "Favorites", "href": "/favorites"},
             {"label": "Post a requirement", "href": "/requests"},
             {"label": "My offers", "href": "/offers"},
             {"label": "My orders", "href": "/orders"},

@@ -13,8 +13,9 @@ from app.core.serializers import public_user
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import ClaimStatus, ListingStatus, utcnow
 from app.models.location import Mandal
-from app.models.marketplace import Listing, ListingMedia
+from app.models.marketplace import Listing, ListingMedia, Watch
 from app.models.user import FarmerProfile, User
+from app.services import notify
 from app.api.subscriptions import active_benefits
 
 router = APIRouter(prefix="/listings", tags=["listings"])
@@ -344,8 +345,37 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
             f"Active-listing limit reached ({cap}). Upgrade your plan to list more.",
         )
     listing.status = ListingStatus.OPEN
+    _notify_watchers(db, listing)
     db.commit()
     return _serialize(listing, user, db)
+
+
+def _notify_watchers(db: Session, listing: Listing) -> None:
+    """Alert buyers watching this commodity when a listing goes live. If the
+    watcher set a target price, only alert when the new price meets it."""
+    try:
+        watches = list(db.scalars(select(Watch).where(Watch.commodity_id == listing.commodity_id)))
+        if not watches:
+            return
+        c = db.get(Commodity, listing.commodity_id)
+        cname = c.name if c else "a product"
+        price = float(listing.asking_price)
+        for w in watches:
+            if w.user_id == listing.seller_id:
+                continue
+            tgt = float(w.target_price) if w.target_price is not None else None
+            if tgt is not None and price > tgt:
+                continue
+            if tgt is not None:
+                title, body = (f"Price alert: {cname}",
+                               f"A new {cname} offering is Rs.{price:.2f}/kg — at or below your Rs.{tgt:.2f} target.")
+            else:
+                title, body = (f"New offering: {cname}",
+                               f"A new {cname} offering is available at Rs.{price:.2f}/kg.")
+            notify.send(db, user_id=w.user_id, title=title, body=body,
+                        object_type="product", object_id=listing.commodity_id)
+    except Exception:
+        pass  # alerts must never block a publish
 
 
 @router.post("/{listing_id}/pause")
