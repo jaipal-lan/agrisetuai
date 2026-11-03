@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_roles
-from app.core.money import money
+from app.core.money import money, qty
 from app.core.rbac import Role
+from app.models.catalog import Commodity
 from app.models.common import OrderStatus as OS
 from app.models.finance import Payout
 from app.models.marketplace import Listing
@@ -108,6 +109,23 @@ def overview(lead: User = Depends(_lead), db: Session = Depends(get_db)):
     ids = [m.id for m in members]
     rows = [_member_row(db, m, is_lead=(m.id == lead.id)) for m in members]
     rows.sort(key=lambda r: (not r["is_lead"], r["name"].lower()))
+    names = {m.id: (m.name or "—") for m in members}
+    listings = []
+    if ids:
+        for l in db.scalars(
+            select(Listing).where(Listing.seller_id.in_(ids)).order_by(Listing.id.desc())
+        ):
+            c = db.get(Commodity, l.commodity_id)
+            listings.append({
+                "id": l.id,
+                "seller_id": l.seller_id,
+                "seller": names.get(l.seller_id, "—"),
+                "commodity": c.name if c else None,
+                "status": l.status,
+                "available_qty": str(qty(l.available_qty)),
+                "asking_price": str(l.asking_price),
+                "image_count": sum(1 for m in l.media if m.media_type == "image"),
+            })
     return {
         "organisation": {
             "id": org.id,
@@ -117,6 +135,7 @@ def overview(lead: User = Depends(_lead), db: Session = Depends(get_db)):
         "member_count": len(ids),
         "pooled": _seller_stats(db, ids),
         "members": rows,
+        "listings": listings,
     }
 
 

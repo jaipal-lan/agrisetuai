@@ -918,6 +918,44 @@ def run():
     check("pooled view aggregates member listings", ov["pooled"]["active_listings"] >= 1)
     check("pooled view aggregates settled GMV", float(ov["pooled"]["gross_settled"]) > 0)
     check("lead sorts first in roster", ov["members"][0]["is_lead"] is True)
+
+    # Acting on behalf of a member: the lead lists, manages and negotiates for them.
+    r = client.post("/api/listings", headers=hdr(fpo_lead), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id,
+        "total_qty": 800, "min_order_qty": 50, "asking_price": 24.0,
+        "mandal_id": mandal_id, "harvest_year": 2026, "on_behalf_of": farmer_member_id,
+    })
+    check("lead lists produce on behalf of a member",
+          r.status_code == 201 and r.json()["seller"]["id"] == farmer_member_id)
+    obo_lid = r.json()["id"]
+    for n in range(1, 4):
+        client.post(f"/api/listings/{obo_lid}/media", headers=hdr(fpo_lead),
+                    json={"object_key": f"sample/obo-{obo_lid}-{n}.svg", "media_type": "image"})
+    r = client.post(f"/api/listings/{obo_lid}/publish", headers=hdr(fpo_lead))
+    check("lead publishes the member's listing", r.status_code == 200 and r.json()["status"] == "open")
+    check("group listings surface in the console",
+          any(l["id"] == obo_lid for l in client.get("/api/fpo", headers=hdr(fpo_lead)).json()["listings"]))
+    # Cannot list for someone outside the group.
+    cap_id = client.get("/api/auth/me", headers=hdr(capfarmer)).json()["id"]
+    r = client.post("/api/listings", headers=hdr(fpo_lead), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id, "total_qty": 100,
+        "min_order_qty": 10, "asking_price": 24.0, "mandal_id": mandal_id,
+        "harvest_year": 2026, "on_behalf_of": cap_id,
+    })
+    check("lead cannot list for a non-member", r.status_code == 404)
+    # Buyer offers on the group listing; the lead negotiates + accepts for the member.
+    off = client.post("/api/offers", headers=hdr(buyer),
+                      json={"listing_id": obo_lid, "price_per_unit": 23.0, "quantity": 100})
+    check("buyer offers on the group listing", off.status_code == 201)
+    obo_offer = off.json()["id"]
+    check("lead sees the member's negotiation",
+          any(o["id"] == obo_offer for o in client.get("/api/offers", headers=hdr(fpo_lead)).json()))
+    r = client.post(f"/api/offers/{obo_offer}/accept", headers=hdr(fpo_lead))
+    check("lead accepts the offer on the member's behalf", r.status_code == 200)
+    obo_order = r.json()["order"]["id"]
+    check("resulting order is booked to the member",
+          client.get(f"/api/orders/{obo_order}", headers=hdr(farmer)).json()["seller_id"] == farmer_member_id)
+
     # Guard rails.
     r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000003"})
     check("cannot add the same member twice", r.status_code == 409)

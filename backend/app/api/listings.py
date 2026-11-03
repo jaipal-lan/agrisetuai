@@ -45,6 +45,34 @@ class ListingCreate(BaseModel):
     mandal_id: int | None = None
     pickup_terms: str | None = None
     specifications: str | None = None
+    # An FPO lead may list produce on behalf of a member farmer in their group.
+    on_behalf_of: int | None = None
+
+
+def _resolve_seller(body_on_behalf: int | None, user: User, db: Session) -> int:
+    """Who the listing belongs to. Normally the caller; an FPO lead may list for a
+    member of their own group (the listing stays owned by that member)."""
+    if not body_on_behalf or body_on_behalf == user.id:
+        return user.id
+    if user.role != Role.FPO or not user.organisation_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an FPO lead can list for a member")
+    member = db.get(User, body_on_behalf)
+    if not member or member.organisation_id != user.organisation_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not a member of your group")
+    if member.role not in (Role.FARMER, Role.FPO):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That member is not a seller")
+    return member.id
+
+
+def _can_manage(listing: Listing, user: User, db: Session) -> bool:
+    """The seller, or an FPO lead of the seller's group, may manage a listing."""
+    if listing.seller_id == user.id:
+        return True
+    if user.role == Role.FPO and user.organisation_id:
+        seller = db.get(User, listing.seller_id)
+        if seller and seller.organisation_id == user.organisation_id:
+            return True
+    return False
 
 
 def _place(db: Session, listing: Listing, seller: User | None) -> dict:
@@ -135,8 +163,9 @@ def create_listing(
             status.HTTP_400_BAD_REQUEST,
             "Organic claim requires evidence; use 'in_conversion' or attach certification.",
         )
+    seller_id = _resolve_seller(body.on_behalf_of, user, db)
     listing = Listing(
-        seller_id=user.id,
+        seller_id=seller_id,
         commodity_id=body.commodity_id,
         variety_id=body.variety_id,
         grade_spec_id=body.grade_spec_id,
@@ -157,7 +186,7 @@ def create_listing(
     db.add(listing)
     db.commit()
     db.refresh(listing)
-    return _serialize(listing, user, db)
+    return _serialize(listing, db.get(User, seller_id), db)
 
 
 @router.get("")
@@ -314,7 +343,7 @@ def _owned(listing_id: int, user: User, db: Session) -> Listing:
     listing = db.get(Listing, listing_id)
     if not listing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Listing not found")
-    if listing.seller_id != user.id:
+    if not _can_manage(listing, user, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your listing")
     return listing
 
@@ -332,12 +361,14 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
             f"Add at least {_MIN_LISTING_IMAGES} sample images before publishing "
             f"({image_count}/{_MIN_LISTING_IMAGES}).",
         )
-    # Enforce the subscription's active-listing cap (free tier otherwise).
-    cap = active_benefits(db, user.id).get("max_active_listings", _FREE_LISTING_CAP)
+    # Enforce the subscription's active-listing cap on the listing's OWNER (the
+    # member), not whoever publishes it (an FPO lead may publish on their behalf).
+    owner_id = listing.seller_id
+    cap = active_benefits(db, owner_id).get("max_active_listings", _FREE_LISTING_CAP)
     active_count = db.scalar(
         select(func.count())
         .select_from(Listing)
-        .where(Listing.seller_id == user.id, Listing.status == ListingStatus.OPEN)
+        .where(Listing.seller_id == owner_id, Listing.status == ListingStatus.OPEN)
     )
     if active_count >= cap:
         raise HTTPException(
@@ -350,7 +381,7 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
     from app.api.saved_searches import notify_saved_search_matches
     notify_saved_search_matches(db, listing)
     db.commit()
-    return _serialize(listing, user, db)
+    return _serialize(listing, db.get(User, owner_id), db)
 
 
 def _notify_watchers(db: Session, listing: Listing) -> None:

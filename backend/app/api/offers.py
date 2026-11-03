@@ -46,11 +46,16 @@ class CounterBody(BaseModel):
     ttl_hours: int = 48
 
 
-def _party_role(offer: Offer, user: User) -> str:
+def _party_role(offer: Offer, user: User, db: Session | None = None) -> str:
     if user.id == offer.buyer_id:
         return "buyer"
     if user.id == offer.seller_id:
         return "seller"
+    # An FPO lead negotiates as the seller for a member of their group.
+    if db is not None and user.role == "fpo" and user.organisation_id:
+        seller = db.get(User, offer.seller_id)
+        if seller and seller.organisation_id == user.organisation_id:
+            return "seller"
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a party to this offer")
 
 
@@ -226,9 +231,14 @@ def my_offers(user: User = Depends(get_current_user), db: Session = Depends(get_
     """All negotiation threads where the caller is the buyer or the seller."""
     from sqlalchemy import or_
 
+    conds = [Offer.buyer_id == user.id, Offer.seller_id == user.id]
+    # An FPO lead also sees negotiations on their group members' produce.
+    if user.role == "fpo" and user.organisation_id:
+        member_ids = select(User.id).where(User.organisation_id == user.organisation_id)
+        conds.append(Offer.seller_id.in_(member_ids))
     rows = list(db.scalars(
         select(Offer)
-        .where(or_(Offer.buyer_id == user.id, Offer.seller_id == user.id))
+        .where(or_(*conds))
         .order_by(Offer.created_at.desc())
     ))
     changed = False
@@ -244,7 +254,7 @@ def get_offer(offer_id: int, user: User = Depends(get_current_user), db: Session
     offer = db.get(Offer, offer_id)
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
-    _party_role(offer, user)
+    _party_role(offer, user, db)
     if _maybe_expire(offer, db):
         db.commit()
     return _offer_json(offer, db)
@@ -255,7 +265,7 @@ def offer_history(offer_id: int, user: User = Depends(get_current_user), db: Ses
     offer = db.get(Offer, offer_id)
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
-    _party_role(offer, user)
+    _party_role(offer, user, db)
     return _offer_json(offer, db)["versions"]
 
 
@@ -269,7 +279,7 @@ def counter(
     offer = db.get(Offer, offer_id)
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
-    role = _party_role(offer, user)
+    role = _party_role(offer, user, db)
     if offer.status not in (OfferStatus.OPEN, OfferStatus.COUNTERED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Offer is closed")
 
@@ -322,7 +332,7 @@ def reject(offer_id: int, user: User = Depends(get_current_user), db: Session = 
     offer = db.get(Offer, offer_id)
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
-    _party_role(offer, user)
+    _party_role(offer, user, db)
     if offer.status not in (OfferStatus.OPEN, OfferStatus.COUNTERED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Offer is closed")
     offer.status = OfferStatus.REJECTED
@@ -339,7 +349,7 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
     offer = db.get(Offer, offer_id)
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
-    role = _party_role(offer, user)
+    role = _party_role(offer, user, db)
     if offer.status not in (OfferStatus.OPEN, OfferStatus.COUNTERED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Offer is closed")
 
