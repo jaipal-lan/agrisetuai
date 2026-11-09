@@ -305,6 +305,63 @@ tbody tr:hover td { background: var(--green-100); }
 .seg button.seg-on { background: var(--green-700); color: #fff; font-weight: 600; }
 .seg button:disabled { opacity: 0.6; cursor: default; }
 
+/* --- Field-agent mobile inspection --- */
+.agent-page input, .agent-page select { padding: 12px; font-size: 16px; } /* 16px avoids iOS zoom */
+.agent-page button { min-height: 44px; } /* comfortable tap target */
+
+.field-status {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; margin: -4px -4px 14px; padding: 10px 14px; border-radius: 10px;
+  background: var(--green-100); color: var(--green-900); font-size: 14px; font-weight: 600;
+}
+.field-status.off { background: #fef3c7; color: #92400e; }
+.field-status .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--green-600); }
+.field-status.off .dot { background: var(--amber-600); }
+.field-status .sync-btn { margin-left: auto; padding: 6px 12px; min-height: 36px; }
+
+.inspect-form { margin-top: 10px; }
+.net-weight { margin-top: 8px; padding: 8px 12px; background: var(--card-alt); border-radius: 8px; font-size: 15px; }
+.check-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.check-grid .sub { font-size: 12px; }
+.check-grid .variety-check {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 2px;
+}
+.check-grid .variety-check input { width: auto; }
+@media (max-width: 520px) { .check-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Photo evidence */
+.photo-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.photo-thumb { position: relative; width: 76px; height: 76px; }
+.photo-thumb img { width: 76px; height: 76px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+.photo-x {
+  position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; min-height: 24px;
+  border-radius: 999px; background: #dc2626; color: #fff; border: none; cursor: pointer; line-height: 1; padding: 0;
+}
+.photo-add {
+  width: 76px; height: 76px; border: 1px dashed var(--line); border-radius: 10px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  color: var(--muted); font-size: 12px; background: var(--card-alt);
+}
+
+/* Big outcome selector */
+.bigseg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 6px; }
+.bigseg button {
+  border: 1px solid var(--line); background: var(--card); color: inherit; border-radius: 10px;
+  padding: 12px 6px; font-size: 14px; cursor: pointer; font-weight: 600;
+}
+.bigseg button.on { color: #fff; border-color: transparent; }
+.bigseg button.on.pass, .bigseg button.on.pass_with_adjustment { background: var(--green-700); }
+.bigseg button.on.hold { background: var(--amber-600); }
+.bigseg button.on.fail { background: #b91c1c; }
+@media (max-width: 420px) { .bigseg { grid-template-columns: repeat(2, 1fr); } }
+
+.submit-insp { width: 100%; margin-top: 14px; font-size: 16px; padding: 14px; }
+
+.draft-panel { border-left: 4px solid var(--amber-600); }
+.draft-row { padding: 8px 0; border-bottom: 1px solid var(--line); gap: 10px; }
+.draft-row:last-child { border-bottom: none; }
+.captured-note { margin-top: 10px; padding: 10px 12px; background: var(--green-100); color: var(--green-900); border-radius: 8px; font-size: 14px; }
+
 /* Brand mark in the nav */
 .brand-mark { display: inline-flex; align-items: center; gap: 8px; }
 .brand-mark svg { width: 22px; height: 22px; flex: 0 0 auto; }

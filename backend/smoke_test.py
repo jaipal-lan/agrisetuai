@@ -199,6 +199,14 @@ def run():
     check("agent submits pass", r.json()["order_status"] == "buyer_approval_pending")
     r2 = client.post(f"/api/agent/orders/{order_id}/inspection", headers=hdr(agent), json=insp_body)
     check("duplicate draft deduped", r2.json().get("duplicate") is True)
+    # Offline photo-evidence sync path: the agent uploads an inspection photo and
+    # gets an object_key to attach as evidence (what the field app flushes on sync).
+    import base64 as _b64
+    _png = _b64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+    up = client.post("/api/media/upload", headers=hdr(agent),
+                     files={"file": ("inspection.png", _png, "image/png")})
+    check("agent uploads an inspection photo", up.status_code == 200 and bool(up.json().get("object_key")))
 
     print("\n== Approval, quote, payment ==")
     r = client.post(f"/api/orders/{order_id}/buyer-approve", headers=hdr(buyer))
