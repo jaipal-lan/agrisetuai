@@ -923,6 +923,38 @@ def run():
     check("muted buyer skips the broadcast", after == before)
     client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"muted": []})
 
+    print("\n== Daily digest (batched proactive alerts) ==")
+    # Put 'requests' on daily digest for the farmer.
+    dr = client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"digest": ["requests"]})
+    check("category can be set to digest mode",
+          any(c["key"] == "requests" and c["mode"] == "digest" for c in dr.json()["categories"]))
+    def unread_count():
+        cards = client.get("/api/dashboard", headers=hdr(farmer)).json()["cards"]
+        return next(c["value"] for c in cards if c["label"] == "Unread alerts")
+    feed_before = fcount()
+    dash_before = unread_count()
+    # A matching paddy RFQ now routes to the digest, not the instant bell.
+    client.post("/api/rfqs", headers=hdr(buyer),
+                json={"commodity_id": paddy["id"], "requested_qty": 250, "target_price": 24})
+    check("digest alert stays out of the instant feed", fcount() == feed_before)
+    check("digest alert does not bump the bell count", unread_count() == dash_before)
+    dg = client.get("/api/auth/notifications/digest", headers=hdr(farmer)).json()
+    check("digest rolls up the batched alert",
+          dg["total"] >= 1 and any(g["category"] == "requests" and g["count"] >= 1 for g in dg["groups"]))
+    check("digest reports which categories are batched", "requests" in dg["digest_categories"])
+    # Reading the digest moves those items into the normal history.
+    rd = client.post("/api/auth/notifications/digest/read", headers=hdr(farmer)).json()
+    check("marking digest read clears the batch", rd["marked"] >= 1)
+    check("digest empty after read",
+          client.get("/api/auth/notifications/digest", headers=hdr(farmer)).json()["total"] == 0)
+    check("digested alert now appears in history", fcount() > feed_before)
+    # Mute wins when a category is set to both muted and digest.
+    mw = client.put("/api/auth/notification-preferences", headers=hdr(farmer),
+                    json={"muted": ["requests"], "digest": ["requests"]})
+    check("mute overrides digest for the same category",
+          any(c["key"] == "requests" and c["mode"] == "off" for c in mw.json()["categories"]))
+    client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"muted": [], "digest": []})
+
     print("\n== FPO multi-member (group lead, pooled view, members) ==")
     fpo_lead = login(client, "919000000050", role="fpo", name="Green Valley FPO")
     lead_id = client.get("/api/auth/me", headers=hdr(fpo_lead)).json()["id"]

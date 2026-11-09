@@ -131,6 +131,7 @@ function Nav() {
       {(!user || shopper) && <Link href="/subscriptions">{t("plans")}</Link>}
       {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && <Link href="/inbox">{t("inbox")}</Link>}
+      {user && <Link href="/digest">{t("daily_digest")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
       {user && <Link href="/profile">{t("profile")}</Link>}
       {user && user.onboarding_complete === false && (

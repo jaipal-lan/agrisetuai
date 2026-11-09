@@ -43,13 +43,22 @@ def send(
     object_id: str | int | None = None,
     channel: str = "in_app",
 ) -> Notification | None:
-    """Create an in-app notification, unless the recipient has muted this
-    category. Returns the Notification, or None if suppressed by preference."""
+    """Create an in-app notification, honouring the recipient's per-category
+    delivery preference:
+      - muted    → suppressed entirely (returns None, no row created);
+      - digest   → created but `deferred=True`, so it skips the instant bell and
+                   is rolled into the daily digest instead;
+      - instant  → created normally (the default).
+    Transactional/critical object_types have no category and are always instant."""
     category = category_for(object_type)
+    deferred = False
     if category:
         user = db.get(User, user_id)  # identity-map hit if already loaded
-        if user is not None and category in (user.muted_notifications or []):
-            return None
+        if user is not None:
+            if category in (user.muted_notifications or []):
+                return None
+            if category in (user.digest_notifications or []):
+                deferred = True
     n = Notification(
         user_id=user_id,
         title=title,
@@ -57,6 +66,7 @@ def send(
         channel=channel,
         object_type=object_type,
         object_id=str(object_id) if object_id is not None else None,
+        deferred=deferred,
     )
     db.add(n)
     return n

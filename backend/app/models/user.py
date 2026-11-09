@@ -21,6 +21,9 @@ class User(Base, TimestampMixin):
     # Muted proactive-notification categories (keys from notify.MUTEABLE_CATEGORIES).
     # Transactional order/account alerts are never muteable and ignore this.
     muted_notifications: Mapped[list | None] = mapped_column(JSON, default=list)
+    # Categories the user wants batched into a once-a-day digest instead of
+    # pinging the bell instantly. A category muted above takes precedence.
+    digest_notifications: Mapped[list | None] = mapped_column(JSON, default=list)
 
     # Optional organisation membership (FPO / business).
     organisation_id: Mapped[int | None] = mapped_column(

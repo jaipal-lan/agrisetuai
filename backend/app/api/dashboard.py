@@ -67,8 +67,10 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     cards: list[dict] = []
     actions: list[dict] = []
 
+    # Instant unread only — digest-deferred alerts don't ping the bell.
     unread = _count(db, select(func.count(Notification.id)).where(
-        Notification.user_id == user.id, Notification.read_at.is_(None)))
+        Notification.user_id == user.id, Notification.read_at.is_(None),
+        Notification.deferred.is_(False)))
 
     if role in (Role.FARMER, Role.FPO):
         active_listings = _count(db, select(func.count(Listing.id)).where(

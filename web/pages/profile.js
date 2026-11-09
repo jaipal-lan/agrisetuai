@@ -21,13 +21,19 @@ export default function Profile() {
     api("/auth/notification-preferences").then(setPrefs).catch(() => {});
   }, []);
 
-  async function toggleMute(key) {
+  // Set one category to a delivery mode: instant | digest | off.
+  async function setMode(key, mode) {
     if (!prefs) return;
     setSavingPref(key);
-    const muted = prefs.categories.filter((c) => c.muted).map((c) => c.key);
-    const next = muted.includes(key) ? muted.filter((k) => k !== key) : [...muted, key];
+    const muted = new Set(prefs.categories.filter((c) => c.mode === "off").map((c) => c.key));
+    const digest = new Set(prefs.categories.filter((c) => c.mode === "digest").map((c) => c.key));
+    muted.delete(key); digest.delete(key);
+    if (mode === "off") muted.add(key);
+    else if (mode === "digest") digest.add(key);
     try {
-      const r = await api("/auth/notification-preferences", { method: "PUT", body: { muted: next } });
+      const r = await api("/auth/notification-preferences", {
+        method: "PUT", body: { muted: [...muted], digest: [...digest] },
+      });
       setPrefs(r);
     } catch (e) { setErr(e.message); }
     finally { setSavingPref(null); }
@@ -84,18 +90,31 @@ export default function Profile() {
 
       {prefs && (
         <>
-          <h2>Notifications</h2>
+          <div className="between">
+            <h2>Notifications</h2>
+            {prefs.categories.some((c) => c.mode === "digest") && (
+              <Link href="/digest" className="btn ghost" style={{ alignSelf: "center" }}>📬 Daily digest</Link>
+            )}
+          </div>
           <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
-            Choose which proactive alerts to receive. Order updates and account messages are always sent.
+            Choose how each proactive alert reaches you. <b>Instant</b> pings the bell,
+            <b> Daily</b> batches it into a once-a-day digest, <b>Off</b> silences it.
+            Order updates and account messages are always sent instantly.
           </p>
           <div className="card">
             {prefs.categories.map((c) => (
-              <div key={c.key} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+              <div key={c.key} className="between" style={{ padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
                 <span>{c.label}</span>
-                <button className={c.muted ? "ghost" : ""} disabled={savingPref === c.key}
-                        onClick={() => toggleMute(c.key)} style={{ minWidth: 86 }}>
-                  {savingPref === c.key ? "…" : c.muted ? "Muted" : "On"}
-                </button>
+                <div className="seg" aria-label={`Delivery for ${c.label}`}>
+                  {[["instant", "Instant"], ["digest", "Daily"], ["off", "Off"]].map(([m, label]) => (
+                    <button key={m}
+                            className={c.mode === m ? "seg-on" : ""}
+                            disabled={savingPref === c.key}
+                            onClick={() => setMode(c.key, m)}>
+                      {savingPref === c.key && c.mode !== m ? "…" : label}
+                    </button>
+                  ))}
+                </div>
               </div>
             ))}
           </div>

@@ -2,7 +2,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -217,9 +217,14 @@ def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)
 
 @router.get("/notifications")
 def notifications(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Digest-deferred alerts stay out of the instant feed until they've been
+    # read (via the digest), then they join the normal history.
     rows = db.scalars(
         select(Notification)
-        .where(Notification.user_id == user.id)
+        .where(
+            Notification.user_id == user.id,
+            or_(Notification.deferred.is_(False), Notification.read_at.isnot(None)),
+        )
         .order_by(Notification.id.desc())
         .limit(50)
     )
@@ -309,48 +314,132 @@ def my_earnings_csv(user: User = Depends(get_current_user), db: Session = Depend
 
 
 class NotifPrefs(BaseModel):
-    muted: list[str] = Field(default_factory=list)
+    # Legacy binary field (kept for back-compat) and the newer per-category
+    # digest list. A category in `muted` wins over the same key in `digest`.
+    muted: list[str] | None = None
+    digest: list[str] | None = None
+
+
+def _pref_categories(user: User) -> dict:
+    """Each muteable category with the recipient's delivery mode:
+    instant (default) | digest (daily roll-up) | off (muted)."""
+    from app.services.notify import MUTEABLE_CATEGORIES
+
+    muted = set(user.muted_notifications or [])
+    digest = set(user.digest_notifications or [])
+    cats = []
+    for k, label in MUTEABLE_CATEGORIES:
+        mode = "off" if k in muted else ("digest" if k in digest else "instant")
+        cats.append({"key": k, "label": label, "mode": mode, "muted": mode == "off"})
+    return {"categories": cats}
 
 
 @router.get("/notification-preferences")
 def get_notification_preferences(user: User = Depends(get_current_user)):
-    """The muteable notification categories and whether the user has muted each."""
-    from app.services.notify import MUTEABLE_CATEGORIES
-
-    muted = set(user.muted_notifications or [])
-    return {
-        "categories": [
-            {"key": k, "label": label, "muted": k in muted}
-            for k, label in MUTEABLE_CATEGORIES
-        ]
-    }
+    """The muteable notification categories and each one's delivery mode."""
+    return _pref_categories(user)
 
 
 @router.put("/notification-preferences")
 def set_notification_preferences(
     body: NotifPrefs, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """Replace the user's muted categories (unknown keys are ignored)."""
+    """Update delivery modes. `muted` and `digest` are each a full replacement of
+    that list when provided (omit a list to leave it unchanged). Unknown keys are
+    ignored; a category present in both lists is treated as muted."""
     from app.services.notify import MUTEABLE_CATEGORIES
 
     valid = {k for k, _ in MUTEABLE_CATEGORIES}
-    user.muted_notifications = sorted(valid.intersection(body.muted))
+    if body.muted is not None:
+        user.muted_notifications = sorted(valid.intersection(body.muted))
+    if body.digest is not None:
+        user.digest_notifications = sorted(valid.intersection(body.digest))
+    # Mute wins: a category can't be both muted and digest.
+    muted = set(user.muted_notifications or [])
+    user.digest_notifications = sorted(set(user.digest_notifications or []) - muted)
     db.commit()
-    muted = set(user.muted_notifications)
-    return {
-        "categories": [
-            {"key": k, "label": label, "muted": k in muted}
-            for k, label in MUTEABLE_CATEGORIES
-        ]
-    }
+    return _pref_categories(user)
 
 
 @router.post("/notifications/read")
 def mark_notifications_read(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Mark all of the caller's notifications as read (clears the bell badge)."""
+    """Mark the caller's instant notifications as read (clears the bell badge).
+    Digest-deferred alerts have their own read action so they aren't cleared
+    before the user has seen the roll-up."""
     now = utcnow().isoformat()
     rows = db.scalars(
-        select(Notification).where(Notification.user_id == user.id, Notification.read_at.is_(None))
+        select(Notification).where(
+            Notification.user_id == user.id,
+            Notification.read_at.is_(None),
+            Notification.deferred.is_(False),
+        )
+    )
+    n = 0
+    for row in rows:
+        row.read_at = now
+        n += 1
+    db.commit()
+    return {"ok": True, "marked": n}
+
+
+@router.get("/notifications/digest")
+def notifications_digest(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The daily roll-up: pending digest-deferred alerts grouped by category.
+
+    Returns everything the user has chosen to batch and not yet read, newest
+    first within each group, plus which categories are on digest delivery."""
+    from app.services.notify import MUTEABLE_CATEGORIES, category_for
+
+    labels = dict(MUTEABLE_CATEGORIES)
+    rows = list(db.scalars(
+        select(Notification)
+        .where(
+            Notification.user_id == user.id,
+            Notification.deferred.is_(True),
+            Notification.read_at.is_(None),
+        )
+        .order_by(Notification.id.desc())
+    ))
+    groups: dict[str, dict] = {}
+    for n in rows:
+        cat = category_for(n.object_type) or "other"
+        g = groups.setdefault(cat, {
+            "category": cat,
+            "label": labels.get(cat, "Other updates"),
+            "count": 0,
+            "items": [],
+        })
+        g["count"] += 1
+        g["items"].append({
+            "id": n.id,
+            "title": n.title,
+            "body": n.body,
+            "object_type": n.object_type,
+            "object_id": n.object_id,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        })
+    # Preserve the MUTEABLE_CATEGORIES order, with any stragglers last.
+    order = {k: i for i, (k, _) in enumerate(MUTEABLE_CATEGORIES)}
+    ordered = sorted(groups.values(), key=lambda g: order.get(g["category"], 99))
+    return {
+        "generated_at": utcnow().isoformat(),
+        "total": len(rows),
+        "groups": ordered,
+        "digest_categories": sorted(user.digest_notifications or []),
+    }
+
+
+@router.post("/notifications/digest/read")
+def mark_digest_read(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Mark the pending digest-deferred alerts as read; they then move into the
+    normal notification history."""
+    now = utcnow().isoformat()
+    rows = db.scalars(
+        select(Notification).where(
+            Notification.user_id == user.id,
+            Notification.deferred.is_(True),
+            Notification.read_at.is_(None),
+        )
     )
     n = 0
     for row in rows:

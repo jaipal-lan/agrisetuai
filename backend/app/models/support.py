@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -59,6 +59,9 @@ class Notification(Base, TimestampMixin):
     object_type: Mapped[str | None] = mapped_column(String(32))
     object_id: Mapped[str | None] = mapped_column(String(40))
     read_at: Mapped[str | None] = mapped_column(String(40))
+    # Held back from the instant bell to be rolled into the daily digest
+    # (recipient set this category to "digest"). Surfaces in the feed once read.
+    deferred: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
 
 class MediaObject(Base, TimestampMixin):
