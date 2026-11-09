@@ -713,6 +713,31 @@ def run():
     priced_d = [p["price_max"] for p in desc if p["price_max"] is not None]
     check("price_desc sorted descending", priced_d == sorted(priced_d, reverse=True))
 
+    print("\n== Buyer home / discovery ==")
+    disc = client.get("/api/listings/discovery").json()
+    check("discovery returns the curated sections",
+          all(k in disc for k in ("featured", "fresh", "categories", "near_you", "stats")))
+    check("discovery featured non-empty with images",
+          len(disc["featured"]) >= 1 and all(p.get("image") for p in disc["featured"]))
+    check("discovery featured items have live stock",
+          all(p["offering_count"] >= 1 for p in disc["featured"]))
+    check("discovery categories carry offering counts",
+          len(disc["categories"]) >= 1 and all(c["offering_count"] >= 1 for c in disc["categories"]))
+    check("discovery fresh items link to a listing + price",
+          all("listing_id" in f and "price" in f for f in disc["fresh"]))
+    check("discovery stats count live products/farmers",
+          disc["stats"]["live_products"] >= 1 and disc["stats"]["farmers"] >= 1)
+    check("discovery near_you is None without a location", disc["near_you"] is None)
+    # Near-you scoped to the district of a real paddy listing's mandal.
+    some = client.get("/api/listings", params={"commodity_id": paddy["id"]}).json()
+    mid = next((l["mandal_id"] for l in some if l.get("mandal_id")), None)
+    check("a published listing has a mandal to localise by", mid is not None)
+    near = client.get("/api/listings/discovery", params={"mandal_id": mid}).json()
+    check("near_you populated for a known mandal",
+          near["near_you"] is not None and near["near_you"]["mandal_id"] == mid)
+    check("near_you reports the district + local produce",
+          "district" in near["near_you"] and len(near["near_you"]["products"]) >= 1)
+
     print("\n== Admin user management ==")
     login(client, "919000000044", role="fpo", name="Temp FPO")  # throwaway target
     us = client.get("/api/admin/users", headers=hdr(superadmin)).json()

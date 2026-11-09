@@ -250,6 +250,51 @@ tbody tr:hover td { background: var(--green-100); }
 .product-card > :last-child { padding-bottom: 16px; }
 .product-card:hover { transform: translateY(-2px); box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 14px 30px rgba(20,83,45,.12); }
 
+/* --- Buyer home / discovery landing --- */
+.disc-section { margin: 26px 0; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.section-head h2 { margin: 0; font-size: 20px; }
+
+/* Headline stats strip */
+.stat-strip {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px;
+}
+.stat-strip > div {
+  flex: 1 1 120px; background: var(--card-alt); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 14px; font-size: 14px; color: var(--muted);
+}
+.stat-strip b { font-size: 22px; color: var(--accent-text); display: block; line-height: 1.1; }
+
+/* Shopping-near bar */
+.area-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.area-bar select { width: auto; min-width: 180px; flex: 0 1 auto; }
+
+/* Category + recently-viewed pills */
+.pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill-row .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--line); background: var(--card); color: inherit;
+  padding: 7px 14px; border-radius: 999px; cursor: pointer; font-size: 14px;
+}
+.pill-row .pill:hover { border-color: var(--green-600); background: var(--card-alt); }
+
+/* Just-listed horizontal strip */
+.fresh-strip {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr);
+  gap: 14px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity;
+}
+.fresh-strip .fresh-card { scroll-snap-align: start; }
+.fresh-card { padding: 0; overflow: hidden; display: block; }
+.fresh-card .fresh-thumb {
+  width: 100%; height: 110px; object-fit: cover; display: block;
+  background: var(--card-alt); border-bottom: 1px solid var(--line);
+}
+.fresh-card > :not(.fresh-thumb) { padding-left: 14px; padding-right: 14px; }
+.fresh-card > .between { padding-top: 12px; }
+.fresh-card > :last-child { padding-bottom: 14px; }
+.fresh-card:hover { transform: translateY(-2px); box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 14px 30px rgba(20,83,45,.12); }
+@media (max-width: 640px) { .fresh-strip { grid-auto-columns: minmax(150px, 70%); } }
+
 /* Brand mark in the nav */
 .brand-mark { display: inline-flex; align-items: center; gap: 8px; }
 .brand-mark svg { width: 22px; height: 22px; flex: 0 0 auto; }

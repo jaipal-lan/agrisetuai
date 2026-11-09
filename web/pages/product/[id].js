@@ -5,6 +5,17 @@ import { useEffect, useState } from "react";
 import { api, getUser, mediaUrl } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 
+// Record this product in the per-viewer "recently viewed" list (newest first,
+// deduped, capped) so the home page can surface it.
+function rememberRecent(d) {
+  try {
+    const entry = { commodity_id: d.commodity_id, commodity: d.commodity, commodity_te: d.commodity_te };
+    const prev = JSON.parse(localStorage.getItem("av_recent") || "[]");
+    const next = [entry, ...prev.filter((r) => r.commodity_id !== entry.commodity_id)].slice(0, 8);
+    localStorage.setItem("av_recent", JSON.stringify(next));
+  } catch { /* storage may be unavailable */ }
+}
+
 function WatchButton({ commodityId }) {
   const [state, setState] = useState(null); // {watching, target_price}
   const [target, setTarget] = useState("");
@@ -69,7 +80,10 @@ export default function ProductOfferings() {
   useEffect(() => { setMe(getUser()); }, []);
   useEffect(() => {
     if (!id) return;
-    api(`/listings/products/${id}`).then(setData).catch((e) => setErr(e.message));
+    api(`/listings/products/${id}`).then((d) => {
+      setData(d);
+      rememberRecent(d);
+    }).catch((e) => setErr(e.message));
   }, [id]);
 
   if (err) return <div className="error">{err}</div>;

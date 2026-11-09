@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -12,7 +12,7 @@ from app.core.rbac import Role
 from app.core.serializers import public_user
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import ClaimStatus, ListingStatus, utcnow
-from app.models.location import Mandal
+from app.models.location import District, Mandal
 from app.models.marketplace import Listing, ListingMedia, Watch
 from app.models.user import FarmerProfile, User
 from app.services import notify
@@ -229,6 +229,42 @@ def my_listings(user: User = Depends(_seller), db: Session = Depends(get_db)):
 
 
 # --- Product view: the same product offered by multiple farmers/places --------
+def _product_card(c: Commodity, rows: list[Listing], db: Session) -> dict:
+    """Aggregate one commodity's open listings into a product-grid card:
+    how many farmers/places offer it, the price range and a representative photo.
+    `rows` is that commodity's OPEN listings (live and sold-out alike)."""
+    live = [l for l in rows if qty(l.available_qty) > qty(0)]
+    prices = [float(l.asking_price) for l in live]
+    places = set()
+    for l in live:
+        m = db.get(Mandal, l.mandal_id) if l.mandal_id else None
+        if m:
+            places.add(m.name)
+    # A representative photo: first real image from any offering, else a
+    # placeholder key the media endpoint renders as produce art.
+    image_key = None
+    for l in (live or rows):
+        img = next((m for m in l.media if m.media_type == "image"), None)
+        if img:
+            image_key = img.object_key
+            break
+    if not image_key:
+        image_key = f"sample/{c.name.lower().replace(' ', '-')}.svg"
+    return {
+        "commodity_id": c.id,
+        "commodity": c.name,
+        "commodity_te": c.name_te,
+        "category": c.category,
+        "image": image_key,
+        "min_order_qty": str(qty(c.min_order_qty or 0)),
+        "offering_count": len(live),
+        "place_count": len(places),
+        "price_min": min(prices) if prices else None,
+        "price_max": max(prices) if prices else None,
+        "any_verified": any(l.agent_verified for l in live),
+    }
+
+
 # Declared before /{listing_id} so "products" is not parsed as a listing id.
 
 @router.get("/products")
@@ -251,36 +287,7 @@ def products(category: str | None = None, q: str | None = None,
         rows = list(db.scalars(
             select(Listing).where(Listing.commodity_id == c.id, Listing.status == ListingStatus.OPEN)
         ))
-        live = [l for l in rows if qty(l.available_qty) > qty(0)]
-        prices = [float(l.asking_price) for l in live]
-        places = set()
-        for l in live:
-            m = db.get(Mandal, l.mandal_id) if l.mandal_id else None
-            if m:
-                places.add(m.name)
-        # A representative photo for the product card: first real image from any
-        # offering, else a placeholder key the media endpoint renders as produce art.
-        image_key = None
-        for l in (live or rows):
-            img = next((m for m in l.media if m.media_type == "image"), None)
-            if img:
-                image_key = img.object_key
-                break
-        if not image_key:
-            image_key = f"sample/{c.name.lower().replace(' ', '-')}.svg"
-        out.append({
-            "commodity_id": c.id,
-            "commodity": c.name,
-            "commodity_te": c.name_te,
-            "category": c.category,
-            "image": image_key,
-            "min_order_qty": str(qty(c.min_order_qty or 0)),
-            "offering_count": len(live),
-            "place_count": len(places),
-            "price_min": min(prices) if prices else None,
-            "price_max": max(prices) if prices else None,
-            "any_verified": any(l.agent_verified for l in live),
-        })
+        out.append(_product_card(c, rows, db))
 
     def price_key(p, hi=False):
         v = p["price_max"] if hi else p["price_min"]
@@ -297,6 +304,122 @@ def products(category: str | None = None, q: str | None = None,
         out.sort(key=lambda p: (-p["offering_count"], p["commodity"]))
     # else: keep the default category/name order from the query.
     return out
+
+
+def _fresh_row(l: Listing, db: Session) -> dict:
+    """A compact 'just listed' card for one live listing on the buyer home."""
+    c = db.get(Commodity, l.commodity_id)
+    seller = db.get(User, l.seller_id)
+    m = db.get(Mandal, l.mandal_id) if l.mandal_id else None
+    img = next((mm.object_key for mm in l.media if mm.media_type == "image"), None)
+    if not img and c:
+        img = f"sample/{c.name.lower().replace(' ', '-')}.svg"
+    return {
+        "listing_id": l.id,
+        "commodity_id": l.commodity_id,
+        "commodity": c.name if c else None,
+        "commodity_te": c.name_te if c else None,
+        "category": c.category if c else None,
+        "price": float(l.asking_price),
+        "available_qty": str(qty(l.available_qty)),
+        "place": m.name if m else None,
+        "seller": public_user(seller)["name"] if seller else None,
+        "agent_verified": l.agent_verified,
+        "image": img,
+        "listed_at": l.created_at.isoformat() if l.created_at else None,
+    }
+
+
+@router.get("/discovery")
+def discovery(mandal_id: int | None = None, db: Session = Depends(get_db)):
+    """Curated buyer home: featured produce, fresh listings, browse-by-category,
+    headline stats, and — when a location is given — what's available near you.
+
+    `mandal_id` scopes the "near you" section to the buyer's district (the mandal's
+    district, so nearby villages count too). Everything else is market-wide.
+    """
+    commodities = {c.id: c for c in db.scalars(select(Commodity))}
+    open_listings = list(db.scalars(
+        select(Listing).where(Listing.status == ListingStatus.OPEN)
+    ))
+    by_commodity: dict[int, list[Listing]] = {}
+    for l in open_listings:
+        by_commodity.setdefault(l.commodity_id, []).append(l)
+
+    # Build a card per commodity that actually has live stock.
+    cards = []
+    for cid, rows in by_commodity.items():
+        c = commodities.get(cid)
+        if not c:
+            continue
+        card = _product_card(c, rows, db)
+        if card["offering_count"] > 0:
+            cards.append(card)
+
+    INF = float("inf")
+    # Featured: agent-verified first, then widest availability, then best price.
+    featured = sorted(
+        cards,
+        key=lambda p: (not p["any_verified"], -p["offering_count"], p["price_min"] or INF),
+    )[:6]
+
+    # Browse by category, busiest category first.
+    cats: dict[str, dict] = {}
+    for p in cards:
+        d = cats.setdefault(p["category"], {
+            "category": p["category"], "product_count": 0, "offering_count": 0,
+        })
+        d["product_count"] += 1
+        d["offering_count"] += p["offering_count"]
+    categories = sorted(cats.values(), key=lambda d: (-d["offering_count"], d["category"]))
+
+    # Fresh: most recently listed live lots.
+    live_listings = [l for l in open_listings if qty(l.available_qty) > qty(0)]
+    live_listings.sort(
+        key=lambda l: l.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    fresh = [_fresh_row(l, db) for l in live_listings[:6]]
+
+    # Near you: same-district produce, so nearby villages count, not just the mandal.
+    near_you = None
+    if mandal_id:
+        m = db.get(Mandal, mandal_id)
+        if m:
+            district = db.get(District, m.district_id)
+            district_mandals = set(db.scalars(
+                select(Mandal.id).where(Mandal.district_id == m.district_id)
+            ))
+            near_cards = []
+            for cid, rows in by_commodity.items():
+                c = commodities.get(cid)
+                if not c:
+                    continue
+                local = [l for l in rows if l.mandal_id in district_mandals]
+                if not local:
+                    continue
+                card = _product_card(c, local, db)
+                if card["offering_count"] > 0:
+                    near_cards.append(card)
+            near_cards.sort(key=lambda p: (not p["any_verified"], -p["offering_count"]))
+            near_you = {
+                "mandal_id": mandal_id,
+                "mandal": m.name,
+                "district": district.name if district else None,
+                "products": near_cards[:8],
+            }
+
+    return {
+        "featured": featured,
+        "fresh": fresh,
+        "categories": categories,
+        "near_you": near_you,
+        "stats": {
+            "live_products": len(cards),
+            "farmers": len({l.seller_id for l in live_listings}),
+            "places": len({l.mandal_id for l in live_listings if l.mandal_id}),
+        },
+    }
 
 
 @router.get("/products/{commodity_id}")
