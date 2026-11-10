@@ -206,20 +206,68 @@ class ReminderCreate(BaseModel):
     note: str | None = None
 
 
+def _suggest_due(task: CropCalendarTask, today: date) -> str | None:
+    """Pick a sensible due date for a calendar-task reminder: the 1st of the next
+    occurrence of the task's earliest active month."""
+    months = sorted(task.months or [])
+    if not months:
+        return None
+    future = [m for m in months if m >= today.month]
+    if future:
+        return date(today.year, future[0], 1).isoformat()
+    return date(today.year + 1, months[0], 1).isoformat()
+
+
+def _reminder_json(r: Reminder, db: Session, lang_task: dict | None = None) -> dict:
+    task = db.get(CropCalendarTask, r.calendar_task_id) if r.calendar_task_id else None
+    return {
+        "id": r.id,
+        "status": r.status,
+        "due_on": r.due_on,
+        "note": r.note,
+        "calendar_task_id": r.calendar_task_id,
+        "crop": task.crop if task else None,
+        "window": task.window if task else None,
+        "task": task.task if task else None,
+        "task_te": task.task_te if task else None,
+    }
+
+
 @router.post("/reminders")
 def create_reminder(
     body: ReminderCreate, user=Depends(get_current_user), db: Session = Depends(get_db)
 ):
+    due_on = body.due_on
+    task = None
+    if body.calendar_task_id:
+        task = db.get(CropCalendarTask, body.calendar_task_id)
+        if not task:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Calendar task not found")
+        if not due_on:
+            due_on = _suggest_due(task, date.today())
     r = Reminder(
         user_id=user.id,
         calendar_task_id=body.calendar_task_id,
-        due_on=body.due_on,
-        note=body.note,
+        due_on=due_on,
+        note=body.note or (task.task if task else None),
     )
     db.add(r)
     db.commit()
     db.refresh(r)
-    return {"id": r.id, "status": r.status, "due_on": r.due_on}
+    return _reminder_json(r, db)
+
+
+@router.get("/reminders")
+def my_reminders(status_filter: str | None = None,
+                 user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """The logged-in user's reminders (open + snoozed first), enriched with the
+    calendar task they came from."""
+    stmt = select(Reminder).where(Reminder.user_id == user.id)
+    if status_filter:
+        stmt = stmt.where(Reminder.status == status_filter)
+    rows = list(db.scalars(stmt.order_by(Reminder.id.desc())))
+    rows.sort(key=lambda r: (r.status == "done", r.due_on or "9999"))
+    return [_reminder_json(r, db) for r in rows]
 
 
 @router.patch("/reminders/{reminder_id}")
@@ -236,7 +284,7 @@ def patch_reminder(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid status")
     r.status = status_value
     db.commit()
-    return {"id": r.id, "status": r.status}
+    return _reminder_json(r, db)
 
 
 @router.get("/market-prices")
@@ -310,6 +358,17 @@ def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
         items = sorted((_calendar_json(t, month) for t in tasks),
                        key=lambda x: (x["months"][0] if x["months"] else 99))
         calendar.append({"crop": crop, "tasks": items})
+    # Mark which calendar tasks the farmer already has an active reminder for.
+    active_reminders = list(db.scalars(
+        select(Reminder).where(Reminder.user_id == user.id, Reminder.status != "done")
+    ))
+    reminded_task_ids = {r.calendar_task_id for r in active_reminders if r.calendar_task_id}
+    for grp in calendar:
+        for it in grp["tasks"]:
+            it["reminder_set"] = it["id"] in reminded_task_ids
+    reminders = sorted((_reminder_json(r, db) for r in active_reminders),
+                       key=lambda x: x["due_on"] or "9999")
+
     current_tasks = [{**it, "crop": grp["crop"]}
                      for grp in calendar for it in grp["tasks"] if it["current"]]
 
@@ -356,6 +415,7 @@ def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
         "weather": weather,
         "current_tasks": current_tasks,
         "calendar": calendar,
+        "reminders": reminders,
         "schemes": schemes_matched,
         "knowledge": knowledge,
     }

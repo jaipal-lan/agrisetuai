@@ -699,6 +699,27 @@ def run():
     check("rainy forecast yields a warning caution",
           rainy is not None and any(a["level"] == "warning" for a in rainy["advice"]))
 
+    print("\n== Calendar reminders ==")
+    tid = plan["calendar"][0]["tasks"][0]["id"]
+    rc = client.post("/api/reminders", headers=hdr(farmer), json={"calendar_task_id": tid})
+    check("reminder created from a calendar task",
+          rc.status_code == 200 and rc.json()["calendar_task_id"] == tid and rc.json()["crop"])
+    check("reminder auto-fills a due date from the task", bool(rc.json()["due_on"]))
+    rid = rc.json()["id"]
+    rlist = client.get("/api/reminders", headers=hdr(farmer)).json()
+    check("reminder appears in the farmer's list", any(r["id"] == rid for r in rlist))
+    plan2 = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
+    check("farm plan flags the task as reminder-set",
+          any(t["id"] == tid and t["reminder_set"] for g in plan2["calendar"] for t in g["tasks"]))
+    check("farm plan lists the active reminder", any(r["id"] == rid for r in plan2["reminders"]))
+    rp = client.patch(f"/api/reminders/{rid}?status_value=done", headers=hdr(farmer))
+    check("reminder can be marked done", rp.json()["status"] == "done")
+    plan3 = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
+    check("a done reminder drops off the active plan",
+          not any(r["id"] == rid for r in plan3["reminders"]))
+    check("invalid reminder status rejected",
+          client.patch(f"/api/reminders/{rid}?status_value=nope", headers=hdr(farmer)).status_code == 400)
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",

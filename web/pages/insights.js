@@ -9,7 +9,16 @@ const MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 // Personalised plan for a farmer: their crops' current-season tasks, matched
 // government schemes and reviewed knowledge.
-function FarmPlan({ plan, lang }) {
+function FarmPlan({ plan, lang, onChange }) {
+  async function remind(taskId) {
+    try { await api("/reminders", { method: "POST", body: { calendar_task_id: taskId } }); onChange(); }
+    catch { /* ignore */ }
+  }
+  async function setStatus(id, status) {
+    try { await api(`/reminders/${id}?status_value=${status}`, { method: "PATCH" }); onChange(); }
+    catch { /* ignore */ }
+  }
+
   if (!plan) return null;
   if (!plan.has_profile) {
     return (
@@ -60,6 +69,29 @@ function FarmPlan({ plan, lang }) {
             </div>
           ))}
           <div className="disclaimer">{plan.weather.source_note}</div>
+        </div>
+      )}
+
+      {/* Reminders the farmer set from the calendar */}
+      {plan.reminders?.length > 0 && (
+        <div className="card" style={{ borderLeft: "4px solid var(--amber-600)", marginBottom: 14 }}>
+          <b>⏰ Your reminders</b>
+          {plan.reminders.map((r) => (
+            <div key={r.id} className="between followup-row">
+              <div>
+                <b style={{ textTransform: "capitalize" }}>{r.crop || "task"}</b>
+                <span className="muted" style={{ fontSize: 13 }}> · due {r.due_on || "—"}</span>
+                {r.status === "snoozed" && <span className="badge grey" style={{ marginLeft: 6 }}>snoozed</span>}
+                <div style={{ fontSize: 14 }}>{lang === "te" && r.task_te ? r.task_te : r.task}</div>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="ghost" onClick={() => setStatus(r.id, "done")}>Done</button>
+                {r.status !== "snoozed" && (
+                  <button className="ghost" onClick={() => setStatus(r.id, "snoozed")}>Snooze</button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -121,6 +153,12 @@ function FarmPlan({ plan, lang }) {
                     {c.months.map((m) => MONTHS[m]).join(", ")}
                   </div>
                 )}
+                <div style={{ marginTop: 8 }}>
+                  {c.reminder_set
+                    ? <span className="muted" style={{ fontSize: 13 }}>✓ Reminder set</span>
+                    : <button className="ghost" style={{ padding: "2px 8px", fontSize: 13 }}
+                              onClick={() => remind(c.id)}>⏰ Remind me</button>}
+                </div>
                 <div className="disclaimer">{c.source}</div>
               </div>
             ))}
@@ -165,8 +203,11 @@ export default function Insights() {
       .catch((e) => setErr(e.message));
   }, []);
 
+  function loadPlan() {
+    api("/my-farm-plan").then(setPlan).catch(() => {});
+  }
   useEffect(() => {
-    if (isSeller) api("/my-farm-plan").then(setPlan).catch(() => {});
+    if (isSeller) loadPlan();
   }, [isSeller]);
 
   return (
@@ -178,7 +219,7 @@ export default function Insights() {
       </p>
       {err && <div className="error">{err}</div>}
 
-      {isSeller && <FarmPlan plan={plan} lang={lang} />}
+      {isSeller && <FarmPlan plan={plan} lang={lang} onChange={loadPlan} />}
 
       <h2>Market prices</h2>
       {prices.length === 0 ? (
