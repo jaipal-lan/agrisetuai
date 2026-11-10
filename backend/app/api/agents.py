@@ -148,6 +148,7 @@ def submit_inspection(
 # --- Agent-as-expert advisory log ----------------------------------------
 
 class AdvisoryLogCreate(BaseModel):
+    client_draft_id: str | None = None
     farmer_phone: str | None = None
     listing_id: int | None = None
     crop: str | None = None
@@ -174,7 +175,16 @@ def _log_json(l: AdvisoryLog) -> dict:
 
 @router.post("/advisory-logs", status_code=status.HTTP_201_CREATED)
 def create_advisory_log(body: AdvisoryLogCreate, user=Depends(_agent), db: Session = Depends(get_db)):
-    """Field agent records advisory / farmer-education notes from a visit."""
+    """Field agent records advisory / farmer-education notes from a visit.
+
+    Offline-first safe: a repeated client_draft_id returns the existing record
+    instead of creating a duplicate, so a draft captured in the field and synced
+    later (or twice) never double-logs.
+    """
+    if body.client_draft_id:
+        dup = db.scalar(select(AdvisoryLog).where(AdvisoryLog.client_draft_id == body.client_draft_id))
+        if dup:
+            return {**_log_json(dup), "duplicate": True}
     farmer_id = None
     if body.farmer_phone:
         farmer = db.scalar(select(User).where(User.phone == body.farmer_phone))
@@ -182,7 +192,7 @@ def create_advisory_log(body: AdvisoryLogCreate, user=Depends(_agent), db: Sessi
     log = AdvisoryLog(
         agent_id=user.id, farmer_id=farmer_id, listing_id=body.listing_id, crop=body.crop,
         topic=body.topic, observation=body.observation, recommendation=body.recommendation,
-        follow_up_on=body.follow_up_on,
+        follow_up_on=body.follow_up_on, client_draft_id=body.client_draft_id,
     )
     db.add(log)
     db.commit()

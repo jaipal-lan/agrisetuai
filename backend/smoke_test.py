@@ -507,6 +507,18 @@ def run():
     check("agent logs advisory", r.status_code == 201 and r.json()["recommendation"])
     logs = client.get("/api/agent/advisory-logs", headers=hdr(agent)).json()
     check("advisory log listed for agent", any(l["crop"] == "paddy" for l in logs))
+    # Offline-first: a re-synced advisory draft dedupes on client_draft_id.
+    adv_body = {
+        "client_draft_id": "adv-draft-1", "crop": "groundnut", "topic": "advisory",
+        "observation": "Leaf spot starting.", "recommendation": "Rogue affected plants; monitor weekly.",
+    }
+    count_before = len(client.get("/api/agent/advisory-logs", headers=hdr(agent)).json())
+    a1 = client.post("/api/agent/advisory-logs", headers=hdr(agent), json=adv_body)
+    a2 = client.post("/api/agent/advisory-logs", headers=hdr(agent), json=adv_body)
+    check("duplicate advisory draft deduped", a2.json().get("duplicate") is True
+          and a2.json()["id"] == a1.json()["id"])
+    count_after = len(client.get("/api/agent/advisory-logs", headers=hdr(agent)).json())
+    check("re-synced advisory draft logs once", count_after == count_before + 1)
 
     print("\n== Superadmin GMV reports ==")
     rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()

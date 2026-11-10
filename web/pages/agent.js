@@ -1,28 +1,32 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { api, getUser, mediaUrl, uploadMedia } from "../lib/api";
+import { api, getUser, uploadMedia } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
-// Offline-first inspection capture for field agents. Drafts (incl. downscaled
-// photos) are held in localStorage and flushed when connectivity returns; the
-// backend dedupes on client_draft_id, so re-sending a draft never creates a
-// duplicate inspection.
+// Offline-first field capture for agents. Drafts (inspections incl. downscaled
+// photos, and advisory logs) are held in localStorage and flushed when
+// connectivity returns; the backend dedupes on client_draft_id, so re-sending a
+// draft never creates a duplicate.
 const QUEUE_KEY = "agri_insp_queue";
+const ADV_QUEUE_KEY = "agri_adv_queue";
 const MAX_PHOTOS = 4;
 
-function readQueue() {
-  try { return JSON.parse(window.localStorage.getItem(QUEUE_KEY) || "[]"); }
+function readQ(key) {
+  try { return JSON.parse(window.localStorage.getItem(key) || "[]"); }
   catch { return []; }
 }
 // Returns true on success; false if the device rejected the write (e.g. storage
 // full from too many queued photos) so the caller can warn the agent.
-function writeQueue(q) {
-  try { window.localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); return true; }
+function writeQ(key, q) {
+  try { window.localStorage.setItem(key, JSON.stringify(q)); return true; }
   catch { return false; }
 }
+const readQueue = () => readQ(QUEUE_KEY);
+const writeQueue = (q) => writeQ(QUEUE_KEY, q);
+
 function newDraftId() {
   try { if (window.crypto?.randomUUID) return window.crypto.randomUUID(); } catch {}
   return `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -185,7 +189,7 @@ function InspectForm({ job, onQueued, online }) {
   );
 }
 
-function AdvisoryLog() {
+function AdvisoryLog({ online, queueAdvisory, pending, syncedAt }) {
   const [logs, setLogs] = useState([]);
   const [form, setForm] = useState({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
   const [msg, setMsg] = useState(null);
@@ -194,27 +198,41 @@ function AdvisoryLog() {
   async function load() {
     try { setLogs(await api("/agent/advisory-logs")); } catch {}
   }
-  useEffect(() => { load(); }, []);
+  // Reload after each successful sync so freshly-flushed drafts appear as saved.
+  useEffect(() => { load(); }, [syncedAt]);
 
-  async function save() {
+  function save() {
     setMsg(null);
-    try {
-      await api("/agent/advisory-logs", { method: "POST", body: {
-        farmer_phone: form.farmer_phone || undefined, crop: form.crop || undefined,
-        topic: "advisory", observation: form.observation || undefined,
-        recommendation: form.recommendation || undefined, follow_up_on: form.follow_up_on || undefined,
-      }});
-      setMsg("Advisory logged.");
-      setForm({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
-      load();
-    } catch (e) { setMsg(e.message); }
+    if (!form.observation && !form.recommendation) return;
+    const draftId = newDraftId();
+    const body = {
+      client_draft_id: draftId,
+      farmer_phone: form.farmer_phone || undefined,
+      crop: form.crop || undefined,
+      topic: "advisory",
+      observation: form.observation || undefined,
+      recommendation: form.recommendation || undefined,
+      follow_up_on: form.follow_up_on || undefined,
+    };
+    const item = {
+      id: draftId, body, crop: form.crop, observation: form.observation,
+      recommendation: form.recommendation, follow_up_on: form.follow_up_on,
+      created_at: new Date().toISOString(),
+    };
+    if (!queueAdvisory(item)) {
+      setMsg("Device storage is full — sync now to free space, then retry.");
+      return;
+    }
+    setForm({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
+    setMsg(online ? "Logged — syncing…" : "Saved on this device — will sync when back online.");
   }
 
   return (
     <div style={{ marginTop: 28 }}>
       <h2>Advisory & farmer education log</h2>
       <p className="muted" style={{ fontSize: 13 }}>
-        You are also the local agricultural expert. Record what you advised and any follow-up.
+        You are also the local agricultural expert. Record what you advised and any
+        follow-up — works offline, syncs when you are back online.
       </p>
       <div className="card">
         <div className="row">
@@ -230,10 +248,26 @@ function AdvisoryLog() {
         <label>Recommendation (IPM-first; no invented doses)</label>
         <textarea rows={2} value={form.recommendation} onChange={(e) => set("recommendation", e.target.value)} />
         <div style={{ marginTop: 10 }}>
-          <button onClick={save} disabled={!form.observation && !form.recommendation}>Log advisory</button>
+          <button onClick={save} disabled={!form.observation && !form.recommendation}>
+            {online ? "Log advisory" : "Save offline"}
+          </button>
         </div>
         {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
       </div>
+
+      {/* Advisory drafts captured on this device, not yet synced */}
+      {pending.map((p) => (
+        <div className="card" key={p.id} style={{ marginTop: 10, borderLeft: "4px solid var(--amber-600)" }}>
+          <div className="between">
+            <b>{p.crop || "general"}</b>
+            <span className="badge amber">{p.error ? "retrying" : "waiting to sync"}</span>
+          </div>
+          {p.observation && <div style={{ fontSize: 14 }}>{p.observation}</div>}
+          {p.recommendation && <div className="ok" style={{ fontSize: 14, marginTop: 6 }}>→ {p.recommendation}</div>}
+          {p.error && <div className="muted" style={{ fontSize: 12 }}>⚠ {p.error}</div>}
+        </div>
+      ))}
+
       {logs.map((l) => (
         <div className="card" key={l.id} style={{ marginTop: 10 }}>
           <div className="between">
@@ -253,12 +287,17 @@ export default function AgentJobs() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
   const [jobs, setJobs] = useState([]);
-  const [queue, setQueue] = useState([]);
+  const [queue, setQueue] = useState([]);       // inspection drafts
+  const [advQueue, setAdvQueue] = useState([]); // advisory drafts
   const [online, setOnline] = useState(true);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [syncedAt, setSyncedAt] = useState(0);
 
-  const refreshQueue = useCallback(() => setQueue(readQueue()), []);
+  const refreshQueues = useCallback(() => {
+    setQueue(readQ(QUEUE_KEY));
+    setAdvQueue(readQ(ADV_QUEUE_KEY));
+  }, []);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -273,14 +312,16 @@ export default function AgentJobs() {
     }
   }, []);
 
-  // Flush queued drafts: upload each draft's pending photos (tracking progress so
-  // a partial upload survives), then submit. Safe to call repeatedly — the
-  // backend dedupes on client_draft_id.
+  // Flush all queued drafts. Inspections upload their photos first (tracking
+  // per-photo progress so a partial upload survives), then submit; advisory logs
+  // POST directly. Safe to call repeatedly — the backend dedupes on draft id.
   const sync = useCallback(async () => {
-    const q = readQueue();
-    if (q.length === 0) return;
+    const iq = readQ(QUEUE_KEY);
+    const aq = readQ(ADV_QUEUE_KEY);
+    if (iq.length === 0 && aq.length === 0) return;
     setBusy(true);
-    for (const item of q) {
+
+    for (const item of iq) {
       try {
         const refs = [...(item.uploaded || [])];
         const stillPending = [];
@@ -293,7 +334,7 @@ export default function AgentJobs() {
         }
         item.uploaded = refs;
         item.photos = stillPending;
-        writeQueue(q); // persist upload progress before the (riskier) submit
+        writeQ(QUEUE_KEY, iq); // persist upload progress before the (riskier) submit
         if (stillPending.length) { item.error = "photo upload pending"; continue; }
         const body = { ...item.body };
         if (refs.length) body.evidence = refs;
@@ -302,15 +343,26 @@ export default function AgentJobs() {
         item.error = null;
       } catch (e) { item.error = e.message; }
     }
-    writeQueue(q.filter((x) => !x._done));
-    refreshQueue();
+    writeQ(QUEUE_KEY, iq.filter((x) => !x._done));
+
+    for (const item of aq) {
+      try {
+        await api("/agent/advisory-logs", { method: "POST", body: item.body });
+        item._done = true;
+        item.error = null;
+      } catch (e) { item.error = e.message; }
+    }
+    writeQ(ADV_QUEUE_KEY, aq.filter((x) => !x._done));
+
+    refreshQueues();
     setBusy(false);
+    setSyncedAt((n) => n + 1);
     await loadJobs();
-  }, [loadJobs, refreshQueue]);
+  }, [loadJobs, refreshQueues]);
 
   useEffect(() => {
     setMe(getUser());
-    refreshQueue();
+    refreshQueues();
     if (typeof navigator !== "undefined") setOnline(navigator.onLine);
     loadJobs();
 
@@ -322,19 +374,29 @@ export default function AgentJobs() {
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
-  }, [loadJobs, sync, refreshQueue]);
+  }, [loadJobs, sync, refreshQueues]);
 
   usePoll(() => { if (online) loadJobs(); }, 20000, [online]);
 
-  // After queuing a draft, try to sync immediately when online.
+  // After queuing an inspection draft, try to sync immediately when online.
   const onQueued = useCallback((savedOffline) => {
-    refreshQueue();
+    refreshQueues();
     if (!savedOffline) sync();
-  }, [refreshQueue, sync]);
+  }, [refreshQueues, sync]);
+
+  // Queue an advisory draft (returns false if storage is full); sync if online.
+  const queueAdvisory = useCallback((item) => {
+    const q = readQ(ADV_QUEUE_KEY);
+    q.push(item);
+    const ok = writeQ(ADV_QUEUE_KEY, q);
+    refreshQueues();
+    if (ok && online) sync();
+    return ok;
+  }, [online, sync, refreshQueues]);
 
   function discardDraft(id) {
-    writeQueue(readQueue().filter((x) => x.id !== id));
-    refreshQueue();
+    writeQ(QUEUE_KEY, readQ(QUEUE_KEY).filter((x) => x.id !== id));
+    refreshQueues();
   }
 
   async function packingComplete(orderId) {
@@ -347,7 +409,7 @@ export default function AgentJobs() {
   const gate = roleGate(me, GROUPS.agent, { label: "inspection jobs" });
   if (gate) return gate;
 
-  const queued = queue.length;
+  const queued = queue.length + advQueue.length;
   const pendingByOrder = {};
   for (const it of queue) (pendingByOrder[it.order_id] ||= []).push(it);
 
@@ -365,14 +427,15 @@ export default function AgentJobs() {
 
       <h1>{t("agent_jobs")}</h1>
       <p className="tagline">
-        Inspections and photos are saved on this device first, so you can work in
-        low-signal fields. They sync automatically when you are back online.
+        Inspections, photos and advisory notes are saved on this device first, so
+        you can work in low-signal fields. They sync automatically when you are
+        back online.
       </p>
 
-      {/* Pending drafts captured on this device */}
-      {queued > 0 && (
+      {/* Inspection drafts captured on this device */}
+      {queue.length > 0 && (
         <div className="card draft-panel">
-          <h3 style={{ marginTop: 0 }}>On this device, not yet synced</h3>
+          <h3 style={{ marginTop: 0 }}>Inspections not yet synced</h3>
           {queue.map((it) => (
             <div key={it.id} className="between draft-row">
               <div>
@@ -421,7 +484,7 @@ export default function AgentJobs() {
         })
       )}
 
-      <AdvisoryLog />
+      <AdvisoryLog online={online} queueAdvisory={queueAdvisory} pending={advQueue} syncedAt={syncedAt} />
     </div>
   );
 }

@@ -45,6 +45,9 @@ class AdvisoryLog(Base, TimestampMixin):
     observation: Mapped[str | None] = mapped_column(Text)
     recommendation: Mapped[str | None] = mapped_column(Text)
     follow_up_on: Mapped[str | None] = mapped_column(String(40))
+    # Offline-first idempotency key: a re-synced draft returns the existing row
+    # instead of creating a duplicate (mirrors Inspection.client_draft_id).
+    client_draft_id: Mapped[str | None] = mapped_column(String(64), unique=True)
 
 
 class CropCase(Base, TimestampMixin):
