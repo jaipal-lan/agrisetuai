@@ -4,7 +4,7 @@ The whole point: a farmer, a buyer, a field agent, a courier, an agronomist
 and platform staff must NOT see the same home screen. This endpoint returns a
 role-specific payload the frontend renders as that role's dashboard.
 """
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -14,7 +14,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.money import money
 from app.core.rbac import Role
-from app.models.advisory import AdvisoryLog, CropCase
+from app.models.advisory import AdvisoryLog, CropCase, Reminder, SchemeApplication
 from app.models.common import OrderStatus as S
 from app.models.finance import Payout
 from app.models.marketplace import Listing, Offer, RFQ, SavedSearch, Watch
@@ -83,12 +83,22 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         for p in db.scalars(select(Payout).where(Payout.seller_id == user.id, Payout.status == "pending")):
             pending_payout += money(p.amount)
         matching_rfqs = _seller_matching_rfqs(db, user.id)
+        # Farm-plan follow-ups: reminders coming due this week + schemes in progress.
+        week = (date.today() + timedelta(days=7)).isoformat()
+        reminders_due = _count(db, select(func.count(Reminder.id)).where(
+            Reminder.user_id == user.id, Reminder.status == "open",
+            Reminder.due_on.is_not(None), Reminder.due_on <= week))
+        schemes_followup = _count(db, select(func.count(SchemeApplication.id)).where(
+            SchemeApplication.user_id == user.id,
+            SchemeApplication.status.in_(["interested", "applied"])))
         cards = [
             {"label": "Active listings", "value": active_listings, "href": "/sell"},
             {"label": "Open negotiations", "value": open_negotiations, "href": "/offers", "alert": open_negotiations > 0},
             {"label": "Buyer requests for you", "value": matching_rfqs, "href": "/requests", "alert": matching_rfqs > 0},
             {"label": "Orders in progress", "value": active_orders, "href": "/orders"},
             {"label": "Awaiting payout", "value": f"₹{pending_payout}", "href": "/earnings"},
+            {"label": "Reminders due this week", "value": reminders_due, "href": "/insights", "alert": reminders_due > 0},
+            {"label": "Schemes to follow up", "value": schemes_followup, "href": "/insights", "alert": schemes_followup > 0},
         ]
         actions = [
             {"label": "List produce", "href": "/sell", "primary": True},
@@ -99,6 +109,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             {"label": "Earnings", "href": "/earnings"},
             {"label": "Invoices", "href": "/invoices"},
             {"label": "Crop advice", "href": "/advisory"},
+            {"label": "Farm plan & insights", "href": "/insights"},
         ]
         if role == Role.FPO and user.organisation_id:
             members = _count(db, select(func.count(User.id)).where(

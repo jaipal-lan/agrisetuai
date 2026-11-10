@@ -744,6 +744,16 @@ def run():
     check("cleared application drops its status",
           all(s.get("application_status") is None for s in planB["schemes"] if s["id"] == sid))
 
+    # Farmer dashboard surfaces farm-plan follow-ups (reminders due + schemes).
+    client.post("/api/reminders", headers=hdr(farmer),
+                json={"calendar_task_id": tid, "due_on": _date.today().isoformat()})
+    client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer), json={"status": "applied"})
+    fd = client.get("/api/dashboard", headers=hdr(farmer)).json()
+    check("farmer dashboard has a reminders-due card",
+          any(c["label"] == "Reminders due this week" and c["value"] >= 1 for c in fd["cards"]))
+    check("farmer dashboard has a schemes-to-follow-up card",
+          any(c["label"] == "Schemes to follow up" and c["value"] >= 1 for c in fd["cards"]))
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",
