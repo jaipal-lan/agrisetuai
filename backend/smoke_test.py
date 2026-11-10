@@ -341,6 +341,21 @@ def run():
     # Seller rating appears on their listings.
     lst = client.get(f"/api/listings/{listing['id']}").json()
     check("seller rating shows on listing", lst["seller_rating"] == 5.0 and lst["seller_rating_count"] >= 1)
+    # Buyer-trust: rating surfaces where a buyer browses/decides, not just on the raw listing.
+    pcards = client.get("/api/listings/products").json()
+    pcard = next((p for p in pcards if p["commodity_id"] == paddy["id"]), None)
+    check("product card carries seller rating", pcard is not None
+          and pcard.get("seller_rating") is not None and pcard["seller_rating_count"] >= 1)
+    prod2 = client.get(f"/api/listings/products/{paddy['id']}").json()
+    check("product detail exposes aggregate seller rating",
+          prod2.get("seller_rating") is not None and prod2["seller_rating_count"] >= 1)
+    check("product detail offerings carry per-seller rating",
+          any(o.get("seller_rating") == 5.0 for o in prod2["offerings"]))
+    disc = client.get("/api/listings/discovery").json()
+    check("discovery featured cards expose rating field",
+          all("seller_rating" in p for p in disc["featured"]))
+    check("discovery fresh cards expose rating field",
+          all("seller_rating" in f for f in disc["fresh"]))
     # Farmer earnings statement.
     earn = client.get("/api/auth/me/earnings", headers=hdr(farmer)).json()
     check("earnings statement totals present", float(earn["totals"]["net"]) > 0)

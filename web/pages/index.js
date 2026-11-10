@@ -16,6 +16,17 @@ function readRecent() {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
 }
 
+// Seller rating as a compact star + review count, shown where a buyer decides.
+function Rating({ value, count, size = 13 }) {
+  if (value == null) return null;
+  return (
+    <span className="rating" style={{ fontSize: size }} title={`${value} from ${count} review${count === 1 ? "" : "s"}`}>
+      <span className="rating-star">★</span> {value}
+      {count > 0 && <span className="muted"> ({count})</span>}
+    </span>
+  );
+}
+
 // A reusable product-grid card (featured, near-you, full grid all share it).
 function ProductCard({ p, lang, t }) {
   const name = lang === "te" && p.commodity_te ? p.commodity_te : p.commodity;
@@ -36,8 +47,11 @@ function ProductCard({ p, lang, t }) {
             ₹{p.price_min}{p.price_max !== p.price_min ? `–${p.price_max}` : ""}
             <small> {t("per_kg")}</small>
           </div>
-          <div className="muted" style={{ fontSize: 14, marginTop: 6 }}>
-            {p.offering_count} farmer{p.offering_count > 1 ? "s" : ""} · {p.place_count} place{p.place_count > 1 ? "s" : ""}
+          <div className="between" style={{ marginTop: 6 }}>
+            <span className="muted" style={{ fontSize: 14 }}>
+              {p.offering_count} farmer{p.offering_count > 1 ? "s" : ""} · {p.place_count} place{p.place_count > 1 ? "s" : ""}
+            </span>
+            <Rating value={p.seller_rating} count={p.seller_rating_count} />
           </div>
         </>
       ) : (
@@ -58,8 +72,11 @@ function FreshCard({ f, lang }) {
         {f.agent_verified && <span className="badge">✓</span>}
       </div>
       <div className="price" style={{ fontSize: 18, margin: "4px 0" }}>₹{f.price}<small> /kg</small></div>
-      <div className="muted" style={{ fontSize: 12 }}>
-        {[f.place, f.seller].filter(Boolean).join(" · ")}
+      <div className="between">
+        <span className="muted" style={{ fontSize: 12 }}>
+          {[f.place, f.seller].filter(Boolean).join(" · ")}
+        </span>
+        <Rating value={f.seller_rating} count={f.seller_rating_count} size={12} />
       </div>
     </Link>
   );

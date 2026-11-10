@@ -368,3 +368,9 @@ tbody tr:hover td { background: var(--green-100); }
 /* Brand mark in the nav */
 .brand-mark { display: inline-flex; align-items: center; gap: 8px; }
 .brand-mark svg { width: 22px; height: 22px; flex: 0 0 auto; }
+
+/* Seller rating (buyer-trust signal on cards + product detail) */
+.rating { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; font-weight: 600; }
+.rating-star { color: var(--amber-600); }
+.trust-line { margin: -4px 0 14px; font-size: 15px; display: flex; align-items: center; gap: 4px; }
+.trust-line .rating-star { font-size: 18px; }

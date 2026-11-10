@@ -686,6 +686,82 @@ def seed_demo_fpo(db: Session, mandals: dict) -> int:
     return created
 
 
+def seed_demo_reviews(db: Session, catalog: dict) -> int:
+    """A few buyer reviews of demo farmers so seller ratings are visible at the
+    browse/decision stage (product cards, discovery, product detail). Each review
+    is anchored to a minimal SETTLED demo order (reviews require a delivered order).
+    Idempotent — skips once any review exists."""
+    from sqlalchemy import func
+
+    from app.models.common import OrderStatus
+    from app.models.order import Order
+    from app.models.review import Review
+
+    if db.scalar(select(func.count(Review.id))):
+        return 0
+
+    buyer = db.scalar(select(User).where(User.phone == "919000000004"))
+    if not buyer:
+        return 0
+
+    # Reviewed sellers: distinct demo farmers who have an open listing, spread
+    # across different commodities so several product cards light up.
+    open_listings = db.scalars(
+        select(Listing).where(Listing.status == str(ListingStatus.OPEN),
+                              Listing.seller_id != buyer.id)
+        .order_by(Listing.id)
+    ).all()
+    picks: list[Listing] = []
+    seen_sellers: set[int] = set()
+    seen_commodities: set[int] = set()
+    for l in open_listings:
+        if l.seller_id in seen_sellers:
+            continue
+        # Prefer variety of commodity, but still allow repeats once we run low.
+        if l.commodity_id in seen_commodities and len(picks) < 4:
+            continue
+        picks.append(l)
+        seen_sellers.add(l.seller_id)
+        seen_commodities.add(l.commodity_id)
+        if len(picks) >= 5:
+            break
+
+    ratings = [
+        (5, "Clean, well-dried grain exactly as described. Smooth pickup."),
+        (4, "Good quality and fair weight. Packaging could be tighter."),
+        (5, "Reliable farmer — second time buying, consistent produce."),
+        (4, "Quantity matched the order; a little moisture but acceptable."),
+        (5, "Excellent lot, agent-verified and delivered on time."),
+    ]
+
+    created = 0
+    for i, l in enumerate(picks):
+        rating, comment = ratings[i % len(ratings)]
+        moq = float(l.min_order_qty) or 500.0
+        order = Order(
+            public_id=f"ODREV{l.seller_id}",
+            buyer_id=buyer.id,
+            seller_id=l.seller_id,
+            status=str(OrderStatus.SETTLED),
+            accepted_terms={
+                "commodity_id": l.commodity_id,
+                "mandal_id": l.mandal_id,
+                "price_per_unit": float(l.asking_price),
+                "quantity": moq,
+            },
+            buyer_total=D(round(float(l.asking_price) * moq, 2)),
+            seller_payable=D(round(float(l.asking_price) * moq * 0.993, 2)),
+        )
+        db.add(order)
+        db.flush()
+        db.add(Review(author_id=buyer.id, order_id=order.id, subject_type="farmer",
+                      subject_id=l.seller_id, rating=rating, comment=comment))
+        created += 1
+
+    db.flush()
+    return created
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -704,10 +780,12 @@ def main() -> None:
         n_activity += seed_demo_watches(db, catalog)
         n_activity += seed_demo_saved_searches(db)
         n_activity += seed_demo_crop_interests(db, catalog)
+        n_reviews = seed_demo_reviews(db, catalog)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "
-              f"{n_carriers} couriers, advisory + insights, {n_activity} demo offers/RFQs.")
+              f"{n_carriers} couriers, advisory + insights, {n_activity} demo offers/RFQs, "
+              f"{n_reviews} demo reviews.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

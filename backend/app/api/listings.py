@@ -14,6 +14,7 @@ from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import ClaimStatus, ListingStatus, utcnow
 from app.models.location import District, Mandal
 from app.models.marketplace import Listing, ListingMedia, Watch
+from app.models.review import Review
 from app.models.user import FarmerProfile, User
 from app.services import notify
 from app.api.subscriptions import active_benefits
@@ -73,6 +74,21 @@ def _can_manage(listing: Listing, user: User, db: Session) -> bool:
         if seller and seller.organisation_id == user.organisation_id:
             return True
     return False
+
+
+def _rating_for_sellers(db: Session, seller_ids) -> tuple[float | None, int]:
+    """Average buyer rating and total review count across one or more sellers
+    (farmers). For a single seller it's that seller's rating; for a product card
+    aggregating several farmers it's the volume-weighted average across all their
+    buyer reviews — the trust signal a buyer sees before choosing a seller."""
+    ids = [i for i in set(seller_ids) if i is not None]
+    if not ids:
+        return None, 0
+    avg, cnt = db.execute(
+        select(func.avg(Review.rating), func.count(Review.id))
+        .where(Review.subject_type == "farmer", Review.subject_id.in_(ids))
+    ).one()
+    return (round(float(avg), 2) if avg is not None else None), int(cnt or 0)
 
 
 def _place(db: Session, listing: Listing, seller: User | None) -> dict:
@@ -141,14 +157,9 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
             vb = db.get(User, listing.verified_by)
             data["verified_by_name"] = vb.name if vb else None
         # Seller's rating from buyer reviews.
-        from app.models.review import Review
-        from sqlalchemy import func as _func
-        avg, cnt = db.execute(
-            select(_func.avg(Review.rating), _func.count(Review.id))
-            .where(Review.subject_type == "farmer", Review.subject_id == listing.seller_id)
-        ).one()
-        data["seller_rating"] = round(float(avg), 2) if avg is not None else None
-        data["seller_rating_count"] = int(cnt or 0)
+        data["seller_rating"], data["seller_rating_count"] = _rating_for_sellers(
+            db, [listing.seller_id]
+        )
     return data
 
 
@@ -250,6 +261,8 @@ def _product_card(c: Commodity, rows: list[Listing], db: Session) -> dict:
             break
     if not image_key:
         image_key = f"sample/{c.name.lower().replace(' ', '-')}.svg"
+    # Trust signal: rating across the farmers currently offering this product.
+    seller_rating, seller_rating_count = _rating_for_sellers(db, {l.seller_id for l in live})
     return {
         "commodity_id": c.id,
         "commodity": c.name,
@@ -262,6 +275,8 @@ def _product_card(c: Commodity, rows: list[Listing], db: Session) -> dict:
         "price_min": min(prices) if prices else None,
         "price_max": max(prices) if prices else None,
         "any_verified": any(l.agent_verified for l in live),
+        "seller_rating": seller_rating,
+        "seller_rating_count": seller_rating_count,
     }
 
 
@@ -314,6 +329,7 @@ def _fresh_row(l: Listing, db: Session) -> dict:
     img = next((mm.object_key for mm in l.media if mm.media_type == "image"), None)
     if not img and c:
         img = f"sample/{c.name.lower().replace(' ', '-')}.svg"
+    seller_rating, seller_rating_count = _rating_for_sellers(db, [l.seller_id])
     return {
         "listing_id": l.id,
         "commodity_id": l.commodity_id,
@@ -325,6 +341,8 @@ def _fresh_row(l: Listing, db: Session) -> dict:
         "place": m.name if m else None,
         "seller": public_user(seller)["name"] if seller else None,
         "agent_verified": l.agent_verified,
+        "seller_rating": seller_rating,
+        "seller_rating_count": seller_rating_count,
         "image": img,
         "listed_at": l.created_at.isoformat() if l.created_at else None,
     }
@@ -441,6 +459,11 @@ def product_offerings(commodity_id: int, include_sold_out: bool = True, db: Sess
     in_stock = [o for o in offerings if not o["out_of_stock"]]
     prices = [float(o["asking_price"]) for o in in_stock]
     places = sorted({o["place"]["label"] for o in in_stock if o["place"]["label"]})
+    # Product-level trust: rating across every farmer shown on this page
+    # (in-stock and sold-out offerings are both displayed here).
+    seller_rating, seller_rating_count = _rating_for_sellers(
+        db, {l.seller_id for l in rows}
+    )
     return {
         "commodity_id": commodity_id,
         "commodity": commodity.name,
@@ -450,6 +473,8 @@ def product_offerings(commodity_id: int, include_sold_out: bool = True, db: Sess
         "price_min": min(prices) if prices else None,
         "price_max": max(prices) if prices else None,
         "places": places,
+        "seller_rating": seller_rating,
+        "seller_rating_count": seller_rating_count,
         "offerings": offerings,
     }
 

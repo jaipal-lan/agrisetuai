@@ -100,6 +100,15 @@ export default function ProductOfferings() {
         {data.places.length > 0 && <> · from {data.places.join(", ")}</>}
         {" "}· minimum order {data.min_order_qty} kg
       </p>
+      {data.seller_rating != null && (
+        <div className="trust-line">
+          <span className="rating-star">★</span> <b>{data.seller_rating}</b>
+          <span className="muted">
+            {" "}· {t("rated_by")} {data.seller_rating_count} buyer{data.seller_rating_count === 1 ? "" : "s"}
+            {data.offering_count > 1 ? ` ${t("across_sellers")}` : ""}
+          </span>
+        </div>
+      )}
 
       {me && ["buyer_household", "buyer_business"].includes(me.role) && (
         <WatchButton commodityId={id} />
@@ -118,9 +127,16 @@ export default function ProductOfferings() {
                 <h3 style={{ fontSize: 16 }}>{o.place?.label || "—"}</h3>
                 {o.agent_verified && <span className="badge">✓ verified</span>}
               </div>
-              {o.seller_rating != null && (
-                <div style={{ fontSize: 13 }}><span style={{ color: "#f59e0b" }}>★ {o.seller_rating}</span> <span className="muted">({o.seller_rating_count})</span></div>
-              )}
+              <div style={{ fontSize: 13, marginTop: 2 }}>
+                {o.seller_rating != null ? (
+                  <span className="rating" title={`${o.seller_rating} from ${o.seller_rating_count} review${o.seller_rating_count === 1 ? "" : "s"}`}>
+                    <span className="rating-star">★</span> {o.seller_rating}
+                    <span className="muted"> ({o.seller_rating_count})</span>
+                  </span>
+                ) : (
+                  <span className="muted">{t("new_seller")}</span>
+                )}
+              </div>
               <div className="muted" style={{ fontSize: 13 }}>
                 {o.variety ? `${o.variety} · ` : ""}{o.is_organic ? "organic" : "non-organic"}
                 {o.grade ? ` · ${o.grade.label}` : ""}{o.harvest_year ? ` · HY ${o.harvest_year}` : ""}
