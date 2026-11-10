@@ -433,6 +433,16 @@ def seed_insights(db: Session, mandals: dict) -> None:
             payload={"rain_prob_pct": 40, "temp_max_c": 31, "temp_min_c": 23,
                      "wind_kmph": 12, "alert": None},
         ))
+    mangalagiri = mandals.get("Mangalagiri")
+    if mangalagiri and not db.scalar(
+        select(WeatherSnapshot).where(WeatherSnapshot.mandal_id == mangalagiri.id)
+    ):
+        db.add(WeatherSnapshot(
+            mandal_id=mangalagiri.id, provider="Pilot IMD-style snapshot",
+            observed_at="2026-11-03T06:00+05:30", forecast_horizon="3d",
+            payload={"rain_prob_pct": 70, "temp_max_c": 30, "temp_min_c": 24,
+                     "wind_kmph": 18, "alert": "Heavy rain likely in the next 24 hours."},
+        ))
 
     for row in [
         ("Guntur Market Yard", "Paddy", "BPT 5204", 2100, 2450, 2300, "₹/qtl"),

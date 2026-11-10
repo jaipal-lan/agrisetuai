@@ -91,6 +91,60 @@ def _farmer_context(db: Session, user: User) -> tuple[set[str], str | None, str 
     return crops, district, state, mandal_id
 
 
+def _latest_snapshot(db: Session, mandal_id: int | None) -> WeatherSnapshot | None:
+    """Latest weather for a mandal, falling back to any snapshot in its district
+    (nearby weather is better than none in the pilot)."""
+    if not mandal_id:
+        return None
+    snap = db.scalar(
+        select(WeatherSnapshot).where(WeatherSnapshot.mandal_id == mandal_id)
+        .order_by(WeatherSnapshot.id.desc())
+    )
+    if snap:
+        return snap
+    m = db.get(Mandal, mandal_id)
+    if m:
+        in_district = select(Mandal.id).where(Mandal.district_id == m.district_id)
+        snap = db.scalar(
+            select(WeatherSnapshot).where(WeatherSnapshot.mandal_id.in_(in_district))
+            .order_by(WeatherSnapshot.id.desc())
+        )
+    return snap
+
+
+def _weather_advice(payload: dict | None, current_tasks: list | None = None) -> list[dict]:
+    """Plain, cautious weather guidance derived from a snapshot — never a command,
+    just a heads-up. Ties into the farmer's current-season tasks when relevant."""
+    p = payload or {}
+    out: list[dict] = []
+    if p.get("alert"):
+        out.append({"level": "warning", "text": str(p["alert"])})
+    rain = p.get("rain_prob_pct")
+    if isinstance(rain, (int, float)):
+        if rain >= 60:
+            out.append({"level": "warning",
+                        "text": "High chance of rain — avoid spraying and don't harvest or sun-dry grain in the open."})
+        elif rain >= 35:
+            out.append({"level": "info",
+                        "text": "Some rain likely — plan spraying and drying for a dry window."})
+    tmax = p.get("temp_max_c")
+    if isinstance(tmax, (int, float)) and tmax >= 38:
+        out.append({"level": "info",
+                    "text": "High daytime heat — irrigate early morning or evening and watch for heat/water stress."})
+    wind = p.get("wind_kmph")
+    if isinstance(wind, (int, float)) and wind >= 25:
+        out.append({"level": "info", "text": "Windy — postpone spraying to avoid spray drift."})
+    # Flag weather-sensitive tasks the farmer has on right now.
+    if current_tasks and isinstance(rain, (int, float)) and rain >= 35:
+        for t in current_tasks:
+            txt = (t.get("task") or "").lower()
+            if any(w in txt for w in ("spray", "harvest", "dry", "dust")):
+                out.append({"level": "info",
+                            "text": f"Your {t['crop']} task “{t['task']}” is weather-sensitive — time it around the rain."})
+                break
+    return out
+
+
 @router.get("/weather")
 def weather(mandal_id: int, db: Session = Depends(get_db)):
     m = db.get(Mandal, mandal_id)
@@ -107,6 +161,7 @@ def weather(mandal_id: int, db: Session = Depends(get_db)):
             "stale": True,
             "provider": None,
             "message": "No weather snapshot for this locality yet.",
+            "advice": [],
         }
     return {
         "mandal_id": mandal_id,
@@ -115,6 +170,7 @@ def weather(mandal_id: int, db: Session = Depends(get_db)):
         "forecast_horizon": snap.forecast_horizon,
         "stale": snap.stale,
         "payload": snap.payload,
+        "advice": _weather_advice(snap.payload),
         "source_note": "Pilot snapshot — not a live forecast feed.",
     }
 
@@ -257,6 +313,21 @@ def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
     current_tasks = [{**it, "crop": grp["crop"]}
                      for grp in calendar for it in grp["tasks"] if it["current"]]
 
+    # Weather for the farmer's locality + plain cautions tied to their tasks.
+    snap = _latest_snapshot(db, mandal_id)
+    weather = None
+    if snap:
+        weather = {
+            "mandal_id": snap.mandal_id,
+            "provider": snap.provider,
+            "observed_at": snap.observed_at,
+            "forecast_horizon": snap.forecast_horizon,
+            "stale": snap.stale,
+            "payload": snap.payload,
+            "advice": _weather_advice(snap.payload, current_tasks),
+            "source_note": "Pilot snapshot — not a live forecast feed.",
+        }
+
     # Schemes matched to the farmer's crops + region.
     regions = {x for x in (state, district) if x}
     schemes_matched = []
@@ -282,6 +353,7 @@ def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
         "district": district,
         "state": state,
         "has_profile": bool(crops) or bool(district),
+        "weather": weather,
         "current_tasks": current_tasks,
         "calendar": calendar,
         "schemes": schemes_matched,

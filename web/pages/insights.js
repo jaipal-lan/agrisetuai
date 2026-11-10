@@ -37,6 +37,32 @@ function FarmPlan({ plan, lang }) {
         {" "}· {MONTHS[plan.month]}
       </p>
 
+      {/* Weather + plain cautions for the farmer's locality */}
+      {plan.weather && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="between">
+            <b>🌦️ Weather</b>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {plan.weather.observed_at} · {plan.weather.forecast_horizon}
+            </span>
+          </div>
+          {plan.weather.payload && (
+            <div className="muted" style={{ fontSize: 14, marginTop: 4 }}>
+              {plan.weather.payload.rain_prob_pct != null && <>🌧️ {plan.weather.payload.rain_prob_pct}% rain · </>}
+              {plan.weather.payload.temp_max_c != null && <>🌡️ {plan.weather.payload.temp_min_c}–{plan.weather.payload.temp_max_c}°C</>}
+              {plan.weather.payload.wind_kmph != null && <> · 💨 {plan.weather.payload.wind_kmph} km/h</>}
+            </div>
+          )}
+          {plan.weather.advice.map((a, i) => (
+            <div key={i} className={a.level === "warning" ? "error" : "ok"}
+                 style={{ fontSize: 13, marginTop: 6 }}>
+              {a.level === "warning" ? "⚠️ " : "• "}{a.text}
+            </div>
+          ))}
+          <div className="disclaimer">{plan.weather.source_note}</div>
+        </div>
+      )}
+
       {/* This season's tasks */}
       {plan.current_tasks.length > 0 && (
         <div className="card" style={{ borderLeft: "4px solid var(--amber-600)", marginBottom: 14 }}>

@@ -682,6 +682,22 @@ def run():
     check("farm plan matches at least one scheme", len(plan["schemes"]) >= 1)
     check("non-seller blocked from the farm plan",
           client.get("/api/my-farm-plan", headers=hdr(buyer)).status_code == 403)
+    check("farm plan includes a weather key", "weather" in plan)
+
+    print("\n== Weather-aware advice ==")
+    all_mandals = client.get("/api/locations/mandals").json()
+    any_advice = False
+    rainy = None
+    for m in all_mandals:
+        w = client.get("/api/weather", params={"mandal_id": m["id"]}).json()
+        if isinstance(w.get("advice"), list):
+            any_advice = True
+        if w.get("payload") and (w["payload"].get("rain_prob_pct") or 0) >= 60:
+            rainy = w
+            break
+    check("weather response carries an advice list", any_advice)
+    check("rainy forecast yields a warning caution",
+          rainy is not None and any(a["level"] == "warning" for a in rainy["advice"]))
 
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
