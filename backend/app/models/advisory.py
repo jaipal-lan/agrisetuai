@@ -112,6 +112,9 @@ class CropCalendarTask(Base, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(24), default="general")  # general | reviewed
     source: Mapped[str] = mapped_column(String(160))
     version: Mapped[str] = mapped_column(String(16), default="1")
+    # Months this window is active (1-12) so the current season's task can be
+    # highlighted; null = year-round / unspecified.
+    months: Mapped[dict | None] = mapped_column(JSON)
 
 
 class Reminder(Base, TimestampMixin):
@@ -157,5 +160,8 @@ class Scheme(Base, TimestampMixin):
     source_url: Mapped[str] = mapped_column(String(400))
     last_checked: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(16), default="published")
+    # Targeting for crop/district matching; null or empty list = applies to all.
+    crops: Mapped[dict | None] = mapped_column(JSON)    # lowercase crop keys
+    regions: Mapped[dict | None] = mapped_column(JSON)  # state and/or district names
 
 

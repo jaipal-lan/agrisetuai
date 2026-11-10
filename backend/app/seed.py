@@ -450,38 +450,76 @@ def seed_insights(db: Session, mandals: dict) -> None:
                 source_name="AGMARKNET (pilot sample)", source_url="https://agmarknet.gov.in/",
             ))
 
-    for crop, window, task, task_te, kind in [
-        ("paddy", "Nursery (June–July)", "Raise nursery; treat seed; 25-30 day seedlings", "నారుమడి", "reviewed"),
-        ("paddy", "Tillering (+30d)", "First top-dressing of N; keep 2-3 cm water", "మొదటి ఎరువు", "reviewed"),
-        ("paddy", "Panicle (+65d)", "Scout for blast/BPH; avoid excess N", "అగ్గి/దోమ పర్యవేక్షణ", "reviewed"),
+    for crop, window, task, task_te, kind, months in [
+        ("paddy", "Nursery (June–July)", "Raise nursery; treat seed; 25-30 day seedlings", "నారుమడి", "reviewed", [6, 7]),
+        ("paddy", "Tillering (+30d)", "First top-dressing of N; keep 2-3 cm water", "మొదటి ఎరువు", "reviewed", [7, 8]),
+        ("paddy", "Panicle (+65d)", "Scout for blast/BPH; avoid excess N", "అగ్గి/దోమ పర్యవేక్షణ", "reviewed", [9, 10]),
+        ("paddy", "Harvest (Nov–Dec)", "Harvest at 20-22% moisture; dry to 12-13% before sale", "కోత", "reviewed", [11, 12]),
+        ("groundnut", "Sowing (June–July)", "Treat seed; sow on ridges; ensure gypsum at pegging", "విత్తనం", "reviewed", [6, 7]),
+        ("groundnut", "Pegging (+45d)", "Apply gypsum; keep soil moist at pegging", "ఊడలు", "reviewed", [8, 9]),
+        ("groundnut", "Harvest (Oct–Nov)", "Harvest at maturity; dry pods to safe moisture", "కోత", "reviewed", [10, 11]),
+        ("red chilli", "Transplant (Aug–Sep)", "Transplant healthy seedlings; stake as needed", "నాటడం", "reviewed", [8, 9]),
+        ("red chilli", "Flowering (+60d)", "Scout for thrips/mites; IPM first, label-sourced only", "తామర/నల్లి", "reviewed", [10, 11]),
+        ("red chilli", "Harvest (Jan–Mar)", "Pick ripe pods; sun-dry to safe moisture for grading", "కోత", "reviewed", [1, 2, 3]),
+        ("turmeric", "Planting (May–Jun)", "Plant healthy rhizomes; mulch to conserve moisture", "నాటడం", "reviewed", [5, 6]),
+        ("turmeric", "Rhizome bulking (+120d)", "Earth up; keep adequate moisture for bulking", "దుంప పెరుగుదల", "reviewed", [9, 10]),
+        ("turmeric", "Harvest (Jan–Mar)", "Harvest, boil, dry and polish before sale", "కోత", "reviewed", [1, 2, 3]),
     ]:
-        if not db.scalar(select(CropCalendarTask).where(
+        existing = db.scalar(select(CropCalendarTask).where(
             CropCalendarTask.crop == crop, CropCalendarTask.window == window
-        )):
+        ))
+        if existing:
+            existing.months = months  # backfill season targeting on older rows
+        else:
             db.add(CropCalendarTask(crop=crop, window=window, task=task,
-                                    task_te=task_te, kind=kind,
+                                    task_te=task_te, kind=kind, months=months,
                                     source="ANGRAU crop calendar (pilot)"))
 
-    if not db.scalar(select(Scheme).where(Scheme.name.like("PM-KISAN%"))):
-        db.add(Scheme(
-            name="PM-KISAN Samman Nidhi", name_te="పీఎం-కిసాన్",
-            department="Dept. of Agriculture & Farmers Welfare, GoI",
-            eligibility="Landholding farmer families, subject to exclusion criteria.",
-            documents="Aadhaar, land records, bank account",
-            apply_route="Village revenue officer / PM-KISAN portal",
-            deadline=None, source_url="https://pmkisan.gov.in/",
-            last_checked="2026-10-30",
-        ))
-    if not db.scalar(select(Scheme).where(Scheme.name.like("Rythu Bharosa%"))):
-        db.add(Scheme(
-            name="Rythu Bharosa (AP)", name_te="రైతు భరోసా",
-            department="Govt. of Andhra Pradesh — Agriculture",
-            eligibility="Eligible farmer families per state guidelines.",
-            documents="Aadhaar, land/tenancy records, bank account",
-            apply_route="Rythu Bharosa Kendram / state portal",
-            deadline=None, source_url="https://www.ap.gov.in/",
-            last_checked="2026-10-30",
-        ))
+    # Government schemes with optional crop/region targeting (null = all).
+    _schemes = [
+        dict(name="PM-KISAN Samman Nidhi", name_te="పీఎం-కిసాన్",
+             department="Dept. of Agriculture & Farmers Welfare, GoI",
+             eligibility="Landholding farmer families, subject to exclusion criteria.",
+             documents="Aadhaar, land records, bank account",
+             apply_route="Village revenue officer / PM-KISAN portal",
+             deadline=None, source_url="https://pmkisan.gov.in/",
+             last_checked="2026-10-30", crops=None, regions=None),
+        dict(name="Rythu Bharosa (AP)", name_te="రైతు భరోసా",
+             department="Govt. of Andhra Pradesh — Agriculture",
+             eligibility="Eligible farmer families per state guidelines.",
+             documents="Aadhaar, land/tenancy records, bank account",
+             apply_route="Rythu Bharosa Kendram / state portal",
+             deadline=None, source_url="https://www.ap.gov.in/",
+             last_checked="2026-10-30", crops=None, regions=["Andhra Pradesh"]),
+        dict(name="Rythu Bandhu (Telangana)", name_te="రైతు బంధు",
+             department="Govt. of Telangana — Agriculture",
+             eligibility="Investment support per acre for eligible farmers.",
+             documents="Aadhaar, pattadar passbook, bank account",
+             apply_route="Agriculture Extension Officer / state portal",
+             deadline=None, source_url="https://treasury.telangana.gov.in/",
+             last_checked="2026-10-30", crops=None, regions=["Telangana"]),
+        dict(name="Paddy MSP Procurement (Kharif)", name_te="వరి కనీస మద్దతు ధర కొనుగోలు",
+             department="Civil Supplies / FCI",
+             eligibility="Registered paddy growers selling at notified procurement centres.",
+             documents="Aadhaar, land record, bank account, tokens",
+             apply_route="Notified paddy procurement centre",
+             deadline="Kharif marketing season", source_url="https://fci.gov.in/",
+             last_checked="2026-10-30", crops=["paddy"], regions=None),
+        dict(name="National Mission on Edible Oils — Oilseeds", name_te="నూనెగింజల మిషన్",
+             department="Dept. of Agriculture & Farmers Welfare, GoI",
+             eligibility="Oilseed growers (incl. groundnut) for seed/input support.",
+             documents="Aadhaar, land record, bank account",
+             apply_route="District Agriculture Office",
+             deadline=None, source_url="https://nmeo.dac.gov.in/",
+             last_checked="2026-10-30", crops=["groundnut"], regions=None),
+    ]
+    for s in _schemes:
+        existing = db.scalar(select(Scheme).where(Scheme.name == s["name"]))
+        if existing:
+            existing.crops = s["crops"]      # backfill targeting on older rows
+            existing.regions = s["regions"]
+        else:
+            db.add(Scheme(**s))
 
 
 def seed_carriers(db: Session) -> int:

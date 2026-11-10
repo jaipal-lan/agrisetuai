@@ -650,6 +650,30 @@ def run():
     schemes = client.get("/api/schemes").json()
     check("schemes seeded", any("PM-KISAN" in s["name"] for s in schemes))
 
+    print("\n== Personalised farm plan (crop / season / district matching) ==")
+    cal = client.get("/api/crop-calendar", params={"crop": "paddy"}).json()
+    check("crop calendar carries months + current flag",
+          len(cal) > 0 and all("months" in t and "current" in t for t in cal))
+    check("schemes expose crop/region targeting",
+          all("crops" in s and "regions" in s for s in schemes))
+    sc_paddy = client.get("/api/schemes", params={"crop": "paddy"}).json()
+    pn = [s["name"] for s in sc_paddy]
+    check("paddy scheme filter includes paddy + all-crop schemes",
+          any("Paddy MSP" in n for n in pn) and any("PM-KISAN" in n for n in pn))
+    check("paddy scheme filter excludes a groundnut-only scheme",
+          not any("Edible Oils" in n for n in pn))
+    check("matched scheme carries a reason", all(s.get("match_reason") for s in sc_paddy))
+    sc_ap = client.get("/api/schemes", params={"state": "Andhra Pradesh"}).json()
+    apn = [s["name"] for s in sc_ap]
+    check("state filter matches region-scoped schemes",
+          any("Rythu Bharosa" in n for n in apn) and not any("Rythu Bandhu" in n for n in apn))
+    plan = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
+    check("farm plan derives the farmer's crops", "paddy" in plan["crops"])
+    check("farm plan includes a paddy calendar", any(g["crop"] == "paddy" for g in plan["calendar"]))
+    check("farm plan matches at least one scheme", len(plan["schemes"]) >= 1)
+    check("non-seller blocked from the farm plan",
+          client.get("/api/my-farm-plan", headers=hdr(buyer)).status_code == 403)
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",

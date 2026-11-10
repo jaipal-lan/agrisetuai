@@ -1,14 +1,94 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
-from app.models.advisory import CropCalendarTask, MarketPrice, Reminder, Scheme, WeatherSnapshot
-from app.models.location import Mandal
+from app.core.deps import get_current_user, require_roles
+from app.core.rbac import Role
+from app.models.advisory import (CropCalendarTask, CropCase, KnowledgeSource, MarketPrice,
+                                 Reminder, Scheme, WeatherSnapshot)
+from app.models.catalog import Commodity
+from app.models.location import District, Mandal, State
+from app.models.marketplace import CropInterest, Listing
+from app.models.user import FarmerProfile, User
 
 router = APIRouter(tags=["insights"])
+
+_seller = require_roles(Role.FARMER, Role.FPO)
+
+
+def _scheme_json(s: Scheme) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "name_te": s.name_te,
+        "department": s.department,
+        "eligibility": s.eligibility,
+        "documents": s.documents,
+        "apply_route": s.apply_route,
+        "deadline": s.deadline,
+        "source_url": s.source_url,
+        "last_checked": s.last_checked,
+        "crops": s.crops or [],
+        "regions": s.regions or [],
+        "disclaimer": "Do not treat this as a promise of eligibility.",
+    }
+
+
+def _scheme_matches(s: Scheme, crops: set[str], regions: set[str]) -> tuple[bool, str]:
+    """Does a scheme target this farmer? crops/regions empty on the scheme = all.
+    Returns (matched, human reason)."""
+    s_crops = {c.lower() for c in (s.crops or [])}
+    s_regions = set(s.regions or [])
+    crop_hit = s_crops & crops
+    region_hit = s_regions & regions
+    crop_ok = (not s_crops) or bool(crop_hit)
+    region_ok = (not s_regions) or bool(region_hit)
+    if not (crop_ok and region_ok):
+        return False, ""
+    reasons = []
+    if crop_hit:
+        reasons.append("for " + "/".join(sorted(crop_hit)) + " growers")
+    if region_hit:
+        reasons.append("in " + "/".join(sorted(region_hit)))
+    if not reasons:
+        reasons.append("open to all farmers")
+    return True, ", ".join(reasons)
+
+
+def _farmer_context(db: Session, user: User) -> tuple[set[str], str | None, str | None, int | None]:
+    """Derive a farmer's crops (from listings, crop interests and crop cases) and
+    their district/state/mandal — the basis for personalised advice."""
+    crops: set[str] = set()
+    for cid in db.scalars(select(Listing.commodity_id).where(Listing.seller_id == user.id)):
+        c = db.get(Commodity, cid)
+        if c:
+            crops.add(c.name.lower())
+    for cid in db.scalars(select(CropInterest.commodity_id).where(CropInterest.user_id == user.id)):
+        c = db.get(Commodity, cid)
+        if c:
+            crops.add(c.name.lower())
+    for cr in db.scalars(select(CropCase.crop).where(CropCase.farmer_id == user.id)):
+        if cr:
+            crops.add(cr.lower())
+
+    fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == user.id))
+    district = state = None
+    did = fp.district_id if fp else None
+    mandal_id = fp.mandal_id if fp else None
+    if not did and mandal_id:
+        m = db.get(Mandal, mandal_id)
+        did = m.district_id if m else None
+    if did:
+        d = db.get(District, did)
+        if d:
+            district = d.name
+            st = db.get(State, d.state_id)
+            state = st.name if st else None
+    return crops, district, state, mandal_id
 
 
 @router.get("/weather")
@@ -39,24 +119,29 @@ def weather(mandal_id: int, db: Session = Depends(get_db)):
     }
 
 
+def _calendar_json(t: CropCalendarTask, month: int) -> dict:
+    months = t.months or []
+    return {
+        "id": t.id,
+        "crop": t.crop,
+        "window": t.window,
+        "task": t.task,
+        "task_te": t.task_te,
+        "kind": t.kind,
+        "source": t.source,
+        "version": t.version,
+        "months": months,
+        "current": month in months,
+    }
+
+
 @router.get("/crop-calendar")
 def crop_calendar(crop: str | None = None, db: Session = Depends(get_db)):
     stmt = select(CropCalendarTask)
     if crop:
         stmt = stmt.where(CropCalendarTask.crop == crop)
-    return [
-        {
-            "id": t.id,
-            "crop": t.crop,
-            "window": t.window,
-            "task": t.task,
-            "task_te": t.task_te,
-            "kind": t.kind,
-            "source": t.source,
-            "version": t.version,
-        }
-        for t in db.scalars(stmt)
-    ]
+    month = date.today().month
+    return [_calendar_json(t, month) for t in db.scalars(stmt)]
 
 
 class ReminderCreate(BaseModel):
@@ -125,23 +210,22 @@ def market_prices(commodity: str | None = None, db: Session = Depends(get_db)):
 
 
 @router.get("/schemes")
-def schemes(db: Session = Depends(get_db)):
-    return [
-        {
-            "id": s.id,
-            "name": s.name,
-            "name_te": s.name_te,
-            "department": s.department,
-            "eligibility": s.eligibility,
-            "documents": s.documents,
-            "apply_route": s.apply_route,
-            "deadline": s.deadline,
-            "source_url": s.source_url,
-            "last_checked": s.last_checked,
-            "disclaimer": "Do not treat this as a promise of eligibility.",
-        }
-        for s in db.scalars(select(Scheme).where(Scheme.status == "published"))
-    ]
+def schemes(crop: str | None = None, state: str | None = None,
+            district: str | None = None, db: Session = Depends(get_db)):
+    """Published schemes. With a crop and/or state/district, returns only the
+    schemes targeting that crop/region (each with a match reason)."""
+    filtering = bool(crop or state or district)
+    crops = {crop.lower()} if crop else set()
+    regions = {x for x in (state, district) if x}
+    out = []
+    for s in db.scalars(select(Scheme).where(Scheme.status == "published")):
+        if not filtering:
+            out.append(_scheme_json(s))
+            continue
+        ok, reason = _scheme_matches(s, crops, regions)
+        if ok:
+            out.append({**_scheme_json(s), "match_reason": reason})
+    return out
 
 
 @router.get("/schemes/{scheme_id}")
@@ -149,16 +233,57 @@ def scheme_detail(scheme_id: int, db: Session = Depends(get_db)):
     s = db.get(Scheme, scheme_id)
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scheme not found")
+    return _scheme_json(s)
+
+
+@router.get("/my-farm-plan")
+def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
+    """A farmer's personalised plan: the crop-calendar tasks, government schemes
+    and reviewed knowledge that match THEIR crops, district and the current season.
+    """
+    crops, district, state, mandal_id = _farmer_context(db, user)
+    today = date.today()
+    month = today.month
+
+    # Calendar for the farmer's own crops, with the current season flagged.
+    calendar = []
+    for crop in sorted(crops):
+        tasks = list(db.scalars(select(CropCalendarTask).where(CropCalendarTask.crop == crop)))
+        if not tasks:
+            continue
+        items = sorted((_calendar_json(t, month) for t in tasks),
+                       key=lambda x: (x["months"][0] if x["months"] else 99))
+        calendar.append({"crop": crop, "tasks": items})
+    current_tasks = [{**it, "crop": grp["crop"]}
+                     for grp in calendar for it in grp["tasks"] if it["current"]]
+
+    # Schemes matched to the farmer's crops + region.
+    regions = {x for x in (state, district) if x}
+    schemes_matched = []
+    for s in db.scalars(select(Scheme).where(Scheme.status == "published")):
+        ok, reason = _scheme_matches(s, crops, regions)
+        if ok:
+            schemes_matched.append({**_scheme_json(s), "match_reason": reason})
+
+    # Reviewed knowledge for the farmer's crops.
+    knowledge = []
+    for crop in sorted(crops):
+        for k in db.scalars(select(KnowledgeSource).where(
+            KnowledgeSource.status == "published", KnowledgeSource.crop == crop
+        )):
+            knowledge.append({"id": k.id, "crop": k.crop, "title": k.title,
+                              "title_te": k.title_te, "source_name": k.source_name,
+                              "source_url": k.source_url})
+
     return {
-        "id": s.id,
-        "name": s.name,
-        "name_te": s.name_te,
-        "department": s.department,
-        "eligibility": s.eligibility,
-        "documents": s.documents,
-        "apply_route": s.apply_route,
-        "deadline": s.deadline,
-        "source_url": s.source_url,
-        "last_checked": s.last_checked,
-        "disclaimer": "Do not treat this as a promise of eligibility.",
+        "today": today.isoformat(),
+        "month": month,
+        "crops": sorted(crops),
+        "district": district,
+        "state": state,
+        "has_profile": bool(crops) or bool(district),
+        "current_tasks": current_tasks,
+        "calendar": calendar,
+        "schemes": schemes_matched,
+        "knowledge": knowledge,
     }
