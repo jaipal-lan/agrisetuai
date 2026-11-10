@@ -16,59 +16,6 @@ function rememberRecent(d) {
   } catch { /* storage may be unavailable */ }
 }
 
-function WatchButton({ commodityId }) {
-  const [state, setState] = useState(null); // {watching, target_price}
-  const [target, setTarget] = useState("");
-  const [msg, setMsg] = useState(null);
-
-  async function load() {
-    try {
-      const s = await api(`/watchlist/${commodityId}`);
-      setState(s);
-      setTarget(s.target_price || "");
-    } catch { setState({ watching: false }); }
-  }
-  useEffect(() => { if (commodityId) load(); /* eslint-disable-next-line */ }, [commodityId]);
-
-  async function save() {
-    setMsg(null);
-    try {
-      await api("/watchlist", { method: "POST", body: {
-        commodity_id: Number(commodityId),
-        target_price: target ? Number(target) : undefined,
-      } });
-      setMsg(target ? `We'll alert you at or below ₹${target}/kg.` : "Added to your favorites.");
-      load();
-    } catch (e) { setMsg(e.message); }
-  }
-  async function remove() {
-    setMsg(null);
-    try { await api(`/watchlist/${commodityId}`, { method: "DELETE" }); setMsg("Removed from favorites."); load(); }
-    catch (e) { setMsg(e.message); }
-  }
-
-  if (!state) return null;
-  return (
-    <div className="card" style={{ marginBottom: 16, borderLeft: "4px solid var(--amber-600)" }}>
-      <div className="between">
-        <b>{state.watching ? "★ Watching this product" : "☆ Watch this product"}</b>
-        {state.watching && <button className="ghost" onClick={remove}>Remove</button>}
-      </div>
-      <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>
-        Get an alert when a new offering appears — or when the price drops to your target.
-      </p>
-      <div className="row" style={{ alignItems: "flex-end", marginTop: 8 }}>
-        <div style={{ flex: "1 1 180px" }}>
-          <label>Target price (₹/kg, optional)</label>
-          <input value={target} onChange={(e) => setTarget(e.target.value)} inputMode="decimal" placeholder="e.g. 22" />
-        </div>
-        <button onClick={save}>{state.watching ? "Update alert" : "Watch"}</button>
-      </div>
-      {msg && <div className="ok" style={{ marginTop: 10 }}>{msg}</div>}
-    </div>
-  );
-}
-
 // Collapsible list of a farmer's buyer reviews, loaded on demand from the
 // existing public /reviews endpoint.
 function SellerReviews({ sellerId, count, t }) {
@@ -162,10 +109,6 @@ export default function ProductOfferings() {
             {data.offering_count > 1 ? ` ${t("across_sellers")}` : ""}
           </span>
         </div>
-      )}
-
-      {me && ["buyer_household", "buyer_business"].includes(me.role) && (
-        <WatchButton commodityId={id} />
       )}
 
       {offerings.length > 1 && (

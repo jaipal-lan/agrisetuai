@@ -6,11 +6,11 @@ import { useI18n } from "../lib/i18n";
 
 const ROLES = [
   ["farmer", "Farmer / రైతు"],
-  ["fpo", "FPO / రైతు సంఘం"],
   ["buyer_household", "Household buyer / గృహ కొనుగోలుదారు"],
   ["buyer_business", "Business buyer / వ్యాపార కొనుగోలుదారు"],
   ["field_agent", "Field agent / క్షేత్ర ఏజెంట్"],
-  ["mandal_manager", "Mandal manager / మండల్ మేనేజర్"],
+  ["field_leader", "Field leader / క్షేత్ర నాయకుడు"],
+  ["field_manager", "Field manager / క్షేత్ర మేనేజర్"],
   ["transport", "Transport / రవాణా"],
   ["superadmin", "Superadmin"],
 ];

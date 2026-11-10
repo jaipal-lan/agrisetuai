@@ -82,14 +82,13 @@ function Nav() {
     setUser(getUser());
   }, [router.pathname]);
 
-  const staff = user && ["superadmin", "finance", "mandal_manager", "support"].includes(user.role);
-  const seller = user && ["farmer", "fpo"].includes(user.role);
-  const fpo = user && user.role === "fpo";
+  const staff = user && ["superadmin", "field_manager", "field_leader"].includes(user.role);
+  const seller = user && user.role === "farmer";
   const buyer = user && ["buyer_household", "buyer_business"].includes(user.role);
   const shopper = buyer || seller; // the roles that browse/negotiate/trade
-  const advisor = user && ["agronomist", "superadmin", "mandal_manager", "field_agent"].includes(user.role);
-  const agent = user && ["field_agent", "mandal_manager", "superadmin"].includes(user.role);
-  const carrier = user && ["transport", "mandal_manager", "superadmin"].includes(user.role);
+  const agent = user && ["field_agent", "field_leader", "field_manager", "superadmin"].includes(user.role);
+  const lead = user && ["field_leader", "field_manager", "superadmin"].includes(user.role);
+  const carrier = user && ["transport", "field_leader", "field_manager", "superadmin"].includes(user.role);
 
   async function doLogout() {
     try {
@@ -102,7 +101,7 @@ function Nav() {
 
   return (
     <nav className="nav">
-      <Link href={user ? "/dashboard" : "/welcome"} className="brand">
+      <Link href={user ? "/dashboard" : "/"} className="brand">
         <span className="brand-mark">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 21c0-6 3-10 8-12-1 7-4 10-8 12z" fill="#86efac" />
@@ -114,24 +113,18 @@ function Nav() {
       </Link>
       {user && <Link href="/dashboard">{t("dashboard")}</Link>}
       {(!user || shopper) && <Link href="/">{t("marketplace")}</Link>}
-      {fpo && <Link href="/fpo">{t("group")}</Link>}
       {seller && <Link href="/sell">{t("sell")}</Link>}
       {seller && <Link href="/earnings">{t("earnings")}</Link>}
       {shopper && <Link href="/requests">{t("requests")}</Link>}
-      {seller && <Link href="/interests">{t("request_alerts")}</Link>}
       {shopper && <Link href="/offers">{t("my_offers")}</Link>}
       {shopper && <Link href="/orders">{t("my_orders")}</Link>}
       {shopper && <Link href="/invoices">{t("invoices")}</Link>}
-      {buyer && <Link href="/favorites">{t("favorites")}</Link>}
-      {buyer && <Link href="/saved">{t("saved_searches")}</Link>}
       {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
+      {lead && <Link href="/team">{t("team")}</Link>}
       {carrier && <Link href="/transport">{t("transport")}</Link>}
-      {(seller || advisor) && <Link href="/advisory">{t("advisory")}</Link>}
-      {(!user || shopper || advisor) && <Link href="/insights">{t("insights")}</Link>}
-      {(!user || shopper) && <Link href="/subscriptions">{t("plans")}</Link>}
+      <Link href="/prices">{t("market_prices")}</Link>
       {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && <Link href="/inbox">{t("inbox")}</Link>}
-      {user && <Link href="/digest">{t("daily_digest")}</Link>}
       {user && <Link href="/support">{t("support")}</Link>}
       {user && <Link href="/profile">{t("profile")}</Link>}
       {user && user.onboarding_complete === false && (

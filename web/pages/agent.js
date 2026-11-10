@@ -11,7 +11,6 @@ import { GROUPS, roleGate } from "../lib/roles";
 // connectivity returns; the backend dedupes on client_draft_id, so re-sending a
 // draft never creates a duplicate.
 const QUEUE_KEY = "agri_insp_queue";
-const ADV_QUEUE_KEY = "agri_adv_queue";
 const MAX_PHOTOS = 4;
 
 function readQ(key) {
@@ -189,237 +188,11 @@ function InspectForm({ job, onQueued, online }) {
   );
 }
 
-function AdvisoryLog({ online, queueAdvisory, pending, syncedAt }) {
-  const [logs, setLogs] = useState([]);
-  const [form, setForm] = useState({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
-  const [msg, setMsg] = useState(null);
-  const [ctx, setCtx] = useState(null);
-  const [ctxErr, setCtxErr] = useState(null);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
-  async function loadContext() {
-    setCtx(null); setCtxErr(null);
-    if (!form.farmer_phone) return;
-    try { setCtx(await api(`/agent/farmer-plan?phone=${encodeURIComponent(form.farmer_phone)}`)); }
-    catch (e) { setCtxErr(e.message); }
-  }
-
-  async function load() {
-    try { setLogs(await api("/agent/advisory-logs")); } catch {}
-  }
-  // Reload after each successful sync so freshly-flushed drafts appear as saved.
-  useEffect(() => { load(); }, [syncedAt]);
-
-  function save() {
-    setMsg(null);
-    if (!form.observation && !form.recommendation) return;
-    const draftId = newDraftId();
-    const body = {
-      client_draft_id: draftId,
-      farmer_phone: form.farmer_phone || undefined,
-      crop: form.crop || undefined,
-      topic: "advisory",
-      observation: form.observation || undefined,
-      recommendation: form.recommendation || undefined,
-      follow_up_on: form.follow_up_on || undefined,
-    };
-    const item = {
-      id: draftId, body, crop: form.crop, observation: form.observation,
-      recommendation: form.recommendation, follow_up_on: form.follow_up_on,
-      created_at: new Date().toISOString(),
-    };
-    if (!queueAdvisory(item)) {
-      setMsg("Device storage is full — sync now to free space, then retry.");
-      return;
-    }
-    setForm({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
-    setMsg(online ? "Logged — syncing…" : "Saved on this device — will sync when back online.");
-  }
-
-  return (
-    <div style={{ marginTop: 28 }}>
-      <h2>Advisory & farmer education log</h2>
-      <p className="muted" style={{ fontSize: 13 }}>
-        You are also the local agricultural expert. Record what you advised and any
-        follow-up — works offline, syncs when you are back online.
-      </p>
-      <div className="card">
-        <div className="row">
-          <div style={{ flex: 1 }}><label>Farmer phone</label>
-            <input value={form.farmer_phone} onChange={(e) => set("farmer_phone", e.target.value)} inputMode="numeric" />
-            <button className="ghost" style={{ padding: "2px 8px", fontSize: 13, marginTop: 4 }}
-                    disabled={!online || !form.farmer_phone} onClick={loadContext}>View context</button></div>
-          <div style={{ flex: 1 }}><label>Crop</label>
-            <input value={form.crop} onChange={(e) => set("crop", e.target.value)} /></div>
-          <div style={{ flex: 1 }}><label>Follow-up date</label>
-            <input value={form.follow_up_on} onChange={(e) => set("follow_up_on", e.target.value)} placeholder="2026-11-20" /></div>
-        </div>
-        <label>Observation</label>
-        <textarea rows={2} value={form.observation} onChange={(e) => set("observation", e.target.value)} />
-        <label>Recommendation (IPM-first; no invented doses)</label>
-        <textarea rows={2} value={form.recommendation} onChange={(e) => set("recommendation", e.target.value)} />
-        <div style={{ marginTop: 10 }}>
-          <button onClick={save} disabled={!form.observation && !form.recommendation}>
-            {online ? "Log advisory" : "Save offline"}
-          </button>
-        </div>
-        {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
-      </div>
-
-      {/* Context: the farmer's own plan, so advice fits their crops/season */}
-      {ctxErr && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{ctxErr}</div>}
-      {ctx && (
-        <div className="card" style={{ marginTop: 10, borderLeft: "4px solid var(--brand-600, #15803d)" }}>
-          <b>👨‍🌾 {ctx.farmer.name || ctx.farmer.phone}</b>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {ctx.plan.crops.length ? ctx.plan.crops.join(", ") : "no crops on record"}
-            {ctx.plan.district ? ` · ${ctx.plan.district}` : ""}
-          </div>
-          {ctx.plan.current_tasks.length > 0 && (
-            <div style={{ fontSize: 13, marginTop: 6 }}>
-              <b>This season:</b> {ctx.plan.current_tasks.map((t) => `${t.crop} — ${t.task}`).join("; ")}
-            </div>
-          )}
-          {ctx.plan.reminders.length > 0 && (
-            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>⏰ {ctx.plan.reminders.length} active reminder(s)</div>
-          )}
-          {ctx.plan.schemes.filter((s) => s.application_status).length > 0 && (
-            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Schemes: {ctx.plan.schemes.filter((s) => s.application_status).map((s) => `${s.name} (${s.application_status})`).join(", ")}
-            </div>
-          )}
-          {ctx.plan.weather?.advice?.length > 0 && (
-            <div className="ok" style={{ fontSize: 13, marginTop: 4 }}>🌦️ {ctx.plan.weather.advice[0].text}</div>
-          )}
-        </div>
-      )}
-
-      {/* Advisory drafts captured on this device, not yet synced */}
-      {pending.map((p) => (
-        <div className="card" key={p.id} style={{ marginTop: 10, borderLeft: "4px solid var(--amber-600)" }}>
-          <div className="between">
-            <b>{p.crop || "general"}</b>
-            <span className="badge amber">{p.error ? "retrying" : "waiting to sync"}</span>
-          </div>
-          {p.observation && <div style={{ fontSize: 14 }}>{p.observation}</div>}
-          {p.recommendation && <div className="ok" style={{ fontSize: 14, marginTop: 6 }}>→ {p.recommendation}</div>}
-          {p.error && <div className="muted" style={{ fontSize: 12 }}>⚠ {p.error}</div>}
-        </div>
-      ))}
-
-      {logs.map((l) => (
-        <div className="card" key={l.id} style={{ marginTop: 10 }}>
-          <div className="between">
-            <b>{l.crop || "general"}</b>
-            <span className="muted" style={{ fontSize: 12 }}>{l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
-          </div>
-          {l.observation && <div style={{ fontSize: 14 }}>{l.observation}</div>}
-          {l.recommendation && <div className="ok" style={{ fontSize: 14, marginTop: 6 }}>→ {l.recommendation}</div>}
-          {l.follow_up_on && <div className="muted" style={{ fontSize: 13 }}>Follow up: {l.follow_up_on}</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function FollowUps({ online, syncedAt }) {
-  const [data, setData] = useState(null);
-  const [busy, setBusy] = useState(null);
-
-  async function load() {
-    try { setData(await api("/agent/follow-ups")); } catch {}
-  }
-  // Reload on mount and after a sync (a freshly-synced note may add a follow-up).
-  useEffect(() => { load(); }, [syncedAt]);
-
-  async function markDone(id) {
-    setBusy(id);
-    try { await api(`/agent/advisory-logs/${id}/follow-up-done`, { method: "POST" }); await load(); }
-    catch {} finally { setBusy(null); }
-  }
-
-  if (!data || (data.due.length === 0 && data.upcoming.length === 0)) return null;
-
-  const Row = ({ f, badge }) => (
-    <div className="between followup-row">
-      <div>
-        <b>{f.crop || "general"}</b> {badge}
-        {(f.recommendation || f.observation) && (
-          <div style={{ fontSize: 14 }}>{f.recommendation || f.observation}</div>
-        )}
-        <div className="muted" style={{ fontSize: 12 }}>due {f.follow_up_date}</div>
-      </div>
-      <button className="ghost" disabled={!online || busy === f.id} onClick={() => markDone(f.id)}>
-        {busy === f.id ? "…" : "Mark done"}
-      </button>
-    </div>
-  );
-
-  return (
-    <div className="card followups" style={{ borderLeft: "4px solid var(--amber-600)", marginBottom: 16 }}>
-      <h3 style={{ marginTop: 0 }}>📌 Follow-ups {data.due.length > 0 && <span className="badge danger">{data.due.length} due</span>}</h3>
-      {data.due.map((f) => (
-        <Row key={f.id} f={f}
-             badge={<span className="badge danger">{f.overdue ? `${-f.days_until}d overdue` : "due today"}</span>} />
-      ))}
-      {data.upcoming.length > 0 && (
-        <details style={{ marginTop: 8 }}>
-          <summary className="muted">Upcoming ({data.upcoming.length})</summary>
-          {data.upcoming.map((f) => (
-            <Row key={f.id} f={f} badge={<span className="muted" style={{ fontSize: 12 }}>in {f.days_until}d</span>} />
-          ))}
-        </details>
-      )}
-      {!online && <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>Reconnect to mark follow-ups done.</p>}
-    </div>
-  );
-}
-
-const RESP_LABEL = { done: "✓ done this", doing: "working on it", question: "has a question" };
-const RESP_BADGE = { done: "", doing: "amber", question: "danger" };
-
-// The other half of the advisory loop: what farmers replied to the agent's advice.
-function FarmerResponses({ syncedAt }) {
-  const [data, setData] = useState(null);
-
-  async function load() {
-    try { setData(await api("/agent/farmer-responses")); } catch {}
-  }
-  useEffect(() => { load(); }, [syncedAt]);
-
-  if (!data || data.responses.length === 0) return null;
-  const fresh = data.responses.filter((r) => r.was_new).length;
-
-  return (
-    <div className="card" style={{ borderLeft: "4px solid var(--brand-600, #15803d)", marginBottom: 16 }}>
-      <h3 style={{ marginTop: 0 }}>
-        💬 Farmer responses {fresh > 0 && <span className="badge danger">{fresh} new</span>}
-      </h3>
-      {data.responses.map((r) => (
-        <div key={r.id} className="followup-row">
-          <div className="between">
-            <b>{r.farmer_name || "A farmer"} · {r.crop || "general"}</b>
-            <span className={`badge ${RESP_BADGE[r.farmer_ack_status] || "grey"}`}>
-              {RESP_LABEL[r.farmer_ack_status] || r.farmer_ack_status}
-            </span>
-          </div>
-          {r.recommendation && <div className="muted" style={{ fontSize: 13 }}>re: {r.recommendation}</div>}
-          {r.farmer_ack_note && <div style={{ fontSize: 14, marginTop: 2 }}>“{r.farmer_ack_note}”</div>}
-          {r.farmer_ack_at && (
-            <div className="muted" style={{ fontSize: 12 }}>{new Date(r.farmer_ack_at).toLocaleDateString()}</div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function AgentJobs() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [queue, setQueue] = useState([]);       // inspection drafts
-  const [advQueue, setAdvQueue] = useState([]); // advisory drafts
   const [online, setOnline] = useState(true);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -427,7 +200,6 @@ export default function AgentJobs() {
 
   const refreshQueues = useCallback(() => {
     setQueue(readQ(QUEUE_KEY));
-    setAdvQueue(readQ(ADV_QUEUE_KEY));
   }, []);
 
   const loadJobs = useCallback(async () => {
@@ -448,8 +220,7 @@ export default function AgentJobs() {
   // POST directly. Safe to call repeatedly — the backend dedupes on draft id.
   const sync = useCallback(async () => {
     const iq = readQ(QUEUE_KEY);
-    const aq = readQ(ADV_QUEUE_KEY);
-    if (iq.length === 0 && aq.length === 0) return;
+    if (iq.length === 0) return;
     setBusy(true);
 
     for (const item of iq) {
@@ -475,15 +246,6 @@ export default function AgentJobs() {
       } catch (e) { item.error = e.message; }
     }
     writeQ(QUEUE_KEY, iq.filter((x) => !x._done));
-
-    for (const item of aq) {
-      try {
-        await api("/agent/advisory-logs", { method: "POST", body: item.body });
-        item._done = true;
-        item.error = null;
-      } catch (e) { item.error = e.message; }
-    }
-    writeQ(ADV_QUEUE_KEY, aq.filter((x) => !x._done));
 
     refreshQueues();
     setBusy(false);
@@ -515,16 +277,6 @@ export default function AgentJobs() {
     if (!savedOffline) sync();
   }, [refreshQueues, sync]);
 
-  // Queue an advisory draft (returns false if storage is full); sync if online.
-  const queueAdvisory = useCallback((item) => {
-    const q = readQ(ADV_QUEUE_KEY);
-    q.push(item);
-    const ok = writeQ(ADV_QUEUE_KEY, q);
-    refreshQueues();
-    if (ok && online) sync();
-    return ok;
-  }, [online, sync, refreshQueues]);
-
   function discardDraft(id) {
     writeQ(QUEUE_KEY, readQ(QUEUE_KEY).filter((x) => x.id !== id));
     refreshQueues();
@@ -540,7 +292,7 @@ export default function AgentJobs() {
   const gate = roleGate(me, GROUPS.agent, { label: "inspection jobs" });
   if (gate) return gate;
 
-  const queued = queue.length + advQueue.length;
+  const queued = queue.length;
   const pendingByOrder = {};
   for (const it of queue) (pendingByOrder[it.order_id] ||= []).push(it);
 
@@ -562,9 +314,6 @@ export default function AgentJobs() {
         you can work in low-signal fields. They sync automatically when you are
         back online.
       </p>
-
-      <FollowUps online={online} syncedAt={syncedAt} />
-      <FarmerResponses syncedAt={syncedAt} />
 
       {/* Inspection drafts captured on this device */}
       {queue.length > 0 && (
@@ -617,8 +366,6 @@ export default function AgentJobs() {
           );
         })
       )}
-
-      <AdvisoryLog online={online} queueAdvisory={queueAdvisory} pending={advQueue} syncedAt={syncedAt} />
     </div>
   );
 }

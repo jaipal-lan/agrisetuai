@@ -2,22 +2,21 @@ import Link from "next/link";
 
 // Role groups mirror the backend RBAC sets. Keep in sync with core/rbac.py.
 export const GROUPS = {
-  seller: ["farmer", "fpo"],
+  seller: ["farmer"],
   buyer: ["buyer_household", "buyer_business"],
-  shopper: ["farmer", "fpo", "buyer_household", "buyer_business"],
-  agent: ["field_agent", "mandal_manager", "superadmin"],
-  advisor: ["farmer", "fpo", "agronomist", "field_agent", "mandal_manager", "superadmin"],
-  carrier: ["transport", "mandal_manager", "superadmin"],
-  staff: ["superadmin", "finance", "mandal_manager", "support"],
-  financeStaff: ["finance", "superadmin"],
+  // A farmer can also buy, so "shopper" (market/offers/orders) spans both.
+  shopper: ["farmer", "buyer_household", "buyer_business"],
+  agent: ["field_agent", "field_leader", "field_manager", "superadmin"],
+  lead: ["field_leader", "field_manager", "superadmin"],
+  carrier: ["transport", "field_leader", "field_manager", "superadmin"],
+  staff: ["superadmin", "field_manager", "field_leader"],
 };
 
 export const ROLE_LABEL = {
-  farmer: "Farmer", fpo: "FPO", buyer_household: "Household buyer",
+  farmer: "Farmer", buyer_household: "Household buyer",
   buyer_business: "Business buyer", field_agent: "Field agent",
-  agronomist: "Agronomist", transport: "Transport partner",
-  support: "Support", mandal_manager: "Mandal manager",
-  finance: "Finance", superadmin: "Superadmin",
+  field_leader: "Field leader", field_manager: "Field manager",
+  transport: "Transport partner", superadmin: "Superadmin",
 };
 
 /**

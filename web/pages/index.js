@@ -155,17 +155,6 @@ export default function Marketplace() {
     } catch { /* storage may be unavailable */ }
   }
 
-  async function saveSearch() {
-    setSaving(true); setErr(null);
-    try {
-      const criteria = {};
-      if (q.trim()) criteria.q = q.trim();
-      if (category) criteria.category = category;
-      await api("/saved-searches", { method: "POST", body: { criteria, alert: true } });
-      router.push("/saved");
-    } catch (e) { setErr(e.message); setSaving(false); }
-  }
-
   const gridCategories = [...new Set(products.map((p) => p.category))];
 
   return (
@@ -208,16 +197,6 @@ export default function Marketplace() {
             </label>
           </div>
         </div>
-        {isBuyer && browsing && (
-          <div className="row" style={{ marginTop: 12 }}>
-            <button className="ghost" onClick={saveSearch} disabled={saving}>
-              🔖 {saving ? "…" : t("save_search")}
-            </button>
-            <span className="muted" style={{ fontSize: 13 }}>
-              Get alerted when a new matching listing is published.
-            </span>
-          </div>
-        )}
       </div>
 
       {err && <div className="error">{err}</div>}

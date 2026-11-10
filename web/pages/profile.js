@@ -90,12 +90,7 @@ export default function Profile() {
 
       {prefs && (
         <>
-          <div className="between">
-            <h2>Notifications</h2>
-            {prefs.categories.some((c) => c.mode === "digest") && (
-              <Link href="/digest" className="btn ghost" style={{ alignSelf: "center" }}>📬 Daily digest</Link>
-            )}
-          </div>
+          <h2>Notifications</h2>
           <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
             Choose how each proactive alert reaches you. <b>Instant</b> pings the bell,
             <b> Daily</b> batches it into a once-a-day digest, <b>Off</b> silences it.
