@@ -346,6 +346,15 @@ def run():
     pcard = next((p for p in pcards if p["commodity_id"] == paddy["id"]), None)
     check("product card carries seller rating", pcard is not None
           and pcard.get("seller_rating") is not None and pcard["seller_rating_count"] >= 1)
+    # Buyers can rank + filter the marketplace grid by seller rating.
+    rated_sorted = client.get("/api/listings/products", params={"sort": "rating"}).json()
+    rvals = [p["seller_rating"] for p in rated_sorted if p["seller_rating"] is not None]
+    check("rating sort returns highest-rated first", rvals == sorted(rvals, reverse=True))
+    check("rating sort puts unrated products last",
+          all(p["seller_rating"] is not None for p in rated_sorted[:len(rvals)]))
+    hi = client.get("/api/listings/products", params={"min_rating": 4}).json()
+    check("min_rating filter keeps only 4-star-plus products",
+          all((p["seller_rating"] or 0) >= 4 for p in hi) and any(p["commodity_id"] == paddy["id"] for p in hi))
     prod2 = client.get(f"/api/listings/products/{paddy['id']}").json()
     check("product detail exposes aggregate seller rating",
           prod2.get("seller_rating") is not None and prod2["seller_rating_count"] >= 1)

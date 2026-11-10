@@ -299,12 +299,14 @@ def _product_card(c: Commodity, rows: list[Listing], db: Session) -> dict:
 
 @router.get("/products")
 def products(category: str | None = None, q: str | None = None,
-             sort: str = "name", db: Session = Depends(get_db)):
+             sort: str = "name", min_rating: float | None = None,
+             db: Session = Depends(get_db)):
     """Product catalog grouped by commodity, each with how many farmers/places
     currently offer it and the price range — the marketplace's product grid.
 
     `q` searches the commodity name (English or Telugu); `sort` is one of
-    name | price_asc | price_desc | verified | availability.
+    name | price_asc | price_desc | verified | availability | rating.
+    `min_rating` keeps only products whose sellers average at least that rating.
     """
     stmt = select(Commodity)
     if category:
@@ -319,6 +321,9 @@ def products(category: str | None = None, q: str | None = None,
         ))
         out.append(_product_card(c, rows, db))
 
+    if min_rating is not None:
+        out = [p for p in out if (p["seller_rating"] or 0) >= min_rating]
+
     def price_key(p, hi=False):
         v = p["price_max"] if hi else p["price_min"]
         # Out-of-stock (no price) sorts last either way.
@@ -332,6 +337,9 @@ def products(category: str | None = None, q: str | None = None,
         out.sort(key=lambda p: (not p["any_verified"], p["commodity"]))
     elif sort == "availability":
         out.sort(key=lambda p: (-p["offering_count"], p["commodity"]))
+    elif sort == "rating":
+        # Highest-rated sellers first; unrated products sort last.
+        out.sort(key=lambda p: (p["seller_rating"] is None, -(p["seller_rating"] or 0), p["commodity"]))
     # else: keep the default category/name order from the query.
     return out
 

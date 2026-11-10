@@ -92,6 +92,7 @@ export default function Marketplace() {
   const [category, setCategory] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("name");
+  const [minRating, setMinRating] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -102,7 +103,8 @@ export default function Marketplace() {
   const [mandals, setMandals] = useState([]);
   const [recent, setRecent] = useState([]);
 
-  const browsing = !!(q.trim() || category);
+  // Any active search, filter or non-default sort switches to the full grid.
+  const browsing = !!(q.trim() || category || minRating || sort !== "name");
   const isBuyer = me && ["buyer_household", "buyer_business"].includes(me.role);
 
   useEffect(() => {
@@ -134,13 +136,14 @@ export default function Marketplace() {
         if (category) params.set("category", category);
         if (q.trim()) params.set("q", q.trim());
         if (sort) params.set("sort", sort);
+        if (minRating) params.set("min_rating", String(minRating));
         setProducts(await api(`/listings/products?${params.toString()}`));
       } catch (e) { setErr(e.message); } finally { setLoading(false); }
     };
     const id = setTimeout(run, q ? 300 : 0);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browsing, category, q, sort]);
+  }, [browsing, category, q, sort, minRating]);
 
   function chooseArea(id) {
     const m = mandals.find((x) => String(x.id) === String(id));
@@ -194,7 +197,15 @@ export default function Marketplace() {
               <option value="price_desc">Price: high to low</option>
               <option value="verified">Verified first</option>
               <option value="availability">Most offerings</option>
+              <option value="rating">{t("sort_top_rated")}</option>
             </select>
+          </div>
+          <div style={{ flex: "0 1 auto", alignSelf: "center" }}>
+            <label className="rating-filter" style={{ cursor: "pointer", userSelect: "none" }}>
+              <input type="checkbox" checked={minRating >= 4}
+                     onChange={(e) => setMinRating(e.target.checked ? 4 : 0)} />
+              {" "}<span className="rating-star">★</span> {t("rated_4_plus")}
+            </label>
           </div>
         </div>
         {isBuyer && browsing && (
