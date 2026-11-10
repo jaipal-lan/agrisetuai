@@ -520,6 +520,34 @@ def run():
     count_after = len(client.get("/api/agent/advisory-logs", headers=hdr(agent)).json())
     check("re-synced advisory draft logs once", count_after == count_before + 1)
 
+    print("\n== Agent follow-up reminders ==")
+    from datetime import date as _date, timedelta as _td
+    _past = (_date.today() - _td(days=2)).isoformat()
+    _future = (_date.today() + _td(days=5)).isoformat()
+    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
+        "crop": "duecrop", "observation": "needs revisit", "recommendation": "re-check field",
+        "follow_up_on": _past})
+    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
+        "crop": "futurecrop", "observation": "watch", "recommendation": "monitor", "follow_up_on": _future})
+    def acount():
+        return len(client.get("/api/auth/notifications", headers=hdr(agent)).json())
+    before = acount()
+    fu = client.get("/api/agent/follow-ups", headers=hdr(agent)).json()
+    check("due follow-up surfaced", any(f["crop"] == "duecrop" and f["overdue"] for f in fu["due"]))
+    check("upcoming follow-up listed", any(f["crop"] == "futurecrop" for f in fu["upcoming"]))
+    check("due follow-up raises a reminder", acount() > before)
+    before2 = acount()
+    client.get("/api/agent/follow-ups", headers=hdr(agent))
+    check("follow-up reminder not re-raised", acount() == before2)
+    ad2 = client.get("/api/dashboard", headers=hdr(agent)).json()
+    check("agent dashboard shows a follow-ups-due card",
+          any(c["label"] == "Follow-ups due" and c["value"] >= 1 for c in ad2["cards"]))
+    due_id = next(f["id"] for f in fu["due"] if f["crop"] == "duecrop")
+    r = client.post(f"/api/agent/advisory-logs/{due_id}/follow-up-done", headers=hdr(agent))
+    check("follow-up marked done", r.json().get("follow_up_done") is True)
+    fu2 = client.get("/api/agent/follow-ups", headers=hdr(agent)).json()
+    check("done follow-up clears from the list", not any(f["id"] == due_id for f in fu2["due"]))
+
     print("\n== Superadmin GMV reports ==")
     rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
     check("report has total GMV", float(rep["total_gmv"]) > 0)

@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, ForeignKey, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -45,6 +45,10 @@ class AdvisoryLog(Base, TimestampMixin):
     observation: Mapped[str | None] = mapped_column(Text)
     recommendation: Mapped[str | None] = mapped_column(Text)
     follow_up_on: Mapped[str | None] = mapped_column(String(40))
+    # Follow-up tracking: done = the agent has acted on it; notified = a due
+    # reminder has already been raised (so it isn't re-raised on every load).
+    follow_up_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    follow_up_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     # Offline-first idempotency key: a re-synced draft returns the existing row
     # instead of creating a duplicate (mirrors Inspection.client_draft_id).
     client_draft_id: Mapped[str | None] = mapped_column(String(64), unique=True)

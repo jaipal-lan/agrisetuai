@@ -283,6 +283,59 @@ function AdvisoryLog({ online, queueAdvisory, pending, syncedAt }) {
   );
 }
 
+function FollowUps({ online, syncedAt }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(null);
+
+  async function load() {
+    try { setData(await api("/agent/follow-ups")); } catch {}
+  }
+  // Reload on mount and after a sync (a freshly-synced note may add a follow-up).
+  useEffect(() => { load(); }, [syncedAt]);
+
+  async function markDone(id) {
+    setBusy(id);
+    try { await api(`/agent/advisory-logs/${id}/follow-up-done`, { method: "POST" }); await load(); }
+    catch {} finally { setBusy(null); }
+  }
+
+  if (!data || (data.due.length === 0 && data.upcoming.length === 0)) return null;
+
+  const Row = ({ f, badge }) => (
+    <div className="between followup-row">
+      <div>
+        <b>{f.crop || "general"}</b> {badge}
+        {(f.recommendation || f.observation) && (
+          <div style={{ fontSize: 14 }}>{f.recommendation || f.observation}</div>
+        )}
+        <div className="muted" style={{ fontSize: 12 }}>due {f.follow_up_date}</div>
+      </div>
+      <button className="ghost" disabled={!online || busy === f.id} onClick={() => markDone(f.id)}>
+        {busy === f.id ? "…" : "Mark done"}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="card followups" style={{ borderLeft: "4px solid var(--amber-600)", marginBottom: 16 }}>
+      <h3 style={{ marginTop: 0 }}>📌 Follow-ups {data.due.length > 0 && <span className="badge danger">{data.due.length} due</span>}</h3>
+      {data.due.map((f) => (
+        <Row key={f.id} f={f}
+             badge={<span className="badge danger">{f.overdue ? `${-f.days_until}d overdue` : "due today"}</span>} />
+      ))}
+      {data.upcoming.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary className="muted">Upcoming ({data.upcoming.length})</summary>
+          {data.upcoming.map((f) => (
+            <Row key={f.id} f={f} badge={<span className="muted" style={{ fontSize: 12 }}>in {f.days_until}d</span>} />
+          ))}
+        </details>
+      )}
+      {!online && <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>Reconnect to mark follow-ups done.</p>}
+    </div>
+  );
+}
+
 export default function AgentJobs() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
@@ -431,6 +484,8 @@ export default function AgentJobs() {
         you can work in low-signal fields. They sync automatically when you are
         back online.
       </p>
+
+      <FollowUps online={online} syncedAt={syncedAt} />
 
       {/* Inspection drafts captured on this device */}
       {queue.length > 0 && (

@@ -1,9 +1,9 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.deps import require_roles
@@ -14,7 +14,7 @@ from app.models.common import InspectionOutcome
 from app.models.common import OrderStatus as S
 from app.models.order import Inspection, Order
 from app.models.user import User
-from app.services import audit
+from app.services import audit, notify
 from app.services.state_machine import InvalidTransition, transition
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -169,6 +169,7 @@ def _log_json(l: AdvisoryLog) -> dict:
         "observation": l.observation,
         "recommendation": l.recommendation,
         "follow_up_on": l.follow_up_on,
+        "follow_up_done": l.follow_up_done,
         "created_at": l.created_at.isoformat() if l.created_at else None,
     }
 
@@ -207,3 +208,85 @@ def list_advisory_logs(user=Depends(_agent), db: Session = Depends(get_db)):
         .order_by(AdvisoryLog.id.desc()).limit(100)
     )
     return [_log_json(l) for l in rows]
+
+
+# --- Follow-up reminders -------------------------------------------------------
+
+def _parse_follow_date(s: str | None) -> date | None:
+    """Parse a follow_up_on value (e.g. '2026-11-20') to a date, or None if it
+    isn't a plain ISO date — the field is free text, so be defensive."""
+    if not s or len(s) < 10:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except ValueError:
+        return None
+
+
+def _open_followups(db: Session, agent_id: int):
+    """Advisory logs with an unresolved, parseable follow-up date."""
+    rows = db.scalars(select(AdvisoryLog).where(
+        AdvisoryLog.agent_id == agent_id,
+        AdvisoryLog.follow_up_done.is_(False),
+        AdvisoryLog.follow_up_on.is_not(None),
+    ))
+    out = []
+    for l in rows:
+        d = _parse_follow_date(l.follow_up_on)
+        if d is not None:
+            out.append((l, d))
+    return out
+
+
+def due_followup_count(db: Session, agent_id: int, today: date | None = None) -> int:
+    today = today or date.today()
+    return sum(1 for _, d in _open_followups(db, agent_id) if d <= today)
+
+
+def raise_due_followup_reminders(db: Session, agent_id: int, today: date | None = None) -> int:
+    """Raise a one-time advisory reminder for each follow-up that has come due.
+    Idempotent via follow_up_notified, and routed through notify.send so it
+    honours the agent's mute/digest preferences (the 'advisory' category)."""
+    today = today or date.today()
+    created = 0
+    for l, d in _open_followups(db, agent_id):
+        if d > today or l.follow_up_notified:
+            continue
+        label = l.crop or "a farmer"
+        detail = l.recommendation or l.observation or "check in"
+        notify.send(
+            db, user_id=agent_id,
+            title="Advisory follow-up due",
+            body=f"Follow-up due for {label}: {detail}",
+            object_type="advisory_log", object_id=l.id,
+        )
+        l.follow_up_notified = True
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
+@router.get("/follow-ups")
+def follow_ups(user=Depends(_agent), db: Session = Depends(get_db)):
+    """The agent's follow-up to-do list: due (today or overdue) and upcoming.
+    Opening this also raises reminders for anything newly due."""
+    today = date.today()
+    raise_due_followup_reminders(db, user.id, today)
+    due, upcoming = [], []
+    for l, d in sorted(_open_followups(db, user.id), key=lambda x: x[1]):
+        item = {**_log_json(l), "follow_up_date": d.isoformat(),
+                "days_until": (d - today).days, "overdue": d < today}
+        (due if d <= today else upcoming).append(item)
+    return {"today": today.isoformat(), "due": due, "upcoming": upcoming}
+
+
+@router.post("/advisory-logs/{log_id}/follow-up-done")
+def mark_follow_up_done(log_id: int, user=Depends(_agent), db: Session = Depends(get_db)):
+    """Mark a follow-up as acted on, clearing it from the to-do list."""
+    log = db.get(AdvisoryLog, log_id)
+    if not log or log.agent_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Advisory log not found")
+    log.follow_up_done = True
+    db.commit()
+    return {"id": log.id, "follow_up_done": True}

@@ -25,6 +25,7 @@ _CATEGORY_BY_OBJECT: dict[str, str] = {
     "rfq": "requests",
     "announcement": "announcements",
     "crop_case": "advisory",
+    "advisory_log": "advisory",
 }
 
 

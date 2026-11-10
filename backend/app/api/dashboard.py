@@ -140,11 +140,17 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         ]
 
     elif role == Role.FIELD_AGENT:
+        from app.api.agents import due_followup_count, raise_due_followup_reminders
         jobs = _count(db, select(func.count(Order.id)).where(
             Order.assigned_agent_id == user.id, Order.status.in_(_INSPECTION_STATES)))
         advisories = _count(db, select(func.count(AdvisoryLog.id)).where(AdvisoryLog.agent_id == user.id))
+        # Opening the dashboard raises reminders for anything newly due, then
+        # surfaces the count as a to-do card.
+        raise_due_followup_reminders(db, user.id)
+        follow_ups_due = due_followup_count(db, user.id)
         cards = [
             {"label": "Inspections to do", "value": jobs, "href": "/agent", "alert": jobs > 0},
+            {"label": "Follow-ups due", "value": follow_ups_due, "href": "/agent", "alert": follow_ups_due > 0},
             {"label": "Advisories logged", "value": advisories, "href": "/agent"},
         ]
         actions = [

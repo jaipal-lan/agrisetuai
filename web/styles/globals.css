@@ -362,6 +362,9 @@ tbody tr:hover td { background: var(--green-100); }
 .draft-row:last-child { border-bottom: none; }
 .captured-note { margin-top: 10px; padding: 10px 12px; background: var(--green-100); color: var(--green-900); border-radius: 8px; font-size: 14px; }
 
+.followup-row { padding: 10px 0; border-bottom: 1px solid var(--line); gap: 10px; align-items: flex-start; }
+.followup-row:last-child { border-bottom: none; }
+
 /* Brand mark in the nav */
 .brand-mark { display: inline-flex; align-items: center; gap: 8px; }
 .brand-mark svg { width: 22px; height: 22px; flex: 0 0 auto; }
