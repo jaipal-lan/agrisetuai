@@ -266,9 +266,14 @@ def seed_users(db: Session, mandals: dict) -> dict:
     ]
     users = {}
     for phone, name, role in defs:
-        u, _ = _get_or_create(db, User, phone=phone,
-                              defaults={"name": name, "role": str(role),
-                                        "onboarding_complete": True})
+        u, created = _get_or_create(db, User, phone=phone,
+                                    defaults={"name": name, "role": str(role),
+                                              "onboarding_complete": True})
+        if not created:
+            # Keep demo accounts aligned with the current role set (the pivot
+            # renamed/removed several roles).
+            u.role = str(role)
+            u.name = name
         users[role] = u
     # Attach minimal profiles.
     farmer = users[Role.FARMER]
