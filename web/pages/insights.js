@@ -18,6 +18,13 @@ function FarmPlan({ plan, lang, onChange }) {
     try { await api(`/reminders/${id}?status_value=${status}`, { method: "PATCH" }); onChange(); }
     catch { /* ignore */ }
   }
+  async function setAppStatus(schemeId, status) {
+    try {
+      if (status) await api(`/schemes/${schemeId}/application`, { method: "POST", body: { status } });
+      else await api(`/schemes/${schemeId}/application`, { method: "DELETE" });
+      onChange();
+    } catch { /* ignore */ }
+  }
 
   if (!plan) return null;
   if (!plan.has_profile) {
@@ -126,6 +133,23 @@ function FarmPlan({ plan, lang, onChange }) {
                 <div style={{ marginTop: 8 }}>
                   <a href={s.source_url} target="_blank" rel="noreferrer">Official source ↗</a>
                   <span className="muted" style={{ fontSize: 12 }}> · checked {s.last_checked}</span>
+                </div>
+                <div className="row" style={{ gap: 8, alignItems: "center", marginTop: 8 }}>
+                  <label style={{ margin: 0, fontSize: 13 }}>Your status:</label>
+                  <select value={s.application_status || ""}
+                          onChange={(e) => setAppStatus(s.id, e.target.value)}>
+                    <option value="">Not tracking</option>
+                    <option value="interested">Interested</option>
+                    <option value="applied">Applied</option>
+                    <option value="received">Received</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                  {s.application_status && (
+                    <span className={`badge ${s.application_status === "received" ? ""
+                      : s.application_status === "rejected" ? "danger" : "amber"}`}>
+                      {s.application_status}
+                    </span>
+                  )}
                 </div>
                 <div className="disclaimer">{s.disclaimer}</div>
               </div>

@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_roles
 from app.core.rbac import Role
 from app.models.advisory import (CropCalendarTask, CropCase, KnowledgeSource, MarketPrice,
-                                 Reminder, Scheme, WeatherSnapshot)
+                                 Reminder, Scheme, SchemeApplication, WeatherSnapshot)
 from app.models.catalog import Commodity
 from app.models.location import District, Mandal, State
 from app.models.marketplace import CropInterest, Listing
@@ -340,6 +340,73 @@ def scheme_detail(scheme_id: int, db: Session = Depends(get_db)):
     return _scheme_json(s)
 
 
+# --- Scheme application tracking ----------------------------------------------
+_APP_STATUSES = ("interested", "applied", "received", "rejected")
+
+
+class SchemeApp(BaseModel):
+    status: str
+    note: str | None = None
+
+
+def _app_json(a: SchemeApplication, db: Session) -> dict:
+    s = db.get(Scheme, a.scheme_id)
+    return {
+        "id": a.id,
+        "scheme_id": a.scheme_id,
+        "scheme_name": s.name if s else None,
+        "scheme_name_te": s.name_te if s else None,
+        "status": a.status,
+        "note": a.note,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+    }
+
+
+@router.post("/schemes/{scheme_id}/application")
+def set_scheme_application(
+    scheme_id: int, body: SchemeApp, user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Farmer records (or updates) where they are on a scheme: interested →
+    applied → received (or rejected). One row per farmer+scheme."""
+    if body.status not in _APP_STATUSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"status must be one of {', '.join(_APP_STATUSES)}")
+    if not db.get(Scheme, scheme_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Scheme not found")
+    app = db.scalar(select(SchemeApplication).where(
+        SchemeApplication.user_id == user.id, SchemeApplication.scheme_id == scheme_id))
+    if app:
+        app.status = body.status
+        app.note = body.note
+    else:
+        app = SchemeApplication(user_id=user.id, scheme_id=scheme_id,
+                                status=body.status, note=body.note)
+        db.add(app)
+    db.commit()
+    db.refresh(app)
+    return _app_json(app, db)
+
+
+@router.get("/my-scheme-applications")
+def my_scheme_applications(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.scalars(select(SchemeApplication)
+                      .where(SchemeApplication.user_id == user.id)
+                      .order_by(SchemeApplication.id.desc()))
+    return [_app_json(r, db) for r in rows]
+
+
+@router.delete("/schemes/{scheme_id}/application")
+def clear_scheme_application(
+    scheme_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    app = db.scalar(select(SchemeApplication).where(
+        SchemeApplication.user_id == user.id, SchemeApplication.scheme_id == scheme_id))
+    if app:
+        db.delete(app)
+        db.commit()
+    return {"ok": True}
+
+
 @router.get("/my-farm-plan")
 def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
     """A farmer's personalised plan: the crop-calendar tasks, government schemes
@@ -387,13 +454,16 @@ def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
             "source_note": "Pilot snapshot — not a live forecast feed.",
         }
 
-    # Schemes matched to the farmer's crops + region.
+    # Schemes matched to the farmer's crops + region, with any tracked status.
+    app_status = {a.scheme_id: a.status for a in db.scalars(
+        select(SchemeApplication).where(SchemeApplication.user_id == user.id))}
     regions = {x for x in (state, district) if x}
     schemes_matched = []
     for s in db.scalars(select(Scheme).where(Scheme.status == "published")):
         ok, reason = _scheme_matches(s, crops, regions)
         if ok:
-            schemes_matched.append({**_scheme_json(s), "match_reason": reason})
+            schemes_matched.append({**_scheme_json(s), "match_reason": reason,
+                                    "application_status": app_status.get(s.id)})
 
     # Reviewed knowledge for the farmer's crops.
     knowledge = []

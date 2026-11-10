@@ -720,6 +720,30 @@ def run():
     check("invalid reminder status rejected",
           client.patch(f"/api/reminders/{rid}?status_value=nope", headers=hdr(farmer)).status_code == 400)
 
+    print("\n== Scheme application tracking ==")
+    sid = plan["schemes"][0]["id"]
+    ap = client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer),
+                     json={"status": "applied", "note": "Submitted at the kendram."})
+    check("scheme application recorded",
+          ap.status_code == 200 and ap.json()["status"] == "applied" and ap.json()["scheme_name"])
+    ap2 = client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer),
+                      json={"status": "received"})
+    check("scheme application upserts (one per farmer+scheme)", ap2.json()["id"] == ap.json()["id"]
+          and ap2.json()["status"] == "received")
+    apps = client.get("/api/my-scheme-applications", headers=hdr(farmer)).json()
+    check("application appears in the farmer's list", any(a["scheme_id"] == sid for a in apps))
+    planA = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
+    check("farm plan shows the scheme's application status",
+          any(s["id"] == sid and s.get("application_status") == "received" for s in planA["schemes"]))
+    check("invalid application status rejected",
+          client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer),
+                      json={"status": "nope"}).status_code == 400)
+    check("scheme application can be cleared",
+          client.delete(f"/api/schemes/{sid}/application", headers=hdr(farmer)).status_code == 200)
+    planB = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
+    check("cleared application drops its status",
+          all(s.get("application_status") is None for s in planB["schemes"] if s["id"] == sid))
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",

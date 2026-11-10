@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import (JSON, Boolean, DateTime, ForeignKey, Numeric, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -163,5 +164,19 @@ class Scheme(Base, TimestampMixin):
     # Targeting for crop/district matching; null or empty list = applies to all.
     crops: Mapped[dict | None] = mapped_column(JSON)    # lowercase crop keys
     regions: Mapped[dict | None] = mapped_column(JSON)  # state and/or district names
+
+
+class SchemeApplication(Base, TimestampMixin):
+    """A farmer's self-reported progress on a government scheme."""
+
+    __tablename__ = "scheme_applications"
+    __table_args__ = (UniqueConstraint("user_id", "scheme_id", name="uq_scheme_app_user_scheme"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    scheme_id: Mapped[int] = mapped_column(ForeignKey("schemes.id"), index=True)
+    # interested | applied | received | rejected
+    status: Mapped[str] = mapped_column(String(16), default="interested")
+    note: Mapped[str | None] = mapped_column(Text)
 
 
