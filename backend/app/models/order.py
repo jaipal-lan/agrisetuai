@@ -31,6 +31,10 @@ class Order(Base, TimestampMixin):
     buyer_total: Mapped[float | None] = mapped_column(Numeric(14, 2))
     seller_payable: Mapped[float | None] = mapped_column(Numeric(14, 2))
 
+    # A short packing video (object key) captured when the lot is sealed, before
+    # dispatch — proof of what was packed for the buyer who paid.
+    packing_video: Mapped[str | None] = mapped_column(String(200))
+
     # Idempotency key supplied at confirmation to prevent duplicate orders.
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True)
 

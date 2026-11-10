@@ -66,6 +66,7 @@ def _order_json(order: Order, db: Session, viewer=None) -> dict:
         "status": order.status,
         "accepted_terms": order.accepted_terms,
         "quote": order.quote,
+        "packing_video": order.packing_video,
         "buyer_total": None if order.buyer_total is None else str(order.buyer_total),
         "seller_payable": None if order.seller_payable is None else str(order.seller_payable),
         "inspections": [
@@ -496,15 +497,22 @@ def pay(
 
 # --- Packing -> lot + package --------------------------------------------
 
+class PackingComplete(BaseModel):
+    packing_video: str | None = None  # object key of the ≤2-min packing clip
+
+
 @router.post("/{order_id}/packing-complete")
 def packing_complete(
     order_id: int,
+    body: PackingComplete | None = None,
     user=Depends(require_roles(Role.FIELD_AGENT, Role.FIELD_LEADER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
     order = _get_order(order_id, db)
     if order.status != S.PAID:
         raise HTTPException(status.HTTP_409_CONFLICT, "Order not paid")
+    if body and body.packing_video:
+        order.packing_video = body.packing_video
     terms = order.accepted_terms
     line = order.lines[0] if order.lines else None
     listing = db.get(Listing, line.listing_id) if line and line.listing_id else None

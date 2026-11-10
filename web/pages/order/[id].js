@@ -329,9 +329,9 @@ export default function OrderDetail() {
   const s = order.status;
   const role = me.role;
   const isBuyer = me.id === order.buyer_id;
-  const isStaff = ["superadmin", "mandal_manager", "finance"].includes(role);
-  const isAgent = ["field_agent", "mandal_manager", "superadmin"].includes(role);
-  const isTransport = ["transport", "mandal_manager", "superadmin"].includes(role);
+  const isStaff = ["superadmin", "field_manager", "field_leader"].includes(role);
+  const isAgent = ["field_agent", "field_leader", "field_manager", "superadmin"].includes(role);
+  const isTransport = ["transport", "field_leader", "field_manager", "superadmin"].includes(role);
 
   const Action = ({ children }) => (
     <div className="card" style={{ marginTop: 16, borderLeft: "4px solid var(--green-600)" }}>{children}</div>
@@ -342,6 +342,17 @@ export default function OrderDetail() {
       <button className="ghost" onClick={() => router.push("/orders")}>← {t("my_orders")}</button>
       <h1 style={{ marginTop: 14 }}>{order.public_id}</h1>
       <span className="badge">{s.replace(/_/g, " ")}</span>
+
+      {order.packing_video && (isBuyer || isStaff || isAgent) && (
+        <div className="card" style={{ marginTop: 14, borderLeft: "4px solid var(--green-600)" }}>
+          <b>🎥 Packing video</b>
+          <p className="muted" style={{ fontSize: 13, margin: "4px 0 8px" }}>
+            Recorded when your order was sealed for dispatch.
+          </p>
+          <video src={mediaUrl(order.packing_video)} controls preload="none"
+                 style={{ width: "100%", borderRadius: 8, maxHeight: 260 }} />
+        </div>
+      )}
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="between">

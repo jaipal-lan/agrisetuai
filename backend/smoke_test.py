@@ -277,9 +277,15 @@ def run():
     check("platform_revenue = commission 84", acct["accounts"].get("platform_revenue") == "84.00")
 
     print("\n== Packing, shipment, delivery, settlement ==")
-    r = client.post(f"/api/orders/{order_id}/packing-complete", headers=hdr(agent))
+    r = client.post(f"/api/orders/{order_id}/packing-complete", headers=hdr(agent),
+                    json={"packing_video": "sample/packing-clip.mp4"})
     check("packing complete -> ready_for_pickup", r.json()["order"]["status"] == "ready_for_pickup")
     check("lot id issued", r.json()["lot_id"].startswith("LOT-"))
+    check("packing video attached to the order",
+          r.json()["order"]["packing_video"] == "sample/packing-clip.mp4")
+    check("buyer sees the packing video on the order",
+          client.get(f"/api/orders/{order_id}", headers=hdr(buyer)).json()["packing_video"]
+          == "sample/packing-clip.mp4")
 
     # Verified Lot Certificate: observed/measured separated, lab-testing disclaimer.
     cert = client.get(f"/api/orders/{order_id}/certificate", headers=hdr(buyer)).json()

@@ -282,10 +282,17 @@ export default function AgentJobs() {
     refreshQueues();
   }
 
-  async function packingComplete(orderId) {
+  async function packingComplete(orderId, videoFile) {
     setBusy(true);
-    try { await api(`/orders/${orderId}/packing-complete`, { method: "POST" }); await loadJobs(); }
-    catch (e) { setErr(e.message); }
+    try {
+      let packing_video;
+      if (videoFile) {
+        const up = await uploadMedia(videoFile);
+        packing_video = up.object_key;
+      }
+      await api(`/orders/${orderId}/packing-complete`, { method: "POST", body: { packing_video } });
+      await loadJobs();
+    } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   }
 
@@ -357,8 +364,18 @@ export default function AgentJobs() {
               )}
               {j.status === "paid" && (
                 <div style={{ marginTop: 10 }}>
-                  <button disabled={busy || !online} onClick={() => packingComplete(j.order_id)}>
-                    Seal lot & complete packing
+                  <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+                    Record a short packing video (≤2 min), then seal the lot for dispatch.
+                  </p>
+                  <label className="btn" style={{ cursor: "pointer", display: "inline-block" }}>
+                    🎥 Record & seal with video
+                    <input type="file" accept="video/*" capture="environment" style={{ display: "none" }}
+                           disabled={busy || !online}
+                           onChange={(e) => e.target.files[0] && packingComplete(j.order_id, e.target.files[0])} />
+                  </label>
+                  <button className="ghost" style={{ marginLeft: 8 }} disabled={busy || !online}
+                          onClick={() => packingComplete(j.order_id)}>
+                    Seal without video
                   </button>
                 </div>
               )}
