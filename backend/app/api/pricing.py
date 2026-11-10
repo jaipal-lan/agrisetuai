@@ -208,7 +208,7 @@ def quote_for_order(
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
     if user.id not in (order.buyer_id, order.seller_id) and user.role not in (
-        Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER,
+        Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER,
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted")
 

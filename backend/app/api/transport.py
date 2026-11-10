@@ -11,7 +11,7 @@ from app.models.order import Order, Shipment
 
 router = APIRouter(prefix="/transport", tags=["transport"])
 
-_transport = require_roles(Role.TRANSPORT, Role.MANDAL_MANAGER, Role.SUPERADMIN)
+_transport = require_roles(Role.TRANSPORT, Role.FIELD_LEADER, Role.SUPERADMIN)
 
 # Order states a transport partner acts on.
 _ACTIVE = [S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT, S.OUT_FOR_DELIVERY]

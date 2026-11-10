@@ -19,7 +19,7 @@ def payment_intent(order_id: int, user=Depends(get_current_user), db: Session = 
     order = db.get(Order, order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
-    staff = user.role in (Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER)
+    staff = user.role in (Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER)
     if not staff and user.id != order.buyer_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted")
     if order.buyer_total is None:

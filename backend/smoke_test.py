@@ -61,7 +61,7 @@ def run():
     farmer = login(client, "919000000003")   # seeded farmer
     buyer = login(client, "919000000004")     # seeded business buyer
     agent = login(client, "919000000002")     # seeded field agent
-    manager = login(client, "919000000001")   # seeded mandal manager
+    manager = login(client, "919000000001")   # seeded field leader (mandal)
     superadmin = login(client, "919999999998")
     transport = login(client, "919000000005")
     check("farmer token issued", bool(farmer))
@@ -504,280 +504,24 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced across both orders", acct["balanced"] is True)
 
-    print("\n== AI advisory (uncertainty-first, no invented dose) ==")
-    r = client.post("/api/ai/crop-cases", headers=hdr(farmer), json={
-        "crop": "paddy", "growth_stage": "panicle",
-        "notes": "spreading leaf spots and lesions on tillers",
-        "media_refs": ["sample/leaf-1.jpg", "sample/leaf-2.jpg"],
-    })
-    check("crop case created", r.status_code == 201)
-    case = r.json()
-    check("triage matched knowledge source", case["ai_output"]["knowledge_source_id"] is not None)
-    vp = case["ai_output"].get("visual_prescreen") or {}
-    check("image pre-screen acknowledges photos", vp.get("images_received") == 2)
-    check("image pre-screen is a beta aid, needs expert confirm", vp.get("needs_expert_confirmation") is True)
-    check("triage returns likelihoods (not a diagnosis)",
-          len(case["ai_output"]["likely_causes"]) >= 1)
-    check("no model-invented pesticide dose", case["ai_output"]["pesticide"] in (None, {}) or
-          case["ai_output"]["pesticide"].get("dose") is None)
-    # A vague, unmatched case escalates.
-    r = client.post("/api/ai/crop-cases", headers=hdr(farmer), json={"crop": "dragonfruit", "notes": "weird"})
-    check("low-confidence case escalates", r.json()["escalated"] is True)
-    # Agronomist expert review.
-    agronomist = login(client, "919000000006")
-    r = client.post(f"/api/ai/crop-cases/{case['id']}/expert-review", headers=hdr(agronomist),
-                    json={"note": "Confirmed blast risk; follow IPM.", "approved_advice": "Drain field, avoid excess N."})
-    check("agronomist reviews case", r.json()["status"] == "reviewed")
-
-    # Agent-as-expert advisory log.
-    r = client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
-        "farmer_phone": "919000000003", "crop": "paddy", "topic": "education",
-        "observation": "Excess nitrogen; dense canopy.", "recommendation": "Skip next urea dose; keep 2-3cm water.",
-        "follow_up_on": "2026-11-20",
-    })
-    check("agent logs advisory", r.status_code == 201 and r.json()["recommendation"])
-    logs = client.get("/api/agent/advisory-logs", headers=hdr(agent)).json()
-    check("advisory log listed for agent", any(l["crop"] == "paddy" for l in logs))
-    # Offline-first: a re-synced advisory draft dedupes on client_draft_id.
-    adv_body = {
-        "client_draft_id": "adv-draft-1", "crop": "groundnut", "topic": "advisory",
-        "observation": "Leaf spot starting.", "recommendation": "Rogue affected plants; monitor weekly.",
-    }
-    count_before = len(client.get("/api/agent/advisory-logs", headers=hdr(agent)).json())
-    a1 = client.post("/api/agent/advisory-logs", headers=hdr(agent), json=adv_body)
-    a2 = client.post("/api/agent/advisory-logs", headers=hdr(agent), json=adv_body)
-    check("duplicate advisory draft deduped", a2.json().get("duplicate") is True
-          and a2.json()["id"] == a1.json()["id"])
-    count_after = len(client.get("/api/agent/advisory-logs", headers=hdr(agent)).json())
-    check("re-synced advisory draft logs once", count_after == count_before + 1)
-
-    print("\n== Agent follow-up reminders ==")
-    from datetime import date as _date, timedelta as _td
-    _past = (_date.today() - _td(days=2)).isoformat()
-    _future = (_date.today() + _td(days=5)).isoformat()
-    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
-        "crop": "duecrop", "observation": "needs revisit", "recommendation": "re-check field",
-        "follow_up_on": _past})
-    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
-        "crop": "futurecrop", "observation": "watch", "recommendation": "monitor", "follow_up_on": _future})
-    def acount():
-        return len(client.get("/api/auth/notifications", headers=hdr(agent)).json())
-    before = acount()
-    fu = client.get("/api/agent/follow-ups", headers=hdr(agent)).json()
-    check("due follow-up surfaced", any(f["crop"] == "duecrop" and f["overdue"] for f in fu["due"]))
-    check("upcoming follow-up listed", any(f["crop"] == "futurecrop" for f in fu["upcoming"]))
-    check("due follow-up raises a reminder", acount() > before)
-    before2 = acount()
-    client.get("/api/agent/follow-ups", headers=hdr(agent))
-    check("follow-up reminder not re-raised", acount() == before2)
-    ad2 = client.get("/api/dashboard", headers=hdr(agent)).json()
-    check("agent dashboard shows a follow-ups-due card",
-          any(c["label"] == "Follow-ups due" and c["value"] >= 1 for c in ad2["cards"]))
-    due_id = next(f["id"] for f in fu["due"] if f["crop"] == "duecrop")
-    r = client.post(f"/api/agent/advisory-logs/{due_id}/follow-up-done", headers=hdr(agent))
-    check("follow-up marked done", r.json().get("follow_up_done") is True)
-    fu2 = client.get("/api/agent/follow-ups", headers=hdr(agent)).json()
-    check("done follow-up clears from the list", not any(f["id"] == due_id for f in fu2["due"]))
-
-    print("\n== Digest scheduler (compile digests + raise reminders) ==")
-    # Buyer batches announcements, then a broadcast lands as a deferred alert.
-    client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"digest": ["announcements"]})
-    client.post("/api/admin/broadcast", headers=hdr(superadmin),
-                json={"title": "Scheduler test", "body": "batched update", "audience": "buyers"})
-    # A fresh due follow-up the agent hasn't opened yet (so the scheduler raises it).
-    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
-        "crop": "schedcrop", "observation": "x", "recommendation": "revisit", "follow_up_on": _past})
-    res = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
-    check("scheduler compiles at least one digest", res["digests_sent"] >= 1)
-    check("scheduler raises a due follow-up reminder", res["reminders_raised"] >= 1)
-    bn = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
-    check("digest summary pushed to the bell", any("daily digest" in (n["title"] or "").lower() for n in bn))
-    res2 = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
-    check("scheduler run is idempotent", res2["digests_sent"] == 0 and res2["reminders_raised"] == 0)
-    check("scheduler run is superadmin-only",
-          client.post("/api/admin/scheduler/run", headers=hdr(agent)).status_code == 403)
-    client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"digest": []})
-
-    print("\n== Farmer-facing advisory visibility ==")
-    # The paddy advisory logged earlier for farmer 919000000003 is visible to them.
-    mine = client.get("/api/my-advisory", headers=hdr(farmer)).json()
-    check("farmer sees advice logged about them", any(n["crop"] == "paddy" for n in mine["notes"]))
-    check("advice shows the logging agent's name", any(n.get("agent_name") for n in mine["notes"]))
-    # A new advisory with a future follow-up notifies the farmer and shows as upcoming.
-    fb = len(client.get("/api/auth/notifications", headers=hdr(farmer)).json())
-    _fut = (_date.today() + _td(days=4)).isoformat()
-    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
-        "farmer_phone": "919000000003", "crop": "maize", "observation": "borer",
-        "recommendation": "scout weekly", "follow_up_on": _fut})
-    check("farmer notified when advice is logged",
-          len(client.get("/api/auth/notifications", headers=hdr(farmer)).json()) > fb)
-    mine2 = client.get("/api/my-advisory", headers=hdr(farmer)).json()
-    check("new advice shows in the farmer's upcoming follow-ups",
-          any(f["crop"] == "maize" for f in mine2["upcoming"]))
-    check("non-seller blocked from my-advisory",
-          client.get("/api/my-advisory", headers=hdr(agent)).status_code == 403)
-
-    print("\n== Farmer acknowledges advice back to the agent ==")
-    maize_id = next(f["id"] for f in mine2["upcoming"] if f["crop"] == "maize")
-    r = client.post(f"/api/my-advisory/{maize_id}/acknowledge", headers=hdr(farmer),
-                    json={"status": "done", "note": "Scouted and sprayed as advised."})
-    check("farmer acknowledges advice", r.status_code == 200 and r.json()["farmer_ack"] is True)
-    check("'done' acknowledgement clears the follow-up", r.json()["follow_up_done"] is True)
-    check("agent notified of the farmer's response",
-          any("responded to your advice" in (n["title"] or "").lower()
-              for n in client.get("/api/auth/notifications", headers=hdr(agent)).json()))
-    ad3 = client.get("/api/dashboard", headers=hdr(agent)).json()
-    check("agent dashboard surfaces a new Farmer-responses count",
-          any(c["label"] == "Farmer responses" and c["value"] >= 1 for c in ad3["cards"]))
-    resp = client.get("/api/agent/farmer-responses", headers=hdr(agent)).json()
-    row = next((x for x in resp["responses"] if x["id"] == maize_id), None)
-    check("response appears for the agent with status + farmer name",
-          row is not None and row["farmer_ack_status"] == "done" and row.get("farmer_name"))
-    check("response flagged as new on first view", row["was_new"] is True)
-    resp2 = client.get("/api/agent/farmer-responses", headers=hdr(agent)).json()
-    row2 = next(x for x in resp2["responses"] if x["id"] == maize_id)
-    check("response marked seen after viewing", row2["was_new"] is False)
-    check("invalid ack status rejected",
-          client.post(f"/api/my-advisory/{maize_id}/acknowledge", headers=hdr(farmer),
-                      json={"status": "nope"}).status_code == 400)
-    check("non-farmer cannot acknowledge",
-          client.post(f"/api/my-advisory/{maize_id}/acknowledge", headers=hdr(buyer),
-                      json={"status": "done"}).status_code == 403)
-    check("farmer cannot ack a note that isn't theirs",
-          client.post("/api/my-advisory/99999/acknowledge", headers=hdr(farmer),
-                      json={"status": "done"}).status_code == 404)
-
     print("\n== Superadmin GMV reports ==")
     rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
     check("report has total GMV", float(rep["total_gmv"]) > 0)
     check("report breaks down by commodity", len(rep["by_commodity"]) >= 1)
     check("report breaks down by state", len(rep["by_state"]) >= 1)
 
-    print("\n== Insights (prices/schemes with source + disclaimer) ==")
-    prices = client.get("/api/market-prices").json()
-    check("market prices seeded", len(prices) > 0 and "disclaimer" in prices[0])
-    schemes = client.get("/api/schemes").json()
-    check("schemes seeded", any("PM-KISAN" in s["name"] for s in schemes))
-
-    print("\n== Personalised farm plan (crop / season / district matching) ==")
-    cal = client.get("/api/crop-calendar", params={"crop": "paddy"}).json()
-    check("crop calendar carries months + current flag",
-          len(cal) > 0 and all("months" in t and "current" in t for t in cal))
-    check("schemes expose crop/region targeting",
-          all("crops" in s and "regions" in s for s in schemes))
-    sc_paddy = client.get("/api/schemes", params={"crop": "paddy"}).json()
-    pn = [s["name"] for s in sc_paddy]
-    check("paddy scheme filter includes paddy + all-crop schemes",
-          any("Paddy MSP" in n for n in pn) and any("PM-KISAN" in n for n in pn))
-    check("paddy scheme filter excludes a groundnut-only scheme",
-          not any("Edible Oils" in n for n in pn))
-    check("matched scheme carries a reason", all(s.get("match_reason") for s in sc_paddy))
-    sc_ap = client.get("/api/schemes", params={"state": "Andhra Pradesh"}).json()
-    apn = [s["name"] for s in sc_ap]
-    check("state filter matches region-scoped schemes",
-          any("Rythu Bharosa" in n for n in apn) and not any("Rythu Bandhu" in n for n in apn))
-    plan = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
-    check("farm plan derives the farmer's crops", "paddy" in plan["crops"])
-    check("farm plan includes a paddy calendar", any(g["crop"] == "paddy" for g in plan["calendar"]))
-    check("farm plan matches at least one scheme", len(plan["schemes"]) >= 1)
-    check("non-seller blocked from the farm plan",
-          client.get("/api/my-farm-plan", headers=hdr(buyer)).status_code == 403)
-    check("farm plan includes a weather key", "weather" in plan)
-
-    print("\n== Weather-aware advice ==")
-    all_mandals = client.get("/api/locations/mandals").json()
-    any_advice = False
-    rainy = None
-    for m in all_mandals:
-        w = client.get("/api/weather", params={"mandal_id": m["id"]}).json()
-        if isinstance(w.get("advice"), list):
-            any_advice = True
-        if w.get("payload") and (w["payload"].get("rain_prob_pct") or 0) >= 60:
-            rainy = w
-            break
-    check("weather response carries an advice list", any_advice)
-    check("rainy forecast yields a warning caution",
-          rainy is not None and any(a["level"] == "warning" for a in rainy["advice"]))
-
-    print("\n== Calendar reminders ==")
-    tid = plan["calendar"][0]["tasks"][0]["id"]
-    rc = client.post("/api/reminders", headers=hdr(farmer), json={"calendar_task_id": tid})
-    check("reminder created from a calendar task",
-          rc.status_code == 200 and rc.json()["calendar_task_id"] == tid and rc.json()["crop"])
-    check("reminder auto-fills a due date from the task", bool(rc.json()["due_on"]))
-    rid = rc.json()["id"]
-    rlist = client.get("/api/reminders", headers=hdr(farmer)).json()
-    check("reminder appears in the farmer's list", any(r["id"] == rid for r in rlist))
-    plan2 = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
-    check("farm plan flags the task as reminder-set",
-          any(t["id"] == tid and t["reminder_set"] for g in plan2["calendar"] for t in g["tasks"]))
-    check("farm plan lists the active reminder", any(r["id"] == rid for r in plan2["reminders"]))
-    rp = client.patch(f"/api/reminders/{rid}?status_value=done", headers=hdr(farmer))
-    check("reminder can be marked done", rp.json()["status"] == "done")
-    plan3 = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
-    check("a done reminder drops off the active plan",
-          not any(r["id"] == rid for r in plan3["reminders"]))
-    check("invalid reminder status rejected",
-          client.patch(f"/api/reminders/{rid}?status_value=nope", headers=hdr(farmer)).status_code == 400)
-
-    print("\n== Scheme application tracking ==")
-    sid = plan["schemes"][0]["id"]
-    ap = client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer),
-                     json={"status": "applied", "note": "Submitted at the kendram."})
-    check("scheme application recorded",
-          ap.status_code == 200 and ap.json()["status"] == "applied" and ap.json()["scheme_name"])
-    ap2 = client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer),
-                      json={"status": "received"})
-    check("scheme application upserts (one per farmer+scheme)", ap2.json()["id"] == ap.json()["id"]
-          and ap2.json()["status"] == "received")
-    apps = client.get("/api/my-scheme-applications", headers=hdr(farmer)).json()
-    check("application appears in the farmer's list", any(a["scheme_id"] == sid for a in apps))
-    planA = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
-    check("farm plan shows the scheme's application status",
-          any(s["id"] == sid and s.get("application_status") == "received" for s in planA["schemes"]))
-    check("invalid application status rejected",
-          client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer),
-                      json={"status": "nope"}).status_code == 400)
-    check("scheme application can be cleared",
-          client.delete(f"/api/schemes/{sid}/application", headers=hdr(farmer)).status_code == 200)
-    planB = client.get("/api/my-farm-plan", headers=hdr(farmer)).json()
-    check("cleared application drops its status",
-          all(s.get("application_status") is None for s in planB["schemes"] if s["id"] == sid))
-
-    # Farmer dashboard surfaces farm-plan follow-ups (reminders due + schemes).
-    client.post("/api/reminders", headers=hdr(farmer),
-                json={"calendar_task_id": tid, "due_on": _date.today().isoformat()})
-    client.post(f"/api/schemes/{sid}/application", headers=hdr(farmer), json={"status": "applied"})
-    fd = client.get("/api/dashboard", headers=hdr(farmer)).json()
-    check("farmer dashboard has a reminders-due card",
-          any(c["label"] == "Reminders due this week" and c["value"] >= 1 for c in fd["cards"]))
-    check("farmer dashboard has a schemes-to-follow-up card",
-          any(c["label"] == "Schemes to follow up" and c["value"] >= 1 for c in fd["cards"]))
-    check("farmer dashboard carries a weather key", "weather" in fd)
-
-    print("\n== Agent views a farmer's plan ==")
-    fp = client.get("/api/agent/farmer-plan", headers=hdr(agent),
-                    params={"phone": "919000000003"}).json()
-    check("agent sees the farmer's identity + crops",
-          fp["farmer"]["phone"] == "919000000003" and "paddy" in fp["plan"]["crops"])
-    check("agent sees the farmer's calendar + schemes",
-          any(g["crop"] == "paddy" for g in fp["plan"]["calendar"]) and len(fp["plan"]["schemes"]) >= 1)
-    check("unknown phone returns 404",
-          client.get("/api/agent/farmer-plan", headers=hdr(agent),
-                     params={"phone": "910000000000"}).status_code == 404)
-    check("non-agent cannot read a farmer plan",
-          client.get("/api/agent/farmer-plan", headers=hdr(buyer),
-                     params={"phone": "919000000003"}).status_code == 403)
-
-    print("\n== Due-reminder notifications (scheduler) ==")
-    # A due-today reminder was created for the farmer in the dashboard checks above.
-    resr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
-    check("scheduler raises a due calendar reminder", resr["reminders_due_raised"] >= 1)
-    check("farmer is pinged about the due reminder",
-          any("reminder due" in (n["title"] or "").lower()
-              for n in client.get("/api/auth/notifications", headers=hdr(farmer)).json()))
-    resr2 = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
-    check("due-reminder ping is idempotent", resr2["reminders_due_raised"] == 0)
+    print("\n== Market prices (today's govt prices, all-India, product-wise) ==")
+    mp = client.get("/api/market-prices").json()
+    check("market prices seeded", len(mp) > 0 and "disclaimer" in mp[0] and "state" in mp[0])
+    pc = client.get("/api/market-prices/commodities").json()
+    check("priced commodities list has market/state counts",
+          any(c["commodity"] == "Paddy" and c["market_count"] >= 2 and c["state_count"] >= 2 for c in pc))
+    ai = client.get("/api/market-prices/all-india", params={"commodity": "Paddy"}).json()
+    check("all-India price view groups a commodity by state",
+          ai["commodity"] == "Paddy" and len(ai["states"]) >= 2 and ai["modal_avg"] is not None)
+    filtered = client.get("/api/market-prices", params={"commodity": "Paddy", "state": "Punjab"}).json()
+    check("prices filter by commodity + state",
+          len(filtered) >= 1 and all(p["state"] == "Punjab" and p["commodity"] == "Paddy" for p in filtered))
 
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
@@ -808,49 +552,6 @@ def run():
 
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger still balanced after refund", acct["balanced"] is True)
-
-    print("\n== Subscriptions (plans, audience guard, benefit snapshot, ledger) ==")
-    fplans = client.get("/api/subscriptions/plans", params={"audience": "farmer"}).json()
-    check("farmer plans listed", len(fplans) == 3 and all(p["audience"] == "farmer" for p in fplans))
-    r = client.post("/api/subscriptions/subscribe", headers=hdr(farmer), json={"plan_code": "farmer_pro"})
-    check("farmer subscribes to pro", r.status_code == 200
-          and r.json()["subscription"]["plan_code"] == "farmer_pro")
-    me = client.get("/api/subscriptions/me", headers=hdr(farmer)).json()
-    check("active subscription benefits snapshotted", me["benefits"].get("fee_discount_pct") == 25
-          and me["benefits"].get("max_active_listings") == 100)
-    r = client.post("/api/subscriptions/subscribe", headers=hdr(farmer), json={"plan_code": "buyer_trade"})
-    check("audience guard blocks cross-audience plan", r.status_code == 400)
-    # Re-subscribe supersedes the prior active one (no stacking).
-    client.post("/api/subscriptions/subscribe", headers=hdr(farmer), json={"plan_code": "farmer_grow"})
-    me2 = client.get("/api/subscriptions/me", headers=hdr(farmer)).json()
-    check("re-subscribe supersedes prior plan", me2["subscription"]["plan_code"] == "farmer_grow")
-    client.post("/api/subscriptions/subscribe", headers=hdr(buyer), json={"plan_code": "buyer_trade"})
-    ov = client.get("/api/subscriptions/admin", headers=hdr(superadmin)).json()
-    check("admin overview counts active members", ov["active_count"] == 2)
-    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
-    check("ledger balanced after subscription payments", acct["balanced"] is True)
-
-    print("\n== Subscription benefit enforced: active-listing cap ==")
-    capfarmer = login(client, "919000000021", role="farmer", name="Cap Test")
-    created = []
-    for i in range(4):
-        rc = client.post("/api/listings", headers=hdr(capfarmer), json={
-            "commodity_id": paddy["id"], "grade_spec_id": grade_id,
-            "total_qty": 100, "min_order_qty": 10, "asking_price": 25.0,
-            "mandal_id": mandal_id, "harvest_year": 2026,
-        })
-        lid = rc.json()["id"]
-        created.append(lid)
-        for n in range(1, 4):  # satisfy the min-images rule
-            client.post(f"/api/listings/{lid}/media", headers=hdr(capfarmer),
-                        json={"object_key": f"sample/cap-{lid}-{n}.svg", "media_type": "image"})
-    pubs = [client.post(f"/api/listings/{lid}/publish", headers=hdr(capfarmer)).status_code
-            for lid in created]
-    check("free tier publishes up to cap", pubs[:3] == [200, 200, 200])
-    check("free tier blocks 4th listing", pubs[3] == 403)
-    client.post("/api/subscriptions/subscribe", headers=hdr(capfarmer), json={"plan_code": "farmer_pro"})
-    r = client.post(f"/api/listings/{created[3]}/publish", headers=hdr(capfarmer))
-    check("upgraded plan lifts the cap", r.status_code == 200)
 
     print("\n== Dispute resolution with evidence + decision-driven refund ==")
     # Re-open a dispute WITH photo evidence on the (partially refunded) RFQ order.
@@ -916,7 +617,7 @@ def run():
     check("invoice is a real PDF", r.content[:4] == b"%PDF")
     r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(farmer))
     check("seller can fetch invoice", r.status_code == 200)
-    r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(agronomist))
+    r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(transport))
     check("non-party cannot fetch invoice", r.status_code == 403)
 
     print("\n== Scheduled payout batches (accrue -> disburse) ==")
@@ -936,35 +637,6 @@ def run():
     check("empty payout run rejected", r.status_code == 409)
     r = client.post("/api/admin/payouts/run", headers=hdr(agent), json={})
     check("non-finance cannot run payouts", r.status_code in (401, 403))
-
-    print("\n== Role-based dashboards (each role gets its own) ==")
-    fd = client.get("/api/dashboard", headers=hdr(farmer)).json()
-    check("farmer dashboard labelled", fd["role_label"] in ("Farmer", "FPO"))
-    check("farmer dashboard has listing/payout cards",
-          any(c["label"] == "Active listings" for c in fd["cards"])
-          and any("payout" in c["label"].lower() for c in fd["cards"]))
-    check("farmer actions include List produce", any(a["href"] == "/sell" for a in fd["actions"]))
-
-    bd = client.get("/api/dashboard", headers=hdr(buyer)).json()
-    check("buyer dashboard labelled", "buyer" in bd["role_label"].lower())
-    check("buyer dashboard has offers/RFQ cards",
-          any(c["label"] == "Open offers" for c in bd["cards"])
-          and any("RFQ" in c["label"] for c in bd["cards"]))
-    check("buyer actions include Browse market", any(a["href"] == "/" for a in bd["actions"]))
-    check("buyer dashboard differs from farmer", bd["actions"] != fd["actions"])
-
-    ad = client.get("/api/dashboard", headers=hdr(agent)).json()
-    check("agent dashboard has inspection card", any("Inspection" in c["label"] for c in ad["cards"]))
-
-    td = client.get("/api/dashboard", headers=hdr(transport)).json()
-    check("transport dashboard has shipments card", any("shipment" in c["label"].lower() for c in td["cards"]))
-
-    sd = client.get("/api/dashboard", headers=hdr(superadmin)).json()
-    check("staff dashboard shows GMV + disputes + payouts",
-          any("GMV" in c["label"] for c in sd["cards"])
-          and any("disput" in c["label"].lower() for c in sd["cards"])
-          and any("payout" in c["label"].lower() for c in sd["cards"]))
-    check("staff actions include Admin console", any(a["href"] == "/admin" for a in sd["actions"]))
 
     print("\n== Marketplace search + sort ==")
     allp = client.get("/api/listings/products").json()
@@ -1006,7 +678,7 @@ def run():
           "district" in near["near_you"] and len(near["near_you"]["products"]) >= 1)
 
     print("\n== Admin user management ==")
-    login(client, "919000000044", role="fpo", name="Temp FPO")  # throwaway target
+    login(client, "919000000044", role="buyer_household", name="Temp Buyer")  # throwaway target
     us = client.get("/api/admin/users", headers=hdr(superadmin)).json()
     check("admin lists users", len(us) >= 6)
     check("staff (manager) can list users too",
@@ -1026,139 +698,10 @@ def run():
     r = client.post(f"/api/admin/users/{target['id']}/status", headers=hdr(manager), json={"status": "suspended"})
     check("non-superadmin cannot change status", r.status_code in (401, 403))
 
-    print("\n== Buyer favorites + price alerts ==")
-    # Watch a commodity with a target price; a new matching listing should alert.
-    r = client.post("/api/watchlist", headers=hdr(buyer),
-                    json={"commodity_id": paddy["id"], "target_price": 100})
-    check("buyer adds a watch", r.json()["watching"] is True)
-    wl = client.get("/api/watchlist", headers=hdr(buyer)).json()
-    check("watchlist lists the product with best price",
-          any(w["commodity_id"] == paddy["id"] and ("best_price" in w) for w in wl))
-    is_w = client.get(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer)).json()
-    check("watch state reflects target", is_w["watching"] and is_w["target_price"] == "100.00")
-    # Publish a cheap paddy listing from a farmer -> buyer should get a price alert.
-    before = len(client.get("/api/auth/notifications", headers=hdr(buyer)).json())
-    rc = client.post("/api/listings", headers=hdr(farmer), json={
-        "commodity_id": paddy["id"], "grade_spec_id": grade_id,
-        "total_qty": 500, "min_order_qty": 50, "asking_price": 21.0,
-        "mandal_id": mandal_id, "harvest_year": 2026,
-    })
-    wlid = rc.json()["id"]
-    for n in range(1, 4):
-        client.post(f"/api/listings/{wlid}/media", headers=hdr(farmer),
-                    json={"object_key": f"sample/watch-{wlid}-{n}.svg", "media_type": "image"})
-    pub = client.post(f"/api/listings/{wlid}/publish", headers=hdr(farmer))
-    check("watched-commodity listing publishes", pub.status_code == 200)
-    notes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
-    check("buyer alerted on new watched offering", len(notes) > before
-          and any("paddy" in n["title"].lower() for n in notes[:3]))
-    # Remove the watch.
-    client.delete(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer))
-    gone = client.get(f"/api/watchlist/{paddy['id']}", headers=hdr(buyer)).json()
-    check("buyer removes a watch", gone["watching"] is False)
-
-    print("\n== Saved buyer searches (store criteria, alert on new match) ==")
-    turmeric = next(c for c in commodities if c["name"] == "Turmeric")
-    tgrades = client.get(f"/api/catalog/commodities/{turmeric['id']}/grades").json()
-    # Save a search for the spices category with alerts on.
-    r = client.post("/api/saved-searches", headers=hdr(buyer),
-                    json={"label": "Spices under budget", "criteria": {"category": "spices"}, "alert": True})
-    check("buyer saves a search", r.status_code == 201 and r.json()["alert"] is True)
-    ss_id = r.json()["id"]
-    check("saved search reports current match count", r.json()["match_count"] >= 0)
-    check("new matches start at zero (existing marked seen)", r.json()["new_count"] == 0)
-    lst = client.get("/api/saved-searches", headers=hdr(buyer)).json()
-    check("saved search listed", any(s["id"] == ss_id for s in lst))
-    # Publish a NEW spices (turmeric) listing -> buyer should get a match alert.
-    before = len(client.get("/api/auth/notifications", headers=hdr(buyer)).json())
-    rc = client.post("/api/listings", headers=hdr(farmer), json={
-        "commodity_id": turmeric["id"], "grade_spec_id": tgrades[0]["id"],
-        "total_qty": 1000, "min_order_qty": 50, "asking_price": 90.0,
-        "mandal_id": mandal_id, "harvest_year": 2026,
-    })
-    sid = rc.json()["id"]
-    for n in range(1, 4):
-        client.post(f"/api/listings/{sid}/media", headers=hdr(farmer),
-                    json={"object_key": f"sample/ss-{sid}-{n}.svg", "media_type": "image"})
-    check("spices listing publishes", client.post(f"/api/listings/{sid}/publish", headers=hdr(farmer)).status_code == 200)
-    notes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
-    check("buyer alerted on saved-search match", len(notes) > before
-          and any(n.get("object_type") == "saved_search" for n in notes[:3]))
-    lst = client.get("/api/saved-searches", headers=hdr(buyer)).json()
-    mine = next(s for s in lst if s["id"] == ss_id)
-    check("new listing counts as a new match", mine["new_count"] >= 1)
-    # Viewing results marks matches seen (clears the new badge) + returns offerings.
-    res = client.get(f"/api/saved-searches/{ss_id}/results", headers=hdr(buyer)).json()
-    check("results return matching offerings", res["count"] >= 1
-          and all(o["commodity"] == "Turmeric" or True for o in res["offerings"]))
-    lst = client.get("/api/saved-searches", headers=hdr(buyer)).json()
-    check("viewing results clears the new badge",
-          next(s for s in lst if s["id"] == ss_id)["new_count"] == 0)
-    # Mute alerts, then edit the criteria.
-    r = client.patch(f"/api/saved-searches/{ss_id}", headers=hdr(buyer), json={"alert": False})
-    check("buyer can mute alerts", r.json()["alert"] is False)
-    r = client.patch(f"/api/saved-searches/{ss_id}", headers=hdr(buyer),
-                     json={"criteria": {"category": "spices", "max_price": 100}})
-    check("buyer edits saved-search criteria", r.json()["criteria"].get("max_price") == 100.0)
-    # Role guard + delete.
-    r = client.post("/api/saved-searches", headers=hdr(farmer), json={"criteria": {}})
-    check("non-buyer cannot save searches", r.status_code in (401, 403))
-    r = client.delete(f"/api/saved-searches/{ss_id}", headers=hdr(buyer))
-    check("buyer deletes a saved search", r.json()["deleted"] is True)
-    check("buyer dashboard surfaces saved searches",
-          any(a["href"] == "/saved" for a in client.get("/api/dashboard", headers=hdr(buyer)).json()["actions"]))
-
-    print("\n== Seller-side RFQ alerts (crop interests + auto from listings) ==")
-    greengram = next(c for c in commodities if c["name"] == "Green Gram")
-
+    print("\n== Notification preferences (mute proactive categories) ==")
     def fcount():
         return len(client.get("/api/auth/notifications", headers=hdr(farmer)).json())
 
-    # Explicit crop interest for a crop the farmer does NOT list, with a min price.
-    r = client.post("/api/crop-interests", headers=hdr(farmer),
-                    json={"commodity_id": greengram["id"], "min_price": 80})
-    check("seller adds a crop interest", r.json()["watching"] is True)
-    ci = client.get("/api/crop-interests", headers=hdr(farmer)).json()
-    check("crop interest listed", any(c["commodity_id"] == greengram["id"] for c in ci))
-    st = client.get(f"/api/crop-interests/{greengram['id']}", headers=hdr(farmer)).json()
-    check("crop interest state reflects min price", st["watching"] and st["min_price"] == "80.00")
-
-    # A matching RFQ (target >= min) alerts the interested seller.
-    before = fcount()
-    r = client.post("/api/rfqs", headers=hdr(buyer),
-                    json={"commodity_id": greengram["id"], "requested_qty": 400, "target_price": 85})
-    check("buyer posts matching RFQ", r.status_code == 201)
-    notes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
-    check("interested seller alerted to RFQ", len(notes) > before
-          and any(n.get("object_type") == "rfq" for n in notes[:2]))
-    # A below-min RFQ does NOT alert this seller (they don't list green gram).
-    before = fcount()
-    client.post("/api/rfqs", headers=hdr(buyer),
-                json={"commodity_id": greengram["id"], "requested_qty": 400, "target_price": 70})
-    check("below-min-price RFQ does not alert", fcount() == before)
-
-    # Auto-alert from a live listing: the farmer lists paddy, so a paddy RFQ alerts
-    # them with no explicit interest.
-    before = fcount()
-    client.post("/api/rfqs", headers=hdr(buyer),
-                json={"commodity_id": paddy["id"], "requested_qty": 300, "target_price": 24})
-    check("seller auto-alerted for a listed commodity", fcount() > before)
-
-    # Upsert min price, role guard, delete.
-    r = client.post("/api/crop-interests", headers=hdr(farmer),
-                    json={"commodity_id": greengram["id"], "min_price": 100})
-    check("crop interest min price updated", r.json()["min_price"] == "100.00")
-    r = client.post("/api/crop-interests", headers=hdr(buyer), json={"commodity_id": paddy["id"]})
-    check("non-seller cannot set crop interests", r.status_code in (401, 403))
-    r = client.delete(f"/api/crop-interests/{greengram['id']}", headers=hdr(farmer))
-    check("seller removes a crop interest", r.json()["watching"] is False)
-    # Seller dashboard surfaces matching buyer requests.
-    fd2 = client.get("/api/dashboard", headers=hdr(farmer)).json()
-    check("seller dashboard shows buyer-requests card",
-          any(c["label"] == "Buyer requests for you" for c in fd2["cards"])
-          and any(a["href"] == "/interests" for a in fd2["actions"]))
-
-    print("\n== Notification preferences (mute proactive categories) ==")
     prefs = client.get("/api/auth/notification-preferences", headers=hdr(farmer)).json()
     check("prefs list muteable categories", len(prefs["categories"]) >= 5
           and all(c["muted"] is False for c in prefs["categories"]))
@@ -1221,99 +764,6 @@ def run():
     check("mute overrides digest for the same category",
           any(c["key"] == "requests" and c["mode"] == "off" for c in mw.json()["categories"]))
     client.put("/api/auth/notification-preferences", headers=hdr(farmer), json={"muted": [], "digest": []})
-
-    print("\n== FPO multi-member (group lead, pooled view, members) ==")
-    fpo_lead = login(client, "919000000050", role="fpo", name="Green Valley FPO")
-    lead_id = client.get("/api/auth/me", headers=hdr(fpo_lead)).json()["id"]
-    ov = client.get("/api/fpo", headers=hdr(fpo_lead)).json()
-    check("fpo signup created an organisation", ov["organisation"]["id"] is not None)
-    check("lead is the sole initial member", ov["member_count"] == 1 and ov["members"][0]["is_lead"])
-    # Link an existing farmer who already has listings + a settled order.
-    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000003"})
-    check("existing farmer linked to group", r.status_code == 201 and r.json()["created"] is False)
-    farmer_member_id = r.json()["member"]["id"]
-    # Pre-register a brand-new member by phone.
-    r = client.post("/api/fpo/members", headers=hdr(fpo_lead),
-                    json={"phone": "919000000051", "name": "Lakshmi", "village": "Peddapuram"})
-    check("new member pre-registered", r.status_code == 201 and r.json()["created"] is True)
-    new_member_id = r.json()["member"]["id"]
-    ov = client.get("/api/fpo", headers=hdr(fpo_lead)).json()
-    check("group now has three members", ov["member_count"] == 3)
-    check("pooled view aggregates member listings", ov["pooled"]["active_listings"] >= 1)
-    check("pooled view aggregates settled GMV", float(ov["pooled"]["gross_settled"]) > 0)
-    check("lead sorts first in roster", ov["members"][0]["is_lead"] is True)
-
-    # Acting on behalf of a member: the lead lists, manages and negotiates for them.
-    r = client.post("/api/listings", headers=hdr(fpo_lead), json={
-        "commodity_id": paddy["id"], "grade_spec_id": grade_id,
-        "total_qty": 800, "min_order_qty": 50, "asking_price": 24.0,
-        "mandal_id": mandal_id, "harvest_year": 2026, "on_behalf_of": farmer_member_id,
-    })
-    check("lead lists produce on behalf of a member",
-          r.status_code == 201 and r.json()["seller"]["id"] == farmer_member_id)
-    obo_lid = r.json()["id"]
-    for n in range(1, 4):
-        client.post(f"/api/listings/{obo_lid}/media", headers=hdr(fpo_lead),
-                    json={"object_key": f"sample/obo-{obo_lid}-{n}.svg", "media_type": "image"})
-    r = client.post(f"/api/listings/{obo_lid}/publish", headers=hdr(fpo_lead))
-    check("lead publishes the member's listing", r.status_code == 200 and r.json()["status"] == "open")
-    check("group listings surface in the console",
-          any(l["id"] == obo_lid for l in client.get("/api/fpo", headers=hdr(fpo_lead)).json()["listings"]))
-    # Cannot list for someone outside the group.
-    cap_id = client.get("/api/auth/me", headers=hdr(capfarmer)).json()["id"]
-    r = client.post("/api/listings", headers=hdr(fpo_lead), json={
-        "commodity_id": paddy["id"], "grade_spec_id": grade_id, "total_qty": 100,
-        "min_order_qty": 10, "asking_price": 24.0, "mandal_id": mandal_id,
-        "harvest_year": 2026, "on_behalf_of": cap_id,
-    })
-    check("lead cannot list for a non-member", r.status_code == 404)
-    # Buyer offers on the group listing; the lead negotiates + accepts for the member.
-    off = client.post("/api/offers", headers=hdr(buyer),
-                      json={"listing_id": obo_lid, "price_per_unit": 23.0, "quantity": 100})
-    check("buyer offers on the group listing", off.status_code == 201)
-    obo_offer = off.json()["id"]
-    check("lead sees the member's negotiation",
-          any(o["id"] == obo_offer for o in client.get("/api/offers", headers=hdr(fpo_lead)).json()))
-    r = client.post(f"/api/offers/{obo_offer}/accept", headers=hdr(fpo_lead))
-    check("lead accepts the offer on the member's behalf", r.status_code == 200)
-    obo_order = r.json()["order"]["id"]
-    check("resulting order is booked to the member",
-          client.get(f"/api/orders/{obo_order}", headers=hdr(farmer)).json()["seller_id"] == farmer_member_id)
-
-    # Guard rails.
-    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000003"})
-    check("cannot add the same member twice", r.status_code == 409)
-    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "919000000004"})
-    check("cannot add a non-farmer account", r.status_code == 409)
-    r = client.post("/api/fpo/members", headers=hdr(fpo_lead), json={"phone": "123456789"})
-    check("invalid member phone rejected", r.status_code == 400)
-    # The pre-registered member can activate and log in on their own.
-    member_tok = login(client, "919000000051")
-    check("pre-registered member can log in", bool(member_tok))
-    # Remove the new member.
-    r = client.delete(f"/api/fpo/members/{new_member_id}", headers=hdr(fpo_lead))
-    check("lead removes a member", r.json()["ok"] is True)
-    check("roster shrinks after removal",
-          client.get("/api/fpo", headers=hdr(fpo_lead)).json()["member_count"] == 2)
-    r = client.delete(f"/api/fpo/members/{lead_id}", headers=hdr(fpo_lead))
-    check("lead cannot remove themselves", r.status_code == 400)
-    # Pooled earnings statement + CSV.
-    ge = client.get("/api/fpo/earnings", headers=hdr(fpo_lead)).json()
-    check("group earnings totals populated", float(ge["totals"]["gross"]) > 0)
-    check("group earnings break down by member",
-          any(m["seller_id"] == farmer_member_id and m["orders"] >= 1 for m in ge["members"]))
-    r = client.get("/api/fpo/earnings.csv", headers=hdr(fpo_lead))
-    check("group earnings CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
-    check("group earnings CSV has a total row",
-          any(line.startswith("GROUP TOTAL,") for line in r.text.splitlines()))
-    # FPO dashboard differs: group management surfaces.
-    fpd = client.get("/api/dashboard", headers=hdr(fpo_lead)).json()
-    check("fpo dashboard has a Group members card", any(c["label"] == "Group members" for c in fpd["cards"]))
-    check("fpo dashboard action manages the group",
-          any(a["href"] == "/fpo" and a.get("primary") for a in fpd["actions"]))
-    # Role guard: a plain farmer has no group console.
-    r = client.get("/api/fpo", headers=hdr(farmer))
-    check("non-fpo blocked from group console", r.status_code == 403)
 
     print("\n== Operations scorecard (agents, couriers, disputes, payouts) ==")
     ops = client.get("/api/admin/ops-report", headers=hdr(superadmin)).json()

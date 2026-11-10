@@ -9,14 +9,38 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_roles
 from app.core.money import qty
 from app.core.rbac import Role
-from app.models.common import OfferStatus, RFQStatus, utcnow
-from app.models.marketplace import RFQ, Offer, OfferVersion
+from app.models.common import ListingStatus, OfferStatus, RFQStatus, utcnow
+from app.models.marketplace import RFQ, Listing, Offer, OfferVersion
 from app.models.user import User
+from app.services import notify
 
 router = APIRouter(prefix="/rfqs", tags=["rfqs"])
 
+
+def _notify_matching_sellers(db: Session, rfq: RFQ) -> None:
+    """Alert farmers who currently have an open listing for the requested
+    commodity that a buyer has posted a matching request. Never blocks."""
+    try:
+        from app.models.catalog import Commodity
+
+        seller_ids = set(db.scalars(select(Listing.seller_id).where(
+            Listing.commodity_id == rfq.commodity_id,
+            Listing.status == str(ListingStatus.OPEN),
+        )))
+        seller_ids.discard(rfq.buyer_id)
+        if not seller_ids:
+            return
+        c = db.get(Commodity, rfq.commodity_id)
+        cname = c.name if c else "a product"
+        for sid in seller_ids:
+            notify.send(db, user_id=sid, title=f"New buyer request: {cname}",
+                        body=f"A buyer wants {qty(rfq.requested_qty)} {rfq.unit} of {cname}.",
+                        object_type="rfq", object_id=rfq.id)
+    except Exception:
+        pass  # alerts must never block RFQ creation
+
 _buyer = require_roles(Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS)
-_seller = require_roles(Role.FARMER, Role.FPO)
+_seller = require_roles(Role.FARMER)
 
 
 class RFQCreate(BaseModel):
@@ -79,9 +103,7 @@ def create_rfq(body: RFQCreate, user: User = Depends(_buyer), db: Session = Depe
     )
     db.add(rfq)
     db.flush()
-    # Alert matching sellers (active listers + opt-in crop interests). Never blocks.
-    from app.api.crop_interests import notify_rfq_matches
-    notify_rfq_matches(db, rfq)
+    _notify_matching_sellers(db, rfq)
     db.commit()
     db.refresh(rfq)
     return _rfq_json(rfq)

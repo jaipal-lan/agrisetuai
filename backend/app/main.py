@@ -3,15 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     admin,
-    advisory,
     agents,
     auth,
     carriers,
     catalog,
-    crop_interests,
     dashboard,
-    fpo,
-    insights,
     listings,
     locations,
     logistics,
@@ -20,22 +16,20 @@ from app.api import (
     offers,
     orders,
     payments,
+    prices,
     pricing,
     reviews,
     rfqs,
-    saved_searches,
-    subscriptions,
     support,
     transport,
-    watchlist,
 )
 from app.core.config import settings
 from app.core.database import run_migrations
 
 app = FastAPI(
     title="AgriSetuAI",
-    version="0.1.0",
-    description="AI farming advisory + verified farm-to-marketplace (MVP core).",
+    version="0.2.0",
+    description="Door-to-door farm-to-buyer marketplace: list, agent-verify, pay, deliver.",
 )
 
 # Allow the web app from localhost and any private-LAN IP (so a phone/tablet on
@@ -59,9 +53,8 @@ app.add_middleware(
 API = "/api"
 for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
-    pricing, admin, advisory, insights, lots, media, support, logistics,
-    subscriptions, carriers, transport, reviews, payments, dashboard, watchlist, fpo,
-    saved_searches, crop_interests,
+    pricing, admin, prices, lots, media, support, logistics,
+    carriers, transport, reviews, payments, dashboard,
 ):
     app.include_router(module.router, prefix=API)
 

@@ -22,7 +22,7 @@ from app.services.state_machine import InvalidTransition, transition
 router = APIRouter(tags=["support"])
 
 _ops = require_roles(
-    Role.SUPPORT, Role.FINANCE, Role.MANDAL_MANAGER, Role.SUPERADMIN
+    Role.FIELD_MANAGER, Role.FIELD_MANAGER, Role.FIELD_LEADER, Role.SUPERADMIN
 )
 
 
@@ -96,9 +96,9 @@ def create_ticket(
 @router.get("/tickets")
 def list_tickets(user=Depends(get_current_user), db: Session = Depends(get_db)):
     staff = user.role in (
-        Role.SUPPORT,
-        Role.FINANCE,
-        Role.MANDAL_MANAGER,
+        Role.FIELD_MANAGER,
+        Role.FIELD_MANAGER,
+        Role.FIELD_LEADER,
         Role.SUPERADMIN,
     )
     stmt = select(SupportTicket).order_by(SupportTicket.id.desc())
@@ -144,7 +144,7 @@ def create_dispute(
     order = db.get(Order, body.order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
-    staff = user.role in (Role.SUPPORT, Role.FINANCE, Role.MANDAL_MANAGER, Role.SUPERADMIN)
+    staff = user.role in (Role.FIELD_MANAGER, Role.FIELD_MANAGER, Role.FIELD_LEADER, Role.SUPERADMIN)
     if not staff and user.id not in (order.buyer_id, order.seller_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a party to this order")
     if order.status in (S.CANCELLED, S.REFUNDED):
@@ -198,9 +198,9 @@ def create_dispute(
 @router.get("/disputes")
 def list_disputes(user=Depends(get_current_user), db: Session = Depends(get_db)):
     staff = user.role in (
-        Role.SUPPORT,
-        Role.FINANCE,
-        Role.MANDAL_MANAGER,
+        Role.FIELD_MANAGER,
+        Role.FIELD_MANAGER,
+        Role.FIELD_LEADER,
         Role.SUPERADMIN,
     )
     stmt = select(Dispute).order_by(Dispute.id.desc())
@@ -374,7 +374,7 @@ def refund_order(
     order_id: int,
     body: RefundBody,
     idempotency_key: str | None = Header(default=None),
-    user=Depends(require_roles(Role.FINANCE, Role.SUPERADMIN, Role.SUPPORT)),
+    user=Depends(require_roles(Role.FIELD_MANAGER, Role.SUPERADMIN, Role.FIELD_MANAGER)),
     db: Session = Depends(get_db),
 ):
     """Post a balanced refund. Partial refunds keep original payment history intact."""

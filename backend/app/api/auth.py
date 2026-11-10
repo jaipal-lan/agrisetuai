@@ -95,14 +95,8 @@ def verify_otp(body: OtpVerify, db: Session = Depends(get_db)):
         )
         db.add(user)
         db.flush()
-        if user.role in (Role.FARMER, Role.FPO):
+        if user.role == Role.FARMER:
             db.add(FarmerProfile(user_id=user.id))
-            if user.role == Role.FPO:
-                # An FPO is a group; give it an Organisation it leads from day one.
-                org = Organisation(type="fpo", legal_name=(user.name or "Farmer group"))
-                db.add(org)
-                db.flush()
-                user.organisation_id = org.id
         elif user.role in (Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS):
             kind = "household" if user.role == Role.BUYER_HOUSEHOLD else "business"
             db.add(BuyerProfile(user_id=user.id, buyer_type=kind))

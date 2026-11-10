@@ -51,11 +51,6 @@ def _party_role(offer: Offer, user: User, db: Session | None = None) -> str:
         return "buyer"
     if user.id == offer.seller_id:
         return "seller"
-    # An FPO lead negotiates as the seller for a member of their group.
-    if db is not None and user.role == "fpo" and user.organisation_id:
-        seller = db.get(User, offer.seller_id)
-        if seller and seller.organisation_id == user.organisation_id:
-            return "seller"
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a party to this offer")
 
 
@@ -232,10 +227,6 @@ def my_offers(user: User = Depends(get_current_user), db: Session = Depends(get_
     from sqlalchemy import or_
 
     conds = [Offer.buyer_id == user.id, Offer.seller_id == user.id]
-    # An FPO lead also sees negotiations on their group members' produce.
-    if user.role == "fpo" and user.organisation_id:
-        member_ids = select(User.id).where(User.organisation_id == user.organisation_id)
-        conds.append(Offer.seller_id.in_(member_ids))
     rows = list(db.scalars(
         select(Offer)
         .where(or_(*conds))

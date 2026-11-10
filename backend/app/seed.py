@@ -14,7 +14,6 @@ from app.models.common import ListingStatus, utcnow
 from app.models.marketplace import Listing, ListingMedia
 from app.models.location import District, Mandal, State
 from app.models.pricing import PricingRule
-from app.models.subscription import SubscriptionPlan
 from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
 
 
@@ -257,13 +256,13 @@ def seed_users(db: Session, mandals: dict) -> dict:
     tenali = mandals.get("Tenali")
     defs = [
         ("919999999998", "Platform Admin", Role.SUPERADMIN),
-        ("919000000001", "Mandal Manager", Role.MANDAL_MANAGER),
+        ("919000000001", "Field Leader (Mandal)", Role.FIELD_LEADER),
         ("919000000002", "Field Agent", Role.FIELD_AGENT),
         ("919000000003", "Ravi (Farmer)", Role.FARMER),
         ("919000000004", "Lakshmi Traders", Role.BUYER_BUSINESS),
         ("919000000005", "Transport Co", Role.TRANSPORT),
-        ("919000000006", "Dr. Suresh (Agronomist)", Role.AGRONOMIST),
-        ("919000000007", "Support Desk", Role.SUPPORT),
+        ("919000000006", "Field Manager (District)", Role.FIELD_MANAGER),
+        ("919000000009", "Household Buyer", Role.BUYER_HOUSEHOLD),
     ]
     users = {}
     for phone, name, role in defs:
@@ -309,229 +308,6 @@ def seed_pricing(db: Session) -> None:
     db.add(rule)
 
 
-_PLANS = [
-    # (code, name, name_te, audience, price, period_days, sort, benefits)
-    ("farmer_free", "Basic", "బేసిక్", "farmer", 0, 30, 0, {
-        "max_active_listings": 3, "fee_discount_pct": 0, "featured_listings": 0,
-        "advisory_full": False, "priority_support": False, "rfq_boost": False,
-    }),
-    ("farmer_grow", "Grow", "గ్రో", "farmer", 199, 30, 1, {
-        "max_active_listings": 15, "fee_discount_pct": 10, "featured_listings": 2,
-        "advisory_full": True, "priority_support": False, "rfq_boost": True,
-    }),
-    ("farmer_pro", "Pro", "ప్రో", "farmer", 499, 30, 2, {
-        "max_active_listings": 100, "fee_discount_pct": 25, "featured_listings": 10,
-        "advisory_full": True, "priority_support": True, "rfq_boost": True,
-    }),
-    ("buyer_free", "Basic", "బేసిక్", "buyer", 0, 30, 0, {
-        "max_active_rfqs": 3, "fee_discount_pct": 0, "advisory_full": False,
-        "priority_support": False, "rfq_boost": False,
-    }),
-    ("buyer_trade", "Trade", "ట్రేడ్", "buyer", 299, 30, 1, {
-        "max_active_rfqs": 20, "fee_discount_pct": 10, "advisory_full": True,
-        "priority_support": False, "rfq_boost": True,
-    }),
-    ("buyer_enterprise", "Enterprise", "ఎంటర్‌ప్రైజ్", "buyer", 999, 30, 2, {
-        "max_active_rfqs": 200, "fee_discount_pct": 20, "advisory_full": True,
-        "priority_support": True, "rfq_boost": True,
-    }),
-]
-
-
-def seed_subscription_plans(db: Session) -> int:
-    for code, name, name_te, audience, price, period, sort, benefits in _PLANS:
-        _get_or_create(
-            db, SubscriptionPlan, code=code,
-            defaults={
-                "name": name, "name_te": name_te, "audience": audience,
-                "price": D(price), "period_days": period, "sort": sort,
-                "benefits": benefits, "active": True,
-            },
-        )
-    return len(_PLANS)
-
-
-def seed_advisory(db: Session) -> None:
-    from app.models.advisory import KnowledgeSource
-
-    items = [
-        {
-            "slug": "paddy-bpt-blast",
-            "crop": "paddy",
-            "title": "Rice blast — scouting & IPM-first management",
-            "title_te": "వరి అగ్గి తెగులు — IPM నిర్వహణ",
-            "keywords": ["blast", "leaf spot", "neck", "lesion", "paddy", "rice", "spots"],
-            "source_name": "State Agriculture Dept / ANGRAU advisory",
-            "source_url": "https://angrau.ac.in/",
-            "reviewed_by": "Dr. Suresh (Senior Agronomy Reviewer)",
-            "reviewed_on": "2026-09-15",
-            "content": {
-                "confidence": "medium",
-                "category": "fungal_disease",
-                "likely_causes": [
-                    {"label": "Rice blast (Magnaporthe oryzae)", "likelihood": "likely", "uncertainty": "medium", "category": "fungal_disease"},
-                    {"label": "Brown spot (nutrient/abiotic stress)", "likelihood": "possible", "uncertainty": "medium", "category": "nutrient"},
-                ],
-                "immediate_steps": [
-                    "Scout 10 random spots; count affected tillers vs healthy.",
-                    "Avoid excess nitrogen; drain and re-flood to reduce humidity in the canopy.",
-                    "Remove and destroy severely affected debris.",
-                ],
-                "ipm_order": [
-                    "Confirm blast vs brown spot (neck/leaf lesions, spindle shape).",
-                    "Balanced nutrition + water management first.",
-                    "Use resistant varieties next season.",
-                    "Only a reviewed, label-consistent fungicide if the economic threshold is crossed — with agronomist escalation.",
-                ],
-                "pesticide": {"label_sourced": False},
-            },
-        },
-        {
-            "slug": "chilli-thrips",
-            "crop": "red chilli",
-            "title": "Chilli thrips & leaf curl — monitoring and IPM",
-            "title_te": "మిర్చి తామర పురుగు — పర్యవేక్షణ",
-            "keywords": ["thrips", "leaf curl", "chilli", "curl", "silvering", "mites"],
-            "source_name": "KVK / State Horticulture advisory",
-            "source_url": "https://krishi.icar.gov.in/",
-            "reviewed_by": "Dr. Suresh (Senior Agronomy Reviewer)",
-            "reviewed_on": "2026-09-20",
-            "content": {
-                "confidence": "medium",
-                "category": "insect_pest",
-                "likely_causes": [
-                    {"label": "Thrips (leaf curl complex)", "likelihood": "likely", "uncertainty": "medium", "category": "insect_pest"},
-                ],
-                "immediate_steps": [
-                    "Install blue sticky traps to monitor thrips numbers.",
-                    "Remove curled, infested shoots; avoid staggered sowing nearby.",
-                ],
-                "pesticide": {"label_sourced": False},
-            },
-        },
-    ]
-    for it in items:
-        defaults = {k: v for k, v in it.items() if k != "slug"}
-        _get_or_create(db, KnowledgeSource, slug=it["slug"], defaults=defaults)
-
-
-def seed_insights(db: Session, mandals: dict) -> None:
-    from app.models.advisory import (
-        CropCalendarTask,
-        MarketPrice,
-        Scheme,
-        WeatherSnapshot,
-    )
-
-    tenali = mandals.get("Tenali")
-    if tenali and not db.scalar(
-        select(WeatherSnapshot).where(WeatherSnapshot.mandal_id == tenali.id)
-    ):
-        db.add(WeatherSnapshot(
-            mandal_id=tenali.id, provider="Pilot IMD-style snapshot",
-            observed_at="2026-11-02T06:00+05:30", forecast_horizon="3d",
-            payload={"rain_prob_pct": 40, "temp_max_c": 31, "temp_min_c": 23,
-                     "wind_kmph": 12, "alert": None},
-        ))
-    mangalagiri = mandals.get("Mangalagiri")
-    if mangalagiri and not db.scalar(
-        select(WeatherSnapshot).where(WeatherSnapshot.mandal_id == mangalagiri.id)
-    ):
-        db.add(WeatherSnapshot(
-            mandal_id=mangalagiri.id, provider="Pilot IMD-style snapshot",
-            observed_at="2026-11-03T06:00+05:30", forecast_horizon="3d",
-            payload={"rain_prob_pct": 70, "temp_max_c": 30, "temp_min_c": 24,
-                     "wind_kmph": 18, "alert": "Heavy rain likely in the next 24 hours."},
-        ))
-
-    for row in [
-        ("Guntur Market Yard", "Paddy", "BPT 5204", 2100, 2450, 2300, "₹/qtl"),
-        ("Guntur Market Yard", "Red Chilli", "Teja", 17000, 21000, 19000, "₹/qtl"),
-        ("Tenali", "Toor Dal", None, 9000, 10500, 9800, "₹/qtl"),
-    ]:
-        market, commodity, variety, lo, hi, modal, unit = row
-        if not db.scalar(select(MarketPrice).where(
-            MarketPrice.market == market, MarketPrice.commodity == commodity
-        )):
-            db.add(MarketPrice(
-                market=market, commodity=commodity, variety=variety,
-                min_price=lo, max_price=hi, modal_price=modal, unit=unit,
-                arrivals="moderate", as_of="2026-11-01",
-                source_name="AGMARKNET (pilot sample)", source_url="https://agmarknet.gov.in/",
-            ))
-
-    for crop, window, task, task_te, kind, months in [
-        ("paddy", "Nursery (June–July)", "Raise nursery; treat seed; 25-30 day seedlings", "నారుమడి", "reviewed", [6, 7]),
-        ("paddy", "Tillering (+30d)", "First top-dressing of N; keep 2-3 cm water", "మొదటి ఎరువు", "reviewed", [7, 8]),
-        ("paddy", "Panicle (+65d)", "Scout for blast/BPH; avoid excess N", "అగ్గి/దోమ పర్యవేక్షణ", "reviewed", [9, 10]),
-        ("paddy", "Harvest (Nov–Dec)", "Harvest at 20-22% moisture; dry to 12-13% before sale", "కోత", "reviewed", [11, 12]),
-        ("groundnut", "Sowing (June–July)", "Treat seed; sow on ridges; ensure gypsum at pegging", "విత్తనం", "reviewed", [6, 7]),
-        ("groundnut", "Pegging (+45d)", "Apply gypsum; keep soil moist at pegging", "ఊడలు", "reviewed", [8, 9]),
-        ("groundnut", "Harvest (Oct–Nov)", "Harvest at maturity; dry pods to safe moisture", "కోత", "reviewed", [10, 11]),
-        ("red chilli", "Transplant (Aug–Sep)", "Transplant healthy seedlings; stake as needed", "నాటడం", "reviewed", [8, 9]),
-        ("red chilli", "Flowering (+60d)", "Scout for thrips/mites; IPM first, label-sourced only", "తామర/నల్లి", "reviewed", [10, 11]),
-        ("red chilli", "Harvest (Jan–Mar)", "Pick ripe pods; sun-dry to safe moisture for grading", "కోత", "reviewed", [1, 2, 3]),
-        ("turmeric", "Planting (May–Jun)", "Plant healthy rhizomes; mulch to conserve moisture", "నాటడం", "reviewed", [5, 6]),
-        ("turmeric", "Rhizome bulking (+120d)", "Earth up; keep adequate moisture for bulking", "దుంప పెరుగుదల", "reviewed", [9, 10]),
-        ("turmeric", "Harvest (Jan–Mar)", "Harvest, boil, dry and polish before sale", "కోత", "reviewed", [1, 2, 3]),
-    ]:
-        existing = db.scalar(select(CropCalendarTask).where(
-            CropCalendarTask.crop == crop, CropCalendarTask.window == window
-        ))
-        if existing:
-            existing.months = months  # backfill season targeting on older rows
-        else:
-            db.add(CropCalendarTask(crop=crop, window=window, task=task,
-                                    task_te=task_te, kind=kind, months=months,
-                                    source="ANGRAU crop calendar (pilot)"))
-
-    # Government schemes with optional crop/region targeting (null = all).
-    _schemes = [
-        dict(name="PM-KISAN Samman Nidhi", name_te="పీఎం-కిసాన్",
-             department="Dept. of Agriculture & Farmers Welfare, GoI",
-             eligibility="Landholding farmer families, subject to exclusion criteria.",
-             documents="Aadhaar, land records, bank account",
-             apply_route="Village revenue officer / PM-KISAN portal",
-             deadline=None, source_url="https://pmkisan.gov.in/",
-             last_checked="2026-10-30", crops=None, regions=None),
-        dict(name="Rythu Bharosa (AP)", name_te="రైతు భరోసా",
-             department="Govt. of Andhra Pradesh — Agriculture",
-             eligibility="Eligible farmer families per state guidelines.",
-             documents="Aadhaar, land/tenancy records, bank account",
-             apply_route="Rythu Bharosa Kendram / state portal",
-             deadline=None, source_url="https://www.ap.gov.in/",
-             last_checked="2026-10-30", crops=None, regions=["Andhra Pradesh"]),
-        dict(name="Rythu Bandhu (Telangana)", name_te="రైతు బంధు",
-             department="Govt. of Telangana — Agriculture",
-             eligibility="Investment support per acre for eligible farmers.",
-             documents="Aadhaar, pattadar passbook, bank account",
-             apply_route="Agriculture Extension Officer / state portal",
-             deadline=None, source_url="https://treasury.telangana.gov.in/",
-             last_checked="2026-10-30", crops=None, regions=["Telangana"]),
-        dict(name="Paddy MSP Procurement (Kharif)", name_te="వరి కనీస మద్దతు ధర కొనుగోలు",
-             department="Civil Supplies / FCI",
-             eligibility="Registered paddy growers selling at notified procurement centres.",
-             documents="Aadhaar, land record, bank account, tokens",
-             apply_route="Notified paddy procurement centre",
-             deadline="Kharif marketing season", source_url="https://fci.gov.in/",
-             last_checked="2026-10-30", crops=["paddy"], regions=None),
-        dict(name="National Mission on Edible Oils — Oilseeds", name_te="నూనెగింజల మిషన్",
-             department="Dept. of Agriculture & Farmers Welfare, GoI",
-             eligibility="Oilseed growers (incl. groundnut) for seed/input support.",
-             documents="Aadhaar, land record, bank account",
-             apply_route="District Agriculture Office",
-             deadline=None, source_url="https://nmeo.dac.gov.in/",
-             last_checked="2026-10-30", crops=["groundnut"], regions=None),
-    ]
-    for s in _schemes:
-        existing = db.scalar(select(Scheme).where(Scheme.name == s["name"]))
-        if existing:
-            existing.crops = s["crops"]      # backfill targeting on older rows
-            existing.regions = s["regions"]
-        else:
-            db.add(Scheme(**s))
-
-
 def seed_carriers(db: Session) -> int:
     from app.models.carrier import Carrier
 
@@ -563,7 +339,7 @@ def seed_demo_activity(db: Session, catalog: dict, mandals: dict) -> int:
     from sqlalchemy import func
 
     from app.models.common import OfferStatus, RFQStatus
-    from app.models.marketplace import Offer, OfferVersion, RFQ, Watch
+    from app.models.marketplace import Offer, OfferVersion, RFQ
 
     if db.scalar(select(func.count(Offer.id))):
         return 0
@@ -638,98 +414,6 @@ def seed_demo_activity(db: Session, catalog: dict, mandals: dict) -> int:
                        inspection_required=True))
             created += 1
 
-    db.flush()
-    return created
-
-
-def seed_demo_saved_searches(db: Session) -> int:
-    """Demo buyer has a saved search so the Saved searches page is populated.
-    Idempotent — one per buyer. last_match_id starts at the current max matching
-    listing so the buyer is only alerted to genuinely new ones."""
-    from app.models.marketplace import Listing, SavedSearch
-    from app.models.common import ListingStatus
-
-    buyer = db.scalar(select(User).where(User.phone == "919000000004"))
-    if not buyer or db.scalar(select(SavedSearch).where(SavedSearch.user_id == buyer.id)):
-        return 0
-    criteria = {"category": "spices", "max_price": 250}
-    # Mark current spice listings as seen so only new ones alert.
-    seen = db.scalars(
-        select(Listing.id).join(Commodity, Commodity.id == Listing.commodity_id)
-        .where(Commodity.category == "spices", Listing.status == ListingStatus.OPEN)
-    ).all()
-    db.add(SavedSearch(user_id=buyer.id, label="Spices under ₹250",
-                       criteria=criteria, alert=True, last_match_id=max(seen, default=0)))
-    db.flush()
-    return 1
-
-
-def seed_demo_crop_interests(db: Session, catalog: dict) -> int:
-    """Demo farmer opts into RFQ alerts for a crop they don't currently list,
-    so the Request alerts page is populated. Idempotent per (seller, commodity)."""
-    from app.models.marketplace import CropInterest
-
-    ravi = db.scalar(select(User).where(User.phone == "919000000003"))
-    if not ravi:
-        return 0
-    n = 0
-    for cname, minp in [("Turmeric", 90.0), ("Groundnut", None)]:
-        c = catalog.get(cname)
-        if c and not db.scalar(select(CropInterest).where(
-                CropInterest.user_id == ravi.id, CropInterest.commodity_id == c.id)):
-            db.add(CropInterest(user_id=ravi.id, commodity_id=c.id,
-                                min_price=D(minp) if minp else None))
-            n += 1
-    db.flush()
-    return n
-
-
-def seed_demo_watches(db: Session, catalog: dict) -> int:
-    """Demo buyer watches a couple of products (one with a price-alert target).
-    Idempotent per watch, so it runs even when offers already exist."""
-    from app.models.marketplace import Watch
-
-    buyer = db.scalar(select(User).where(User.phone == "919000000004"))
-    if not buyer:
-        return 0
-    n = 0
-    for cname, tgt in [("Paddy", 23.0), ("Turmeric", None)]:
-        c = catalog.get(cname)
-        if c and not db.scalar(select(Watch).where(Watch.user_id == buyer.id, Watch.commodity_id == c.id)):
-            db.add(Watch(user_id=buyer.id, commodity_id=c.id, target_price=D(tgt) if tgt else None))
-            n += 1
-    db.flush()
-    return n
-
-
-def seed_demo_fpo(db: Session, mandals: dict) -> int:
-    """A demo FPO lead with its own organisation and two member farmers, so the
-    group console shows a populated roster + pooled listings. Idempotent."""
-    from app.models.user import Organisation
-
-    lead = db.scalar(select(User).where(User.phone == "919000000008"))
-    created = 0
-    tenali = mandals.get("Tenali")
-    if lead is None:
-        lead = User(phone="919000000008", name="Green Valley FPO",
-                    role=str(Role.FPO), onboarding_complete=True)
-        db.add(lead)
-        db.flush()
-        db.add(FarmerProfile(user_id=lead.id, mandal_id=tenali.id if tenali else None,
-                             village="Kolakaluru", verification_status="verified"))
-        created += 1
-    if lead.organisation_id is None:
-        org = Organisation(type="fpo", legal_name="Green Valley Farmer Producer Co.",
-                           verification_status="verified")
-        db.add(org)
-        db.flush()
-        lead.organisation_id = org.id
-    # Fold two demo farmers (from seed_listings) into the group if they are free.
-    for phone in ("919000000011", "919000000012"):
-        m = db.scalar(select(User).where(User.phone == phone))
-        if m and m.organisation_id is None:
-            m.organisation_id = lead.organisation_id
-            created += 1
     db.flush()
     return created
 
@@ -810,37 +494,52 @@ def seed_demo_reviews(db: Session, catalog: dict) -> int:
     return created
 
 
-def seed_demo_advisory_logs(db: Session) -> int:
-    """A couple of field-agent advisory notes for the primary demo farmer so the
-    farmer's advisory page + the agent's follow-ups/responses are populated out of
-    the box. Idempotent — skips once any advisory log exists."""
-    from datetime import date, timedelta
-
+def seed_prices(db: Session) -> int:
+    """Today's government-declared mandi prices across India, product-wise, so a
+    farmer or buyer can see the official price everywhere. Idempotent (skips if
+    any price exists). Sample data — wire a live AGMARKNET/data.gov.in feed later."""
     from sqlalchemy import func
 
-    from app.models.advisory import AdvisoryLog
+    from app.models.prices import MarketPrice
 
-    if db.scalar(select(func.count(AdvisoryLog.id))):
-        return 0
-    agent = db.scalar(select(User).where(User.phone == "919000000002"))
-    ravi = db.scalar(select(User).where(User.phone == "919000000003"))
-    if not agent or not ravi:
+    if db.scalar(select(func.count(MarketPrice.id))):
         return 0
 
-    soon = (date.today() + timedelta(days=5)).isoformat()
-    db.add(AdvisoryLog(
-        agent_id=agent.id, farmer_id=ravi.id, crop="paddy", topic="advisory",
-        observation="Early blast spotting on a few tillers in the north plot.",
-        recommendation="Avoid excess nitrogen; scout weekly; keep 2-3 cm standing water.",
-        follow_up_on=soon,
-    ))
-    db.add(AdvisoryLog(
-        agent_id=agent.id, farmer_id=ravi.id, crop="paddy", topic="education",
-        observation="Discussed safe grain drying to hit buyer moisture limits.",
-        recommendation="Dry to 12-13% moisture before bagging for better grades.",
-    ))
+    as_of = "2026-11-10"
+    src, url = "AGMARKNET (sample)", "https://agmarknet.gov.in/"
+    # (state, market, commodity, variety, min, max, modal)  prices in ₹/qtl
+    rows = [
+        ("Andhra Pradesh", "Guntur", "Paddy", "BPT 5204", 2100, 2450, 2300),
+        ("Telangana", "Karimnagar", "Paddy", "MTU 1010", 2050, 2400, 2250),
+        ("Punjab", "Ludhiana", "Paddy", "PR 126", 2150, 2500, 2320),
+        ("West Bengal", "Barddhaman", "Paddy", "Swarna", 1980, 2300, 2180),
+        ("Tamil Nadu", "Thanjavur", "Paddy", "ADT 43", 2000, 2350, 2200),
+        ("Andhra Pradesh", "Guntur", "Red Chilli", "Teja", 17000, 21000, 19000),
+        ("Telangana", "Khammam", "Red Chilli", "Teja", 16500, 20500, 18500),
+        ("Karnataka", "Byadgi", "Red Chilli", "Byadgi", 24000, 42000, 33000),
+        ("Madhya Pradesh", "Indore", "Groundnut", "Bold", 6000, 7200, 6600),
+        ("Gujarat", "Rajkot", "Groundnut", "Java", 6200, 7500, 6800),
+        ("Andhra Pradesh", "Anantapur", "Groundnut", "TMV-2", 5800, 7000, 6400),
+        ("Telangana", "Nizamabad", "Turmeric", "Finger", 12000, 15500, 13800),
+        ("Maharashtra", "Sangli", "Turmeric", "Rajapuri", 11500, 16000, 13500),
+        ("Tamil Nadu", "Erode", "Turmeric", "Erode", 12500, 16500, 14200),
+        ("Maharashtra", "Latur", "Toor Dal", None, 9000, 10800, 9900),
+        ("Karnataka", "Kalaburagi", "Toor Dal", None, 8800, 10500, 9700),
+        ("Telangana", "Tandur", "Toor Dal", None, 9100, 10900, 10000),
+        ("Madhya Pradesh", "Indore", "Maize", None, 1900, 2250, 2050),
+        ("Bihar", "Gulabbagh", "Maize", None, 1850, 2150, 1980),
+        ("Karnataka", "Davangere", "Maize", None, 1950, 2300, 2100),
+    ]
+    n = 0
+    for state, market, commodity, variety, lo, hi, modal in rows:
+        db.add(MarketPrice(
+            state=state, market=market, commodity=commodity, variety=variety,
+            min_price=lo, max_price=hi, modal_price=modal, unit="₹/qtl",
+            arrivals="moderate", as_of=as_of, source_name=src, source_url=url,
+        ))
+        n += 1
     db.flush()
-    return 2
+    return n
 
 
 def main() -> None:
@@ -852,22 +551,15 @@ def main() -> None:
         seed_users(db, mandals)
         n_listings = seed_listings(db, catalog, mandals)
         seed_pricing(db)
-        n_plans = seed_subscription_plans(db)
         n_carriers = seed_carriers(db)
-        seed_advisory(db)
-        seed_insights(db, mandals)
-        seed_demo_fpo(db, mandals)
+        n_prices = seed_prices(db)
         n_activity = seed_demo_activity(db, catalog, mandals)
-        n_activity += seed_demo_watches(db, catalog)
-        n_activity += seed_demo_saved_searches(db)
-        n_activity += seed_demo_crop_interests(db, catalog)
         n_reviews = seed_demo_reviews(db, catalog)
-        n_adv = seed_demo_advisory_logs(db)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
-              f"{n_listings} listings, pricing, {n_plans} subscription plans, "
-              f"{n_carriers} couriers, advisory + insights, {n_activity} demo offers/RFQs, "
-              f"{n_reviews} demo reviews, {n_adv} demo advisory notes.")
+              f"{n_listings} listings, pricing, {n_carriers} couriers, "
+              f"{n_prices} market prices, {n_activity} demo offers/RFQs, "
+              f"{n_reviews} demo reviews.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

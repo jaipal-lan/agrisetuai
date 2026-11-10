@@ -13,19 +13,15 @@ from app.core.serializers import public_user
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.common import ClaimStatus, ListingStatus, utcnow
 from app.models.location import District, Mandal
-from app.models.marketplace import Listing, ListingMedia, Watch
+from app.models.marketplace import Listing, ListingMedia
 from app.models.review import Review
 from app.models.user import FarmerProfile, User
-from app.services import notify
-from app.api.subscriptions import active_benefits
 
 router = APIRouter(prefix="/listings", tags=["listings"])
 
-_seller = require_roles(Role.FARMER, Role.FPO)
-_verifier = require_roles(Role.FIELD_AGENT, Role.MANDAL_MANAGER, Role.SUPERADMIN)
+_seller = require_roles(Role.FARMER)
+_verifier = require_roles(Role.FIELD_AGENT, Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN)
 
-# Active-listing cap for a seller with no paid subscription (free tier).
-_FREE_LISTING_CAP = 3
 # Minimum quality/sample images required before a listing can go live.
 _MIN_LISTING_IMAGES = 3
 
@@ -46,34 +42,11 @@ class ListingCreate(BaseModel):
     mandal_id: int | None = None
     pickup_terms: str | None = None
     specifications: str | None = None
-    # An FPO lead may list produce on behalf of a member farmer in their group.
-    on_behalf_of: int | None = None
-
-
-def _resolve_seller(body_on_behalf: int | None, user: User, db: Session) -> int:
-    """Who the listing belongs to. Normally the caller; an FPO lead may list for a
-    member of their own group (the listing stays owned by that member)."""
-    if not body_on_behalf or body_on_behalf == user.id:
-        return user.id
-    if user.role != Role.FPO or not user.organisation_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an FPO lead can list for a member")
-    member = db.get(User, body_on_behalf)
-    if not member or member.organisation_id != user.organisation_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not a member of your group")
-    if member.role not in (Role.FARMER, Role.FPO):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That member is not a seller")
-    return member.id
 
 
 def _can_manage(listing: Listing, user: User, db: Session) -> bool:
-    """The seller, or an FPO lead of the seller's group, may manage a listing."""
-    if listing.seller_id == user.id:
-        return True
-    if user.role == Role.FPO and user.organisation_id:
-        seller = db.get(User, listing.seller_id)
-        if seller and seller.organisation_id == user.organisation_id:
-            return True
-    return False
+    """Only the seller who owns a listing may manage it."""
+    return listing.seller_id == user.id
 
 
 def _rating_for_sellers(db: Session, seller_ids) -> tuple[float | None, int]:
@@ -189,7 +162,7 @@ def create_listing(
             status.HTTP_400_BAD_REQUEST,
             "Organic claim requires evidence; use 'in_conversion' or attach certification.",
         )
-    seller_id = _resolve_seller(body.on_behalf_of, user, db)
+    seller_id = user.id
     listing = Listing(
         seller_id=seller_id,
         commodity_id=body.commodity_id,
@@ -536,55 +509,9 @@ def publish(listing_id: int, user: User = Depends(_seller), db: Session = Depend
             f"Add at least {_MIN_LISTING_IMAGES} sample images before publishing "
             f"({image_count}/{_MIN_LISTING_IMAGES}).",
         )
-    # Enforce the subscription's active-listing cap on the listing's OWNER (the
-    # member), not whoever publishes it (an FPO lead may publish on their behalf).
-    owner_id = listing.seller_id
-    cap = active_benefits(db, owner_id).get("max_active_listings", _FREE_LISTING_CAP)
-    active_count = db.scalar(
-        select(func.count())
-        .select_from(Listing)
-        .where(Listing.seller_id == owner_id, Listing.status == ListingStatus.OPEN)
-    )
-    if active_count >= cap:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            f"Active-listing limit reached ({cap}). Upgrade your plan to list more.",
-        )
     listing.status = ListingStatus.OPEN
-    _notify_watchers(db, listing)
-    # Alert buyers whose saved search matches this new listing (never blocks).
-    from app.api.saved_searches import notify_saved_search_matches
-    notify_saved_search_matches(db, listing)
     db.commit()
-    return _serialize(listing, db.get(User, owner_id), db)
-
-
-def _notify_watchers(db: Session, listing: Listing) -> None:
-    """Alert buyers watching this commodity when a listing goes live. If the
-    watcher set a target price, only alert when the new price meets it."""
-    try:
-        watches = list(db.scalars(select(Watch).where(Watch.commodity_id == listing.commodity_id)))
-        if not watches:
-            return
-        c = db.get(Commodity, listing.commodity_id)
-        cname = c.name if c else "a product"
-        price = float(listing.asking_price)
-        for w in watches:
-            if w.user_id == listing.seller_id:
-                continue
-            tgt = float(w.target_price) if w.target_price is not None else None
-            if tgt is not None and price > tgt:
-                continue
-            if tgt is not None:
-                title, body = (f"Price alert: {cname}",
-                               f"A new {cname} offering is Rs.{price:.2f}/kg — at or below your Rs.{tgt:.2f} target.")
-            else:
-                title, body = (f"New offering: {cname}",
-                               f"A new {cname} offering is available at Rs.{price:.2f}/kg.")
-            notify.send(db, user_id=w.user_id, title=title, body=body,
-                        object_type="product", object_id=listing.commodity_id)
-    except Exception:
-        pass  # alerts must never block a publish
+    return _serialize(listing, db.get(User, listing.seller_id), db)
 
 
 @router.post("/{listing_id}/pause")

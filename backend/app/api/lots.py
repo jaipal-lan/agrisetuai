@@ -15,7 +15,7 @@ from app.services import audit
 
 router = APIRouter(tags=["lots"])
 
-_ops = require_roles(Role.FIELD_AGENT, Role.MANDAL_MANAGER, Role.SUPERADMIN)
+_ops = require_roles(Role.FIELD_AGENT, Role.FIELD_LEADER, Role.SUPERADMIN)
 
 
 def _lot_by_public(public_id: str, db: Session) -> Lot:

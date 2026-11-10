@@ -1,18 +1,11 @@
-"""Sandboxed background jobs that make proactive alerts actually proactive.
+"""Sandboxed background job: compile daily notification digests.
 
-Two jobs, both safe to run repeatedly (idempotent):
+compile_digests — for each user who has batched ("digest") alerts waiting, "send"
+a single daily-digest summary notification and advance their watermark so the
+same alerts aren't summarised twice.
 
-  compile_digests     — for each user who has batched ("digest") alerts waiting,
-                        "send" a single daily-digest summary notification and
-                        advance their watermark so the same alerts aren't
-                        summarised twice. In production the summary would also go
-                        out by email/SMS; here it lands in the in-app bell.
-  raise_due_followups — raise reminders for every agent's advisory follow-ups
-                        that have come due, without the agent having to open the
-                        app first.
-
-run_scheduled_jobs() runs both and returns a small report. The jobs can be
-triggered on demand (POST /api/admin/scheduler/run) or by the in-process loop
+run_scheduled_jobs() runs it and returns a small report. Triggered on demand
+(POST /api/admin/scheduler/run) or by the in-process loop
 (enabled with SCHEDULER_INTERVAL_SECONDS > 0).
 """
 from __future__ import annotations
@@ -23,7 +16,6 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.advisory import AdvisoryLog
 from app.models.support import Notification
 from app.models.user import User
 from app.services import notify
@@ -80,65 +72,11 @@ def compile_digests(db: Session) -> int:
     return sent
 
 
-def raise_due_followups(db: Session) -> int:
-    """Raise due advisory follow-up reminders for every agent. Returns the total
-    number of reminders raised this run."""
-    # Lazy import avoids a service<-api import cycle at module load.
-    from app.api.agents import raise_due_followup_reminders
-
-    agent_ids = set(db.scalars(
-        select(AdvisoryLog.agent_id).where(
-            AdvisoryLog.follow_up_done.is_(False),
-            AdvisoryLog.follow_up_notified.is_(False),
-            AdvisoryLog.follow_up_on.is_not(None),
-        )
-    ))
-    total = 0
-    for agent_id in agent_ids:
-        total += raise_due_followup_reminders(db, agent_id)
-    return total
-
-
-def raise_due_reminders(db: Session) -> int:
-    """Ping each farmer whose calendar reminder has come due, once. Idempotent via
-    Reminder.notified. Returns the number of reminders raised this run."""
-    from datetime import date
-
-    from app.models.advisory import CropCalendarTask, Reminder
-
-    today = date.today().isoformat()
-    rows = list(db.scalars(select(Reminder).where(
-        Reminder.status == "open",
-        Reminder.notified.is_(False),
-        Reminder.due_on.is_not(None),
-        Reminder.due_on <= today,
-    )))
-    count = 0
-    for r in rows:
-        task = db.get(CropCalendarTask, r.calendar_task_id) if r.calendar_task_id else None
-        label = (task.crop if task else None) or "your farm"
-        detail = r.note or (task.task if task else "a task you set")
-        notify.send(
-            db, user_id=r.user_id,
-            title="Reminder due",
-            body=f"Reminder for {label}: {detail}",
-            object_type="reminder", object_id=r.id,
-        )
-        r.notified = True
-        count += 1
-    if count:
-        db.commit()
-    return count
-
-
 def run_scheduled_jobs(db: Session) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
-    reminders = raise_due_followups(db)
-    due_reminders = raise_due_reminders(db)
     digests = compile_digests(db)
-    return {"ran_at": utcnow().isoformat(), "reminders_raised": reminders,
-            "reminders_due_raised": due_reminders, "digests_sent": digests}
+    return {"ran_at": utcnow().isoformat(), "digests_sent": digests}
 
 
 async def _loop(interval: int) -> None:
@@ -156,7 +94,7 @@ async def _loop(interval: int) -> None:
         await asyncio.sleep(interval)
         try:
             result = await asyncio.to_thread(_once)
-            if result["digests_sent"] or result["reminders_raised"] or result["reminders_due_raised"]:
+            if result["digests_sent"]:
                 log.info("scheduler: %s", result)
         except Exception:  # never let the loop die on a transient error
             log.exception("scheduled job run failed")

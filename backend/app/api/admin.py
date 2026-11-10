@@ -11,7 +11,6 @@ from app.core.deps import require_roles
 from app.core.ids import public_id
 from app.core.money import money
 from app.core.rbac import Role
-from app.models.advisory import CropCase
 from app.models.audit import AuditLog
 from app.models.catalog import Commodity
 from app.models.common import LedgerDirection
@@ -27,7 +26,7 @@ from app.services.ledger import Leg
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-_staff = require_roles(Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER)
+_staff = require_roles(Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER)
 
 
 @router.get("/kpis")
@@ -184,19 +183,18 @@ def _compute_ops_report(db: Session, start=None, end=None) -> dict:
     """Operational scorecard: field-agent throughput/quality, courier delivery
     performance, dispute rate + outcomes, and payout standing. Optionally
     restricted to records created within [start, end)."""
-    from app.models.advisory import AdvisoryLog
     from app.models.order import Shipment, ShipmentEvent
 
     names = {u.id: (u.name or f"user {u.id}") for u in db.scalars(select(User))}
 
-    # --- Field agents: inspections (by outcome), orders handled, advisories ----
+    # --- Field agents: inspections (by outcome), orders handled ---------------
     agents: dict[int, dict] = {}
 
     def agent(aid):
         return agents.setdefault(aid, {
             "agent_id": aid, "name": names.get(aid, f"user {aid}"),
             "inspections": 0, "pass": 0, "hold": 0, "fail": 0,
-            "orders_assigned": 0, "advisories": 0,
+            "orders_assigned": 0,
         })
 
     for insp in db.scalars(_window(select(Inspection), Inspection.created_at, start, end)):
@@ -213,10 +211,6 @@ def _compute_ops_report(db: Session, start=None, end=None) -> dict:
         select(Order.assigned_agent_id).where(Order.assigned_agent_id.is_not(None)),
         Order.created_at, start, end)):
         agent(aid)["orders_assigned"] += 1
-    for aid, in db.execute(_window(
-        select(AdvisoryLog.agent_id).where(AdvisoryLog.agent_id.is_not(None)),
-        AdvisoryLog.created_at, start, end)):
-        agent(aid)["advisories"] += 1
 
     agent_rows = []
     for a in agents.values():
@@ -326,10 +320,10 @@ def ops_report_csv(from_: str | None = Query(None, alias="from"), to: str | None
     w = csv.writer(buf)
     w.writerow(["AGENTS"])
     w.writerow(["name", "inspections", "pass", "hold", "fail", "pass_rate_pct",
-                "orders_assigned", "advisories"])
+                "orders_assigned"])
     for a in rep["agents"]:
         w.writerow([a["name"], a["inspections"], a["pass"], a["hold"], a["fail"],
-                    a["pass_rate_pct"], a["orders_assigned"], a["advisories"]])
+                    a["pass_rate_pct"], a["orders_assigned"]])
     w.writerow([])
     w.writerow(["COURIERS"])
     w.writerow(["name", "shipments", "delivered", "active", "failed",
@@ -400,7 +394,7 @@ class KycDecision(BaseModel):
 
 @router.post("/kyc/{user_id}/decision")
 def kyc_decision(user_id: int, body: KycDecision,
-                 actor=Depends(require_roles(Role.SUPERADMIN, Role.MANDAL_MANAGER)),
+                 actor=Depends(require_roles(Role.SUPERADMIN, Role.FIELD_LEADER)),
                  db: Session = Depends(get_db)):
     target = db.get(User, user_id)
     if not target:
@@ -431,17 +425,17 @@ class Broadcast(BaseModel):
 
 
 _AUDIENCE_ROLES = {
-    "farmers": [Role.FARMER, Role.FPO],
+    "farmers": [Role.FARMER],
     "buyers": [Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS],
     "agents": [Role.FIELD_AGENT],
     "couriers": [Role.TRANSPORT],
-    "staff": [Role.SUPPORT, Role.FINANCE, Role.MANDAL_MANAGER, Role.SUPERADMIN],
+    "staff": [Role.FIELD_AGENT, Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN],
 }
 
 
 @router.post("/broadcast")
 def broadcast(body: Broadcast,
-              actor=Depends(require_roles(Role.SUPERADMIN, Role.MANDAL_MANAGER)),
+              actor=Depends(require_roles(Role.SUPERADMIN, Role.FIELD_LEADER)),
               db: Session = Depends(get_db)):
     """Send an in-app announcement to every active user in the chosen audience."""
     if not body.title.strip() or not body.body.strip():
@@ -462,7 +456,7 @@ def broadcast(body: Broadcast,
     return {"sent": len(recipients), "audience": body.audience}
 
 
-_finance = require_roles(Role.FINANCE, Role.SUPERADMIN)
+_finance = require_roles(Role.FIELD_MANAGER, Role.SUPERADMIN)
 
 
 @router.get("/payouts")

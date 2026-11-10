@@ -12,7 +12,7 @@ from app.services import audit
 router = APIRouter(prefix="/carriers", tags=["carriers"])
 
 _admin = require_roles(Role.SUPERADMIN)
-_ops = require_roles(Role.SUPERADMIN, Role.MANDAL_MANAGER, Role.FINANCE, Role.TRANSPORT)
+_ops = require_roles(Role.SUPERADMIN, Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.TRANSPORT)
 
 
 def _json(c: Carrier) -> dict:

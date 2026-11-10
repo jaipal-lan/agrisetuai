@@ -1,25 +1,22 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_roles
 from app.core.money import qty
 from app.core.rbac import Role
-from app.models.advisory import AdvisoryLog
 from app.models.common import InspectionOutcome
 from app.models.common import OrderStatus as S
 from app.models.order import Inspection, Order
 from app.models.user import User
-from app.services import audit, notify
+from app.services import audit
 from app.services.state_machine import InvalidTransition, transition
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
-_agent = require_roles(Role.FIELD_AGENT, Role.MANDAL_MANAGER, Role.SUPERADMIN)
+_agent = require_roles(Role.FIELD_AGENT, Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN)
 
 
 def _safe(db, order, to, **kw):
@@ -143,215 +140,3 @@ def submit_inspection(
     db.commit()
     db.refresh(order)
     return {"inspection_id": insp.id, "outcome": insp.outcome, "order_status": order.status}
-
-
-# --- Agent-as-expert advisory log ----------------------------------------
-
-class AdvisoryLogCreate(BaseModel):
-    client_draft_id: str | None = None
-    farmer_phone: str | None = None
-    listing_id: int | None = None
-    crop: str | None = None
-    topic: str = "advisory"  # advisory | education | follow_up
-    observation: str | None = None
-    recommendation: str | None = None
-    follow_up_on: str | None = None
-
-
-def _log_json(l: AdvisoryLog) -> dict:
-    return {
-        "id": l.id,
-        "agent_id": l.agent_id,
-        "farmer_id": l.farmer_id,
-        "listing_id": l.listing_id,
-        "crop": l.crop,
-        "topic": l.topic,
-        "observation": l.observation,
-        "recommendation": l.recommendation,
-        "follow_up_on": l.follow_up_on,
-        "follow_up_done": l.follow_up_done,
-        "farmer_ack": l.farmer_ack,
-        "farmer_ack_status": l.farmer_ack_status,
-        "farmer_ack_note": l.farmer_ack_note,
-        "farmer_ack_at": l.farmer_ack_at.isoformat() if l.farmer_ack_at else None,
-        "created_at": l.created_at.isoformat() if l.created_at else None,
-    }
-
-
-@router.post("/advisory-logs", status_code=status.HTTP_201_CREATED)
-def create_advisory_log(body: AdvisoryLogCreate, user=Depends(_agent), db: Session = Depends(get_db)):
-    """Field agent records advisory / farmer-education notes from a visit.
-
-    Offline-first safe: a repeated client_draft_id returns the existing record
-    instead of creating a duplicate, so a draft captured in the field and synced
-    later (or twice) never double-logs.
-    """
-    if body.client_draft_id:
-        dup = db.scalar(select(AdvisoryLog).where(AdvisoryLog.client_draft_id == body.client_draft_id))
-        if dup:
-            return {**_log_json(dup), "duplicate": True}
-    farmer_id = None
-    if body.farmer_phone:
-        farmer = db.scalar(select(User).where(User.phone == body.farmer_phone))
-        farmer_id = farmer.id if farmer else None
-    log = AdvisoryLog(
-        agent_id=user.id, farmer_id=farmer_id, listing_id=body.listing_id, crop=body.crop,
-        topic=body.topic, observation=body.observation, recommendation=body.recommendation,
-        follow_up_on=body.follow_up_on, client_draft_id=body.client_draft_id,
-    )
-    db.add(log)
-    db.flush()
-    # Close the loop: the farmer sees advice logged about them (respects their
-    # notification preferences via the 'advisory' category).
-    if farmer_id:
-        crop_txt = f" on {body.crop}" if body.crop else ""
-        notify.send(
-            db, user_id=farmer_id,
-            title="New advice from your field agent",
-            body=(body.recommendation or body.observation or "Your agent logged a visit.") + crop_txt,
-            object_type="advisory_log", object_id=log.id,
-        )
-    db.commit()
-    db.refresh(log)
-    return _log_json(log)
-
-
-@router.get("/advisory-logs")
-def list_advisory_logs(user=Depends(_agent), db: Session = Depends(get_db)):
-    rows = db.scalars(
-        select(AdvisoryLog).where(AdvisoryLog.agent_id == user.id)
-        .order_by(AdvisoryLog.id.desc()).limit(100)
-    )
-    return [_log_json(l) for l in rows]
-
-
-# --- Follow-up reminders -------------------------------------------------------
-
-def _parse_follow_date(s: str | None) -> date | None:
-    """Parse a follow_up_on value (e.g. '2026-11-20') to a date, or None if it
-    isn't a plain ISO date — the field is free text, so be defensive."""
-    if not s or len(s) < 10:
-        return None
-    try:
-        return date.fromisoformat(s[:10])
-    except ValueError:
-        return None
-
-
-def _open_followups(db: Session, agent_id: int):
-    """Advisory logs with an unresolved, parseable follow-up date."""
-    rows = db.scalars(select(AdvisoryLog).where(
-        AdvisoryLog.agent_id == agent_id,
-        AdvisoryLog.follow_up_done.is_(False),
-        AdvisoryLog.follow_up_on.is_not(None),
-    ))
-    out = []
-    for l in rows:
-        d = _parse_follow_date(l.follow_up_on)
-        if d is not None:
-            out.append((l, d))
-    return out
-
-
-def due_followup_count(db: Session, agent_id: int, today: date | None = None) -> int:
-    today = today or date.today()
-    return sum(1 for _, d in _open_followups(db, agent_id) if d <= today)
-
-
-def raise_due_followup_reminders(db: Session, agent_id: int, today: date | None = None) -> int:
-    """Raise a one-time advisory reminder for each follow-up that has come due.
-    Idempotent via follow_up_notified, and routed through notify.send so it
-    honours the agent's mute/digest preferences (the 'advisory' category)."""
-    today = today or date.today()
-    created = 0
-    for l, d in _open_followups(db, agent_id):
-        if d > today or l.follow_up_notified:
-            continue
-        label = l.crop or "a farmer"
-        detail = l.recommendation or l.observation or "check in"
-        notify.send(
-            db, user_id=agent_id,
-            title="Advisory follow-up due",
-            body=f"Follow-up due for {label}: {detail}",
-            object_type="advisory_log", object_id=l.id,
-        )
-        l.follow_up_notified = True
-        created += 1
-    if created:
-        db.commit()
-    return created
-
-
-@router.get("/follow-ups")
-def follow_ups(user=Depends(_agent), db: Session = Depends(get_db)):
-    """The agent's follow-up to-do list: due (today or overdue) and upcoming.
-    Opening this also raises reminders for anything newly due."""
-    today = date.today()
-    raise_due_followup_reminders(db, user.id, today)
-    due, upcoming = [], []
-    for l, d in sorted(_open_followups(db, user.id), key=lambda x: x[1]):
-        item = {**_log_json(l), "follow_up_date": d.isoformat(),
-                "days_until": (d - today).days, "overdue": d < today}
-        (due if d <= today else upcoming).append(item)
-    return {"today": today.isoformat(), "due": due, "upcoming": upcoming}
-
-
-@router.post("/advisory-logs/{log_id}/follow-up-done")
-def mark_follow_up_done(log_id: int, user=Depends(_agent), db: Session = Depends(get_db)):
-    """Mark a follow-up as acted on, clearing it from the to-do list."""
-    log = db.get(AdvisoryLog, log_id)
-    if not log or log.agent_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Advisory log not found")
-    log.follow_up_done = True
-    db.commit()
-    return {"id": log.id, "follow_up_done": True}
-
-
-def unseen_farmer_ack_count(db: Session, agent_id: int) -> int:
-    """How many farmer acknowledgements this agent hasn't looked at yet."""
-    return db.scalar(
-        select(func.count(AdvisoryLog.id)).where(
-            AdvisoryLog.agent_id == agent_id,
-            AdvisoryLog.farmer_ack.is_(True),
-            AdvisoryLog.agent_ack_seen.is_(False),
-        )
-    ) or 0
-
-
-@router.get("/farmer-responses")
-def farmer_responses(user=Depends(_agent), db: Session = Depends(get_db)):
-    """Acknowledgements the farmers sent back on this agent's advice — the other
-    half of the loop. Opening this marks them seen (clears the 'new' badge)."""
-    rows = list(db.scalars(
-        select(AdvisoryLog).where(
-            AdvisoryLog.agent_id == user.id, AdvisoryLog.farmer_ack.is_(True)
-        ).order_by(AdvisoryLog.farmer_ack_at.desc(), AdvisoryLog.id.desc()).limit(100)
-    ))
-    out = []
-    marked = 0
-    for l in rows:
-        farmer = db.get(User, l.farmer_id) if l.farmer_id else None
-        item = {**_log_json(l), "farmer_name": farmer.name if farmer else None,
-                "was_new": not l.agent_ack_seen}
-        out.append(item)
-        if not l.agent_ack_seen:
-            l.agent_ack_seen = True
-            marked += 1
-    if marked:
-        db.commit()
-    return {"responses": out}
-
-
-@router.get("/farmer-plan")
-def farmer_plan(phone: str, user=Depends(_agent), db: Session = Depends(get_db)):
-    """Read-only view of a farmer's personalised plan (crops, season tasks,
-    reminders, schemes), so the agent has context when logging advice."""
-    from app.api.insights import build_farm_plan
-
-    farmer = db.scalar(select(User).where(User.phone == phone))
-    if not farmer or farmer.role not in (Role.FARMER, Role.FPO):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No farmer with that phone")
-    return {
-        "farmer": {"id": farmer.id, "name": farmer.name, "phone": farmer.phone},
-        "plan": build_farm_plan(db, farmer),
-    }

@@ -40,7 +40,7 @@ def _get_order(order_id: int, db: Session) -> Order:
 
 
 def _require_party(order: Order, user, *, buyer=False, seller=False):
-    staff = user.role in (Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER)
+    staff = user.role in (Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER)
     if staff:
         return
     if buyer and user.id == order.buyer_id:
@@ -103,7 +103,7 @@ def _order_json(order: Order, db: Session, viewer=None) -> dict:
     }
     # Delivery OTP is only shown to the buyer / staff, never to unrelated roles.
     if shipment and shipment.proof_of_delivery and viewer is not None:
-        staff = viewer.role in (Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER, Role.TRANSPORT)
+        staff = viewer.role in (Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER, Role.TRANSPORT)
         if staff or viewer.id == order.buyer_id:
             out["delivery_otp"] = shipment.proof_of_delivery.get("otp")
     return out
@@ -291,7 +291,7 @@ class AssignInspection(BaseModel):
 def assign_inspection(
     order_id: int,
     body: AssignInspection,
-    user=Depends(require_roles(Role.MANDAL_MANAGER, Role.SUPERADMIN)),
+    user=Depends(require_roles(Role.FIELD_LEADER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
     order = _get_order(order_id, db)
@@ -314,7 +314,7 @@ class ReassignBody(BaseModel):
 def reassign_inspection(
     order_id: int,
     body: ReassignBody,
-    user=Depends(require_roles(Role.MANDAL_MANAGER, Role.SUPERADMIN)),
+    user=Depends(require_roles(Role.FIELD_LEADER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
     order = _get_order(order_id, db)
@@ -394,7 +394,6 @@ def confirm_quote(
 ):
     """Lock the server-computed quote onto a CONFIRMED order and move to PAYMENT_PENDING."""
     from app.api.pricing import active_rule_for, order_pricing_context
-    from app.api.subscriptions import active_benefits
     from app.services import distance
     from app.services.pricing_engine import QuoteInput, compute
 
@@ -420,13 +419,9 @@ def confirm_quote(
         db, mandal_id, to_mandal_id, override=body.route_km,
     )
 
-    # A seller's active subscription can discount the commission (fee_discount_pct).
-    seller_benefits = active_benefits(db, order.seller_id)
-    discount = D(seller_benefits.get("fee_discount_pct", 0) or 0)
-
     quote = compute(rule, QuoteInput(
         product_value=product_value, billable_kg=D(terms["quantity"]), route_km=route.route_km,
-        commission_discount_pct=discount,
+        commission_discount_pct=D(0),
     ))
     qjson = quote.to_json()
     qjson["route_km_source"] = route.source
@@ -504,7 +499,7 @@ def pay(
 @router.post("/{order_id}/packing-complete")
 def packing_complete(
     order_id: int,
-    user=Depends(require_roles(Role.FIELD_AGENT, Role.MANDAL_MANAGER, Role.SUPERADMIN)),
+    user=Depends(require_roles(Role.FIELD_AGENT, Role.FIELD_LEADER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
     order = _get_order(order_id, db)
@@ -567,7 +562,7 @@ def assign_courier(
     from app.models.carrier import Carrier
 
     order = _get_order(order_id, db)
-    staff = user.role in (Role.MANDAL_MANAGER, Role.SUPERADMIN, Role.TRANSPORT)
+    staff = user.role in (Role.FIELD_LEADER, Role.SUPERADMIN, Role.TRANSPORT)
     if not staff and user.id != order.buyer_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the buyer or staff can assign a courier")
     carrier = db.get(Carrier, body.courier_id)
@@ -696,7 +691,7 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
     # Delivery code: the buyer shows it to the courier at handoff. Only the
     # buyer/staff ever see it, and only once the courier is out for delivery.
     pod = (shipment.proof_of_delivery or {}) if shipment else {}
-    staff = user.role in (Role.SUPERADMIN, Role.FINANCE, Role.MANDAL_MANAGER, Role.TRANSPORT)
+    staff = user.role in (Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER, Role.TRANSPORT)
     if pod.get("otp") and (staff or user.id == order.buyer_id) and not pod.get("otp_ok"):
         out["delivery_code"] = pod["otp"]
     if delivered_at is not None:
@@ -729,7 +724,7 @@ class ShipEvent(BaseModel):
 def shipment_event(
     order_id: int,
     body: ShipEvent,
-    user=Depends(require_roles(Role.TRANSPORT, Role.MANDAL_MANAGER, Role.SUPERADMIN)),
+    user=Depends(require_roles(Role.TRANSPORT, Role.FIELD_LEADER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
     order = _get_order(order_id, db)
@@ -766,7 +761,7 @@ class ProofBody(BaseModel):
 def proof_of_delivery(
     order_id: int,
     body: ProofBody,
-    user=Depends(require_roles(Role.TRANSPORT, Role.MANDAL_MANAGER, Role.SUPERADMIN, Role.FIELD_AGENT)),
+    user=Depends(require_roles(Role.TRANSPORT, Role.FIELD_LEADER, Role.SUPERADMIN, Role.FIELD_AGENT)),
     db: Session = Depends(get_db),
 ):
     order = _get_order(order_id, db)
