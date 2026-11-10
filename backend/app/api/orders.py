@@ -674,12 +674,26 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
     if delivered_at is not None:
         eta, eta_basis = delivered_at.isoformat(), "delivered"
 
-    # Pickup place (the seller's mandal, from the accepted-terms snapshot).
-    from_place = None
-    mid = (order.accepted_terms or {}).get("mandal_id")
-    if mid:
-        m = db.get(Mandal, mid)
-        from_place = m.name if m else None
+    # Pickup + delivery places (from the accepted-terms snapshot) and a maps
+    # navigation link for the courier — door-to-door routing.
+    terms = order.accepted_terms or {}
+
+    def _place(mandal_id):
+        m = db.get(Mandal, mandal_id) if mandal_id else None
+        if not m:
+            return None, None
+        coord = None
+        if m.latitude is not None and m.longitude is not None:
+            coord = {"lat": float(m.latitude), "lng": float(m.longitude)}
+        return m.name, coord
+
+    from_place, from_coord = _place(terms.get("mandal_id"))
+    to_place, to_coord = _place(terms.get("destination_mandal_id") or terms.get("mandal_id"))
+    nav_url = None
+    if from_coord and to_coord:
+        nav_url = ("https://www.google.com/maps/dir/?api=1"
+                   f"&origin={from_coord['lat']},{from_coord['lng']}"
+                   f"&destination={to_coord['lat']},{to_coord['lng']}&travelmode=driving")
 
     out = {
         "order_public_id": order.public_id,
@@ -693,6 +707,10 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
         "steps": steps,
         "events": events,
         "from_place": from_place,
+        "to_place": to_place,
+        "from_coord": from_coord,
+        "to_coord": to_coord,
+        "nav_url": nav_url,
         "eta": eta,
         "eta_basis": eta_basis,
     }

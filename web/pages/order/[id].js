@@ -226,7 +226,13 @@ function TrackingTimeline({ orderId, isBuyer }) {
       {tr.shipment?.courier_name && (
         <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
           {tr.shipment.courier_name}{tr.shipment.vehicle_class ? ` · ${tr.shipment.vehicle_class}` : ""}
-          {tr.from_place ? ` · pickup from ${tr.from_place}` : ""}
+          {tr.from_place ? ` · ${tr.from_place}` : ""}{tr.to_place ? ` → ${tr.to_place}` : ""}
+        </div>
+      )}
+
+      {!delivered && tr.nav_url && (
+        <div style={{ marginTop: 10 }}>
+          <a className="btn" href={tr.nav_url} target="_blank" rel="noreferrer">🧭 Navigate the delivery route</a>
         </div>
       )}
 

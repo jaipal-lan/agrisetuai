@@ -327,6 +327,8 @@ def run():
     check("earlier milestones marked done", trk["steps"][0]["done"] and trk["steps"][1]["done"])
     check("a current step is highlighted", any(s["current"] for s in trk["steps"]))
     check("tracking knows the pickup place", trk["from_place"] is not None)
+    check("tracking exposes navigation (route + maps link)",
+          "nav_url" in trk and "from_coord" in trk and "to_place" in trk)
     check("tracking estimates an ETA", trk["eta"] is not None)
     check("buyer sees the delivery code out-for-delivery", bool(trk.get("delivery_code")))
     trk_s = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(farmer)).json()
