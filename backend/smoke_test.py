@@ -81,10 +81,28 @@ def run():
         "commodity_id": paddy["id"], "grade_spec_id": grade_id,
         "total_qty": 1000, "min_order_qty": 100, "asking_price": 25.0,
         "mandal_id": mandal_id, "harvest_year": 2026,
+        "quality_grade": "A", "defect_pct": 2.5, "defect_notes": "Minor broken grains",
     })
     check("farmer creates listing", r.status_code == 201)
     listing = r.json()
     check("listing starts as draft", listing["status"] == "draft")
+    check("listing records quality grade + defects",
+          listing["quality_grade"] == "A" and listing["defect_pct"] == "2.50"
+          and listing["defect_notes"] == "Minor broken grains")
+    # Seller "Other": add a product that isn't in the catalog yet.
+    nc = client.post("/api/catalog/commodities", headers=hdr(farmer),
+                     json={"name": "Dragon Fruit"})
+    check("farmer can add a new product", nc.status_code == 201 and nc.json()["name"] == "Dragon Fruit")
+    check("new product appears in the catalog",
+          any(c["name"] == "Dragon Fruit" for c in client.get("/api/catalog/commodities").json()))
+    check("adding the same product reuses it (no duplicate)",
+          client.post("/api/catalog/commodities", headers=hdr(farmer),
+                      json={"name": "dragon fruit"}).json()["id"] == nc.json()["id"])
+    # A sample video attaches as video media (separate from the 3 image requirement).
+    client.post(f"/api/listings/{listing['id']}/media", headers=hdr(farmer),
+                json={"object_key": "sample/paddy-clip.mp4", "media_type": "video"})
+    check("listing exposes a sample video",
+          client.get(f"/api/listings/{listing['id']}").json()["video"] == "sample/paddy-clip.mp4")
 
     # Publishing requires at least 3 sample images.
     r = client.post(f"/api/listings/{listing['id']}/publish", headers=hdr(farmer))

@@ -152,8 +152,15 @@ export default function ProductOfferings() {
               )}
               <div className="muted" style={{ fontSize: 13 }}>
                 {o.variety ? `${o.variety} · ` : ""}{o.is_organic ? "organic" : "non-organic"}
-                {o.grade ? ` · ${o.grade.label}` : ""}{o.harvest_year ? ` · HY ${o.harvest_year}` : ""}
+                {o.quality_grade ? ` · Grade ${o.quality_grade}` : ""}
+                {o.defect_pct != null ? ` · ${o.defect_pct}% defects` : ""}
+                {o.harvest_year ? ` · HY ${o.harvest_year}` : ""}
               </div>
+              {o.defect_notes && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>⚠ {o.defect_notes}</div>}
+              {o.video && (
+                <video src={mediaUrl(o.video)} controls preload="none"
+                       style={{ width: "100%", borderRadius: 8, marginTop: 8, maxHeight: 180 }} />
+              )}
               {o.agent_verified && o.verification_note && (
                 <div className="ok" style={{ fontSize: 12, marginTop: 6 }}>✓ {o.verification_note}</div>
               )}

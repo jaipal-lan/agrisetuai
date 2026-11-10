@@ -42,6 +42,9 @@ class ListingCreate(BaseModel):
     mandal_id: int | None = None
     pickup_terms: str | None = None
     specifications: str | None = None
+    quality_grade: str | None = None   # A | B | C
+    defect_pct: float | None = None
+    defect_notes: str | None = None
 
 
 def _can_manage(listing: Listing, user: User, db: Session) -> bool:
@@ -99,6 +102,7 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         {"object_key": m.object_key, "media_type": m.media_type}
         for m in listing.media if m.media_type == "image"
     ]
+    video = next((m.object_key for m in listing.media if m.media_type == "video"), None)
     avail = qty(listing.available_qty)
     out_of_stock = listing.status == ListingStatus.SOLD_OUT or avail <= qty(0)
     data = {
@@ -121,8 +125,12 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         "mandal_id": listing.mandal_id,
         "pickup_terms": listing.pickup_terms,
         "specifications": listing.specifications,
+        "quality_grade": listing.quality_grade,
+        "defect_pct": str(listing.defect_pct) if listing.defect_pct is not None else None,
+        "defect_notes": listing.defect_notes,
         "status": listing.status,
         "out_of_stock": out_of_stock,
+        "video": video,
         "agent_verified": listing.agent_verified,
         "verified_at": listing.verified_at.isoformat() if listing.verified_at else None,
         "verification_note": listing.verification_note,
@@ -180,6 +188,9 @@ def create_listing(
         mandal_id=body.mandal_id,
         pickup_terms=body.pickup_terms,
         specifications=body.specifications,
+        quality_grade=body.quality_grade,
+        defect_pct=body.defect_pct,
+        defect_notes=body.defect_notes,
         status=ListingStatus.DRAFT,
     )
     db.add(listing)

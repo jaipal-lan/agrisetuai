@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -32,6 +32,40 @@ def commodities(category: str | None = None, db: Session = Depends(get_db)):
     if category:
         stmt = stmt.where(Commodity.category == category)
     return [_commodity_json(c) for c in db.scalars(stmt.order_by(Commodity.category, Commodity.name))]
+
+
+class CommodityCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    category: str = "other"
+    name_te: str | None = None
+    unit: str = "kg"
+
+
+@router.post("/commodities", status_code=status.HTTP_201_CREATED)
+def create_commodity(
+    body: CommodityCreate,
+    user=Depends(require_roles(Role.FARMER, Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Add a product that isn't in the catalog yet (the seller's "Other" option).
+    Reuses an existing commodity with the same name (case-insensitive) instead of
+    duplicating it, so the dropdown stays clean."""
+    name = body.name.strip()
+    existing = db.scalar(select(Commodity).where(func.lower(Commodity.name) == name.lower()))
+    if existing:
+        return _commodity_json(existing)
+    c = Commodity(
+        category=(body.category or "other").strip().lower(),
+        name=name, name_te=(body.name_te or None),
+        product_form=name.lower(), unit=body.unit or "kg",
+        handling_class="dry_grain", min_order_qty=0,
+    )
+    db.add(c)
+    audit.record(db, actor_id=user.id, action="catalog.add_commodity",
+                 object_type="commodity", new_values={"name": name})
+    db.commit()
+    db.refresh(c)
+    return _commodity_json(c)
 
 
 class MOQBody(BaseModel):

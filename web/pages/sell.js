@@ -34,10 +34,33 @@ export default function Sell() {
     harvest_year: new Date().getFullYear(),
     claim_status: "conventional",
     specifications: "",
+    quality_grade: "A",
+    defect_pct: "",
+    defect_notes: "",
   });
+  const [newProduct, setNewProduct] = useState("");
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  const GRADES = [
+    ["A", "Grade A — premium"],
+    ["B", "Grade B — standard"],
+    ["C", "Grade C — fair"],
+  ];
+
+  async function addProduct() {
+    const name = newProduct.trim();
+    if (!name) return;
+    setErr(null);
+    try {
+      const c = await api("/catalog/commodities", { method: "POST", body: { name } });
+      const list = await api("/catalog/commodities");
+      setCommodities(list);
+      set("commodity_id", String(c.id));
+      setNewProduct("");
+    } catch (e) { setErr(e.message); }
+  }
 
   const cmap = Object.fromEntries(commodities.map((c) => [c.id, c]));
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -75,9 +98,12 @@ export default function Sell() {
         harvest_year: Number(form.harvest_year),
         claim_status: form.claim_status,
         specifications: form.specifications || undefined,
+        quality_grade: form.quality_grade || undefined,
+        defect_pct: form.defect_pct ? Number(form.defect_pct) : undefined,
+        defect_notes: form.defect_notes || undefined,
       };
       await api("/listings", { method: "POST", body });
-      setMsg("Listing created as a draft — publish it to go live.");
+      setMsg("Listing created as a draft — add images (and an optional video), then publish.");
       setForm((f) => ({ ...f, total_qty: "", asking_price: "" }));
       loadMine();
     } catch (e) {
@@ -97,7 +123,7 @@ export default function Sell() {
     }
   }
 
-  async function addImages(id, files) {
+  async function addMedia(id, files, mediaType) {
     setErr(null);
     setBusy(true);
     try {
@@ -105,7 +131,7 @@ export default function Sell() {
         const up = await uploadImage(f);
         await api(`/listings/${id}/media`, {
           method: "POST",
-          body: { object_key: up.object_key, media_type: "image", checksum: up.checksum },
+          body: { object_key: up.object_key, media_type: mediaType, checksum: up.checksum },
         });
       }
       loadMine();
@@ -132,12 +158,21 @@ export default function Sell() {
         <div className="row">
           <div style={{ flex: 1, minWidth: 180 }}>
             <label>{t("commodity")}</label>
-            <select value={form.commodity_id} onChange={(e) => set("commodity_id", e.target.value)}>
+            <select value={form.commodity_id}
+                    onChange={(e) => set("commodity_id", e.target.value)}>
               <option value="">—</option>
               {commodities.map((c) => (
                 <option key={c.id} value={c.id}>{cname(c)} ({c.category})</option>
               ))}
+              <option value="__other">+ Other (add a new product)…</option>
             </select>
+            {form.commodity_id === "__other" && (
+              <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                <input value={newProduct} onChange={(e) => setNewProduct(e.target.value)}
+                       placeholder="New product name" style={{ flex: 1 }} />
+                <button className="ghost" onClick={addProduct} disabled={!newProduct.trim()}>Add</button>
+              </div>
+            )}
           </div>
           <div style={{ flex: 1, minWidth: 140 }}>
             <label>Grade</label>
@@ -177,11 +212,31 @@ export default function Sell() {
             </select>
           </div>
         </div>
+        <label>Quality grade</label>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          {GRADES.map(([g, label]) => (
+            <button key={g} type="button"
+                    className={form.quality_grade === g ? "" : "ghost"}
+                    onClick={() => set("quality_grade", g)}>{label}</button>
+          ))}
+        </div>
+        <div className="row" style={{ marginTop: 10 }}>
+          <div style={{ flex: "0 1 160px" }}>
+            <label>Defects (%)</label>
+            <input value={form.defect_pct} onChange={(e) => set("defect_pct", e.target.value)}
+                   inputMode="decimal" placeholder="e.g. 2" />
+          </div>
+          <div style={{ flex: "1 1 240px" }}>
+            <label>Defect / quality notes</label>
+            <input value={form.defect_notes} onChange={(e) => set("defect_notes", e.target.value)}
+                   placeholder="e.g. ~2% broken grains, minor discolouration" />
+          </div>
+        </div>
         <label>Product specifications (moisture, drying, cleaning, packing, variety notes…)</label>
         <textarea rows={2} value={form.specifications} onChange={(e) => set("specifications", e.target.value)}
           placeholder="e.g. Moisture 7%, hand-cleaned, single filling, 50 kg bags" />
         <div style={{ marginTop: 16 }}>
-          <button onClick={create} disabled={busy || !form.commodity_id || !form.total_qty || !form.asking_price}>
+          <button onClick={create} disabled={busy || !form.commodity_id || form.commodity_id === "__other" || !form.total_qty || !form.asking_price}>
             {t("create_listing")}
           </button>
         </div>
@@ -221,12 +276,20 @@ export default function Sell() {
                 )}
                 <div className="muted" style={{ fontSize: 12 }}>
                   {imgs.length}/3 images {enough ? "✓" : "— add more to publish"}
+                  {l.quality_grade ? ` · Grade ${l.quality_grade}` : ""}
+                  {l.defect_pct != null ? ` · ${l.defect_pct}% defects` : ""}
+                  {l.video ? " · 🎥 video" : ""}
                 </div>
                 <div className="row" style={{ marginTop: 10, gap: 8 }}>
                   <label className="btn ghost" style={{ cursor: "pointer" }}>
                     + Images
                     <input type="file" accept="image/*" multiple style={{ display: "none" }}
-                           onChange={(e) => addImages(l.id, Array.from(e.target.files))} />
+                           onChange={(e) => addMedia(l.id, Array.from(e.target.files), "image")} />
+                  </label>
+                  <label className="btn ghost" style={{ cursor: "pointer" }}>
+                    {l.video ? "Replace video" : "+ Sample video"}
+                    <input type="file" accept="video/*" style={{ display: "none" }}
+                           onChange={(e) => addMedia(l.id, Array.from(e.target.files), "video")} />
                   </label>
                   {l.status === "draft" && <button disabled={!enough || busy} onClick={() => act(l.id, "publish")}>{t("publish")}</button>}
                   {l.status === "open" && <button className="ghost" onClick={() => act(l.id, "pause")}>Pause</button>}

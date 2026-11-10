@@ -36,6 +36,10 @@ class Listing(Base, TimestampMixin):
     pickup_terms: Mapped[str | None] = mapped_column(Text)
     # Farmer-entered product specifications (moisture, cleanliness, drying, packing…).
     specifications: Mapped[str | None] = mapped_column(Text)
+    # Self-declared quality: one of three grades + any defects (%) and notes.
+    quality_grade: Mapped[str | None] = mapped_column(String(16))  # A | B | C
+    defect_pct: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    defect_notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
         String(16), default=ListingStatus.DRAFT, index=True
     )
