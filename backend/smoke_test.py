@@ -753,6 +753,7 @@ def run():
           any(c["label"] == "Reminders due this week" and c["value"] >= 1 for c in fd["cards"]))
     check("farmer dashboard has a schemes-to-follow-up card",
           any(c["label"] == "Schemes to follow up" and c["value"] >= 1 for c in fd["cards"]))
+    check("farmer dashboard carries a weather key", "weather" in fd)
 
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={

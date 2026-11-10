@@ -48,6 +48,28 @@ export default function Dashboard() {
         </div>
       )}
 
+      {data?.weather && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="between">
+            <b>🌦️ Weather</b>
+            <Link href="/insights" style={{ fontSize: 13 }}>Farm plan →</Link>
+          </div>
+          {data.weather.payload && (
+            <div className="muted" style={{ fontSize: 14, marginTop: 4 }}>
+              {data.weather.payload.rain_prob_pct != null && <>🌧️ {data.weather.payload.rain_prob_pct}% rain · </>}
+              {data.weather.payload.temp_max_c != null && <>🌡️ {data.weather.payload.temp_min_c}–{data.weather.payload.temp_max_c}°C</>}
+              {data.weather.payload.wind_kmph != null && <> · 💨 {data.weather.payload.wind_kmph} km/h</>}
+            </div>
+          )}
+          {data.weather.advice.map((a, i) => (
+            <div key={i} className={a.level === "warning" ? "error" : "ok"}
+                 style={{ fontSize: 13, marginTop: 6 }}>
+              {a.level === "warning" ? "⚠️ " : "• "}{a.text}
+            </div>
+          ))}
+        </div>
+      )}
+
       {data && (
         <>
           <div className="grid" style={{ marginTop: 16 }}>

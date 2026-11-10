@@ -66,6 +66,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     role = user.role
     cards: list[dict] = []
     actions: list[dict] = []
+    weather: dict | None = None
 
     # Instant unread only — digest-deferred alerts don't ping the bell.
     unread = _count(db, select(func.count(Notification.id)).where(
@@ -91,6 +92,13 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         schemes_followup = _count(db, select(func.count(SchemeApplication.id)).where(
             SchemeApplication.user_id == user.id,
             SchemeApplication.status.in_(["interested", "applied"])))
+        # Compact weather + cautions for the farmer's locality (full plan on /insights).
+        from app.api.insights import _latest_snapshot, _weather_advice
+        fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == user.id))
+        snap = _latest_snapshot(db, fp.mandal_id if fp else None)
+        if snap:
+            weather = {"observed_at": snap.observed_at, "payload": snap.payload,
+                       "advice": _weather_advice(snap.payload)}
         cards = [
             {"label": "Active listings", "value": active_listings, "href": "/sell"},
             {"label": "Open negotiations", "value": open_negotiations, "href": "/offers", "alert": open_negotiations > 0},
@@ -220,5 +228,6 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         "onboarding_complete": user.onboarding_complete,
         "cards": cards,
         "actions": actions,
+        "weather": weather,
         "today": date.today().isoformat(),
     }
