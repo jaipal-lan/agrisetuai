@@ -175,7 +175,7 @@ export default function Admin() {
     setSchedBusy(true);
     try {
       const r = await api("/admin/scheduler/run", { method: "POST" });
-      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.reminders_raised} follow-up reminder(s) raised.`);
+      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.reminders_raised} follow-up reminder(s) + ${r.reminders_due_raised} calendar reminder(s) raised.`);
     } catch (e) {
       setErr(e.message);
     } finally {

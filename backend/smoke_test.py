@@ -769,6 +769,16 @@ def run():
           client.get("/api/agent/farmer-plan", headers=hdr(buyer),
                      params={"phone": "919000000003"}).status_code == 403)
 
+    print("\n== Due-reminder notifications (scheduler) ==")
+    # A due-today reminder was created for the farmer in the dashboard checks above.
+    resr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
+    check("scheduler raises a due calendar reminder", resr["reminders_due_raised"] >= 1)
+    check("farmer is pinged about the due reminder",
+          any("reminder due" in (n["title"] or "").lower()
+              for n in client.get("/api/auth/notifications", headers=hdr(farmer)).json()))
+    resr2 = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
+    check("due-reminder ping is idempotent", resr2["reminders_due_raised"] == 0)
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",

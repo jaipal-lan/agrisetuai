@@ -127,6 +127,8 @@ class Reminder(Base, TimestampMixin):
     due_on: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(16), default="open")  # open|snoozed|done
     note: Mapped[str | None] = mapped_column(Text)
+    # Whether a due-reminder alert has already been raised (so it fires once).
+    notified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class MarketPrice(Base, TimestampMixin):

@@ -99,12 +99,46 @@ def raise_due_followups(db: Session) -> int:
     return total
 
 
+def raise_due_reminders(db: Session) -> int:
+    """Ping each farmer whose calendar reminder has come due, once. Idempotent via
+    Reminder.notified. Returns the number of reminders raised this run."""
+    from datetime import date
+
+    from app.models.advisory import CropCalendarTask, Reminder
+
+    today = date.today().isoformat()
+    rows = list(db.scalars(select(Reminder).where(
+        Reminder.status == "open",
+        Reminder.notified.is_(False),
+        Reminder.due_on.is_not(None),
+        Reminder.due_on <= today,
+    )))
+    count = 0
+    for r in rows:
+        task = db.get(CropCalendarTask, r.calendar_task_id) if r.calendar_task_id else None
+        label = (task.crop if task else None) or "your farm"
+        detail = r.note or (task.task if task else "a task you set")
+        notify.send(
+            db, user_id=r.user_id,
+            title="Reminder due",
+            body=f"Reminder for {label}: {detail}",
+            object_type="reminder", object_id=r.id,
+        )
+        r.notified = True
+        count += 1
+    if count:
+        db.commit()
+    return count
+
+
 def run_scheduled_jobs(db: Session) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
     reminders = raise_due_followups(db)
+    due_reminders = raise_due_reminders(db)
     digests = compile_digests(db)
-    return {"ran_at": utcnow().isoformat(), "reminders_raised": reminders, "digests_sent": digests}
+    return {"ran_at": utcnow().isoformat(), "reminders_raised": reminders,
+            "reminders_due_raised": due_reminders, "digests_sent": digests}
 
 
 async def _loop(interval: int) -> None:
@@ -122,7 +156,7 @@ async def _loop(interval: int) -> None:
         await asyncio.sleep(interval)
         try:
             result = await asyncio.to_thread(_once)
-            if result["digests_sent"] or result["reminders_raised"]:
+            if result["digests_sent"] or result["reminders_raised"] or result["reminders_due_raised"]:
                 log.info("scheduler: %s", result)
         except Exception:  # never let the loop die on a transient error
             log.exception("scheduled job run failed")
