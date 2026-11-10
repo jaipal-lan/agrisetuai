@@ -21,6 +21,7 @@ from app.api import (
     reviews,
     rfqs,
     support,
+    team,
     transport,
 )
 from app.core.config import settings
@@ -54,7 +55,7 @@ API = "/api"
 for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
     pricing, admin, prices, lots, media, support, logistics,
-    carriers, transport, reviews, payments, dashboard,
+    carriers, transport, reviews, payments, dashboard, team,
 ):
     app.include_router(module.router, prefix=API)
 

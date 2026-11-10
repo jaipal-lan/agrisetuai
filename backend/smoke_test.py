@@ -547,6 +547,16 @@ def run():
     check("prices filter by commodity + state",
           len(filtered) >= 1 and all(p["state"] == "Punjab" and p["commodity"] == "Paddy" for p in filtered))
 
+    print("\n== Team console (field leader / manager) ==")
+    ov = client.get("/api/team/overview", headers=hdr(manager)).json()
+    check("team overview lists field agents + pipeline",
+          isinstance(ov["agents"], list) and any(a["name"] for a in ov["agents"])
+          and isinstance(ov["pipeline"], list))
+    check("team overview reports counts",
+          "unassigned" in ov and "active_orders" in ov)
+    check("non-lead cannot read the team console",
+          client.get("/api/team/overview", headers=hdr(farmer)).status_code == 403)
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",
