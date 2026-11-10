@@ -340,3 +340,18 @@ def farmer_responses(user=Depends(_agent), db: Session = Depends(get_db)):
     if marked:
         db.commit()
     return {"responses": out}
+
+
+@router.get("/farmer-plan")
+def farmer_plan(phone: str, user=Depends(_agent), db: Session = Depends(get_db)):
+    """Read-only view of a farmer's personalised plan (crops, season tasks,
+    reminders, schemes), so the agent has context when logging advice."""
+    from app.api.insights import build_farm_plan
+
+    farmer = db.scalar(select(User).where(User.phone == phone))
+    if not farmer or farmer.role not in (Role.FARMER, Role.FPO):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No farmer with that phone")
+    return {
+        "farmer": {"id": farmer.id, "name": farmer.name, "phone": farmer.phone},
+        "plan": build_farm_plan(db, farmer),
+    }

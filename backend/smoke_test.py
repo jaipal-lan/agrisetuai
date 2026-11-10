@@ -755,6 +755,20 @@ def run():
           any(c["label"] == "Schemes to follow up" and c["value"] >= 1 for c in fd["cards"]))
     check("farmer dashboard carries a weather key", "weather" in fd)
 
+    print("\n== Agent views a farmer's plan ==")
+    fp = client.get("/api/agent/farmer-plan", headers=hdr(agent),
+                    params={"phone": "919000000003"}).json()
+    check("agent sees the farmer's identity + crops",
+          fp["farmer"]["phone"] == "919000000003" and "paddy" in fp["plan"]["crops"])
+    check("agent sees the farmer's calendar + schemes",
+          any(g["crop"] == "paddy" for g in fp["plan"]["calendar"]) and len(fp["plan"]["schemes"]) >= 1)
+    check("unknown phone returns 404",
+          client.get("/api/agent/farmer-plan", headers=hdr(agent),
+                     params={"phone": "910000000000"}).status_code == 404)
+    check("non-agent cannot read a farmer plan",
+          client.get("/api/agent/farmer-plan", headers=hdr(buyer),
+                     params={"phone": "919000000003"}).status_code == 403)
+
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={
         "subject": "Bag short weight", "body": "Received less than ordered", "issue_type": "quantity",

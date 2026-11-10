@@ -407,11 +407,10 @@ def clear_scheme_application(
     return {"ok": True}
 
 
-@router.get("/my-farm-plan")
-def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
-    """A farmer's personalised plan: the crop-calendar tasks, government schemes
-    and reviewed knowledge that match THEIR crops, district and the current season.
-    """
+def build_farm_plan(db: Session, user: User) -> dict:
+    """The personalised plan for one farmer — crop-calendar tasks, schemes, reviewed
+    knowledge, weather and reminders matched to THEIR crops/district/season. Shared
+    by the farmer's own /my-farm-plan and the field agent's read-only view."""
     crops, district, state, mandal_id = _farmer_context(db, user)
     today = date.today()
     month = today.month
@@ -489,3 +488,9 @@ def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
         "schemes": schemes_matched,
         "knowledge": knowledge,
     }
+
+
+@router.get("/my-farm-plan")
+def my_farm_plan(user: User = Depends(_seller), db: Session = Depends(get_db)):
+    """The logged-in farmer's own personalised plan."""
+    return build_farm_plan(db, user)

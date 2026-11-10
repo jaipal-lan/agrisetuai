@@ -193,7 +193,16 @@ function AdvisoryLog({ online, queueAdvisory, pending, syncedAt }) {
   const [logs, setLogs] = useState([]);
   const [form, setForm] = useState({ farmer_phone: "", crop: "", observation: "", recommendation: "", follow_up_on: "" });
   const [msg, setMsg] = useState(null);
+  const [ctx, setCtx] = useState(null);
+  const [ctxErr, setCtxErr] = useState(null);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function loadContext() {
+    setCtx(null); setCtxErr(null);
+    if (!form.farmer_phone) return;
+    try { setCtx(await api(`/agent/farmer-plan?phone=${encodeURIComponent(form.farmer_phone)}`)); }
+    catch (e) { setCtxErr(e.message); }
+  }
 
   async function load() {
     try { setLogs(await api("/agent/advisory-logs")); } catch {}
@@ -237,7 +246,9 @@ function AdvisoryLog({ online, queueAdvisory, pending, syncedAt }) {
       <div className="card">
         <div className="row">
           <div style={{ flex: 1 }}><label>Farmer phone</label>
-            <input value={form.farmer_phone} onChange={(e) => set("farmer_phone", e.target.value)} inputMode="numeric" /></div>
+            <input value={form.farmer_phone} onChange={(e) => set("farmer_phone", e.target.value)} inputMode="numeric" />
+            <button className="ghost" style={{ padding: "2px 8px", fontSize: 13, marginTop: 4 }}
+                    disabled={!online || !form.farmer_phone} onClick={loadContext}>View context</button></div>
           <div style={{ flex: 1 }}><label>Crop</label>
             <input value={form.crop} onChange={(e) => set("crop", e.target.value)} /></div>
           <div style={{ flex: 1 }}><label>Follow-up date</label>
@@ -254,6 +265,34 @@ function AdvisoryLog({ online, queueAdvisory, pending, syncedAt }) {
         </div>
         {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
       </div>
+
+      {/* Context: the farmer's own plan, so advice fits their crops/season */}
+      {ctxErr && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{ctxErr}</div>}
+      {ctx && (
+        <div className="card" style={{ marginTop: 10, borderLeft: "4px solid var(--brand-600, #15803d)" }}>
+          <b>👨‍🌾 {ctx.farmer.name || ctx.farmer.phone}</b>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {ctx.plan.crops.length ? ctx.plan.crops.join(", ") : "no crops on record"}
+            {ctx.plan.district ? ` · ${ctx.plan.district}` : ""}
+          </div>
+          {ctx.plan.current_tasks.length > 0 && (
+            <div style={{ fontSize: 13, marginTop: 6 }}>
+              <b>This season:</b> {ctx.plan.current_tasks.map((t) => `${t.crop} — ${t.task}`).join("; ")}
+            </div>
+          )}
+          {ctx.plan.reminders.length > 0 && (
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>⏰ {ctx.plan.reminders.length} active reminder(s)</div>
+          )}
+          {ctx.plan.schemes.filter((s) => s.application_status).length > 0 && (
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Schemes: {ctx.plan.schemes.filter((s) => s.application_status).map((s) => `${s.name} (${s.application_status})`).join(", ")}
+            </div>
+          )}
+          {ctx.plan.weather?.advice?.length > 0 && (
+            <div className="ok" style={{ fontSize: 13, marginTop: 4 }}>🌦️ {ctx.plan.weather.advice[0].text}</div>
+          )}
+        </div>
+      )}
 
       {/* Advisory drafts captured on this device, not yet synced */}
       {pending.map((p) => (
