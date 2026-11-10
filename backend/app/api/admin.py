@@ -590,6 +590,20 @@ def set_user_status(user_id: int, body: UserStatus,
     return {"user_id": target.id, "status": target.status}
 
 
+@router.post("/scheduler/run")
+def run_scheduler(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = Depends(get_db)):
+    """Run the sandboxed scheduled jobs once: raise due follow-up reminders and
+    compile daily digests. Handy for a demo, or for an external cron to call in
+    place of the in-process timer (SCHEDULER_INTERVAL_SECONDS)."""
+    from app.services.scheduler import run_scheduled_jobs
+
+    result = run_scheduled_jobs(db)
+    audit.record(db, actor_id=user.id, action="scheduler.run", object_type="system",
+                 object_id="scheduler", new_values=result)
+    db.commit()
+    return result
+
+
 @router.get("/audit-logs")
 def audit_logs(limit: int = 100, user=Depends(_staff), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))

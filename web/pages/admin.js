@@ -34,6 +34,8 @@ export default function Admin() {
   const [kyc, setKyc] = useState([]);
   const [ann, setAnn] = useState({ title: "", body: "", audience: "all" });
   const [annMsg, setAnnMsg] = useState(null);
+  const [schedMsg, setSchedMsg] = useState(null);
+  const [schedBusy, setSchedBusy] = useState(false);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
   const [users, setUsers] = useState([]);
@@ -164,6 +166,20 @@ export default function Admin() {
       setAnn({ title: "", body: "", audience: ann.audience });
     } catch (e) {
       setErr(e.message);
+    }
+  }
+
+  async function runScheduler() {
+    setErr(null);
+    setSchedMsg(null);
+    setSchedBusy(true);
+    try {
+      const r = await api("/admin/scheduler/run", { method: "POST" });
+      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.reminders_raised} follow-up reminder(s) raised.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSchedBusy(false);
     }
   }
 
@@ -555,6 +571,19 @@ export default function Admin() {
             Send announcement
           </button>
         </div>
+      </div>
+
+      <h2>Scheduled jobs</h2>
+      <div className="card">
+        <p className="muted" style={{ fontSize: 14, marginTop: 0 }}>
+          Compiles each user&apos;s batched alerts into a daily-digest push and raises
+          due advisory follow-up reminders — the sandboxed job a timer (or cron)
+          runs automatically. Trigger it here to see it work now.
+        </p>
+        {schedMsg && <div className="ok" style={{ marginBottom: 10 }}>{schedMsg}</div>}
+        <button disabled={schedBusy} onClick={runScheduler}>
+          {schedBusy ? "Running…" : "Run scheduled jobs now"}
+        </button>
       </div>
 
       <h2>KYC approval queue {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>

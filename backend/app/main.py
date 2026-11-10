@@ -74,6 +74,15 @@ def _startup() -> None:
         run_migrations()
 
 
+@app.on_event("startup")
+async def _start_scheduler() -> None:
+    # Sandboxed timer that compiles digests + raises due follow-up reminders.
+    # No-op unless SCHEDULER_INTERVAL_SECONDS > 0, so tests/plain dev are unaffected.
+    from app.services.scheduler import start_background_loop
+
+    start_background_loop()
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "dev_mode": settings.dev_mode, "currency": settings.currency}

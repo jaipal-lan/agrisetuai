@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7
 
+    # Background scheduler (sandboxed): compiles daily digests and raises due
+    # follow-up reminders on a timer. 0 disables the in-process loop (the default,
+    # so tests and plain dev runs are unaffected); set >0 seconds to enable it.
+    # The job can always be run on demand via POST /api/admin/scheduler/run.
+    scheduler_interval_seconds: int = 0
+
     @property
     def effective_secret(self) -> str:
         if self.auth_secret:

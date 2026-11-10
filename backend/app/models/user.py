@@ -24,6 +24,9 @@ class User(Base, TimestampMixin):
     # Categories the user wants batched into a once-a-day digest instead of
     # pinging the bell instantly. A category muted above takes precedence.
     digest_notifications: Mapped[list | None] = mapped_column(JSON, default=list)
+    # Watermark: the highest deferred-notification id already rolled into a sent
+    # digest, so the scheduler only summarises newly-batched alerts.
+    last_digest_id: Mapped[int] = mapped_column(default=0)
 
     # Optional organisation membership (FPO / business).
     organisation_id: Mapped[int | None] = mapped_column(

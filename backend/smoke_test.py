@@ -548,6 +548,25 @@ def run():
     fu2 = client.get("/api/agent/follow-ups", headers=hdr(agent)).json()
     check("done follow-up clears from the list", not any(f["id"] == due_id for f in fu2["due"]))
 
+    print("\n== Digest scheduler (compile digests + raise reminders) ==")
+    # Buyer batches announcements, then a broadcast lands as a deferred alert.
+    client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"digest": ["announcements"]})
+    client.post("/api/admin/broadcast", headers=hdr(superadmin),
+                json={"title": "Scheduler test", "body": "batched update", "audience": "buyers"})
+    # A fresh due follow-up the agent hasn't opened yet (so the scheduler raises it).
+    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
+        "crop": "schedcrop", "observation": "x", "recommendation": "revisit", "follow_up_on": _past})
+    res = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
+    check("scheduler compiles at least one digest", res["digests_sent"] >= 1)
+    check("scheduler raises a due follow-up reminder", res["reminders_raised"] >= 1)
+    bn = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
+    check("digest summary pushed to the bell", any("daily digest" in (n["title"] or "").lower() for n in bn))
+    res2 = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
+    check("scheduler run is idempotent", res2["digests_sent"] == 0 and res2["reminders_raised"] == 0)
+    check("scheduler run is superadmin-only",
+          client.post("/api/admin/scheduler/run", headers=hdr(agent)).status_code == 403)
+    client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"digest": []})
+
     print("\n== Superadmin GMV reports ==")
     rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
     check("report has total GMV", float(rep["total_gmv"]) > 0)
