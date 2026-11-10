@@ -91,6 +91,21 @@ def _rating_for_sellers(db: Session, seller_ids) -> tuple[float | None, int]:
     return (round(float(avg), 2) if avg is not None else None), int(cnt or 0)
 
 
+def _latest_review(db: Session, seller_id: int) -> dict | None:
+    """The most recent buyer review (with a written comment) for one farmer — a
+    real quote to show at the decision point, not just a star number."""
+    r = db.scalar(
+        select(Review)
+        .where(Review.subject_type == "farmer", Review.subject_id == seller_id,
+               Review.comment.isnot(None), Review.comment != "")
+        .order_by(Review.id.desc())
+    )
+    if not r:
+        return None
+    return {"rating": r.rating, "comment": r.comment,
+            "at": r.created_at.isoformat() if r.created_at else None}
+
+
 def _place(db: Session, listing: Listing, seller: User | None) -> dict:
     """Where this produce is: mandal (+district) and the farmer's village."""
     mandal = db.get(Mandal, listing.mandal_id) if listing.mandal_id else None
@@ -456,6 +471,10 @@ def product_offerings(commodity_id: int, include_sold_out: bool = True, db: Sess
         .order_by(Listing.asking_price)
     ))
     offerings = [_serialize(l, db.get(User, l.seller_id), db) for l in rows]
+    # Attach each seller's most recent written review — a real buyer quote.
+    for o in offerings:
+        sid = (o.get("seller") or {}).get("id")
+        o["top_review"] = _latest_review(db, sid) if sid else None
     in_stock = [o for o in offerings if not o["out_of_stock"]]
     prices = [float(o["asking_price"]) for o in in_stock]
     places = sorted({o["place"]["label"] for o in in_stock if o["place"]["label"]})

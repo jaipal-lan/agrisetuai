@@ -374,3 +374,10 @@ tbody tr:hover td { background: var(--green-100); }
 .rating-star { color: var(--amber-600); }
 .trust-line { margin: -4px 0 14px; font-size: 15px; display: flex; align-items: center; gap: 4px; }
 .trust-line .rating-star { font-size: 18px; }
+
+/* Buyer review comments on the product detail page */
+.top-review { font-size: 13px; font-style: italic; color: var(--accent-text); margin-top: 6px; border-left: 3px solid var(--amber-600); padding-left: 8px; }
+.review-list { margin-top: 6px; border-top: 1px solid var(--grey-bg); }
+.review-item { padding: 6px 0; border-bottom: 1px solid var(--grey-bg); }
+.review-item:last-child { border-bottom: none; }
+.review-item .rating-star { font-size: 12px; letter-spacing: 1px; }

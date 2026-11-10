@@ -69,6 +69,50 @@ function WatchButton({ commodityId }) {
   );
 }
 
+// Collapsible list of a farmer's buyer reviews, loaded on demand from the
+// existing public /reviews endpoint.
+function SellerReviews({ sellerId, count, t }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && !data) {
+      setLoading(true);
+      try {
+        setData(await api(`/reviews?subject_type=farmer&subject_id=${sellerId}`));
+      } catch { setData({ reviews: [] }); } finally { setLoading(false); }
+    }
+  }
+  if (!count) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button className="ghost" style={{ padding: "2px 8px", fontSize: 13 }} onClick={toggle}>
+        {open ? "▾" : "▸"} {t("see_reviews")} ({count})
+      </button>
+      {open && (
+        <div className="review-list">
+          {loading ? (
+            <p className="muted" style={{ fontSize: 13 }}>{t("loading")}</p>
+          ) : (data?.reviews || []).length === 0 ? (
+            <p className="muted" style={{ fontSize: 13 }}>{t("no_reviews_yet")}</p>
+          ) : (
+            data.reviews.map((r) => (
+              <div key={r.id} className="review-item">
+                <span className="rating-star">{"★".repeat(r.rating)}</span>
+                <span className="muted rating-star">{"★".repeat(5 - r.rating)}</span>
+                {r.comment && <div style={{ fontSize: 13, marginTop: 2 }}>{r.comment}</div>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProductOfferings() {
   const { t, lang } = useI18n();
   const router = useRouter();
@@ -76,6 +120,7 @@ export default function ProductOfferings() {
   const [data, setData] = useState(null);
   const [me, setMe] = useState(null);
   const [err, setErr] = useState(null);
+  const [sortBy, setSortBy] = useState("rating");
 
   useEffect(() => { setMe(getUser()); }, []);
   useEffect(() => {
@@ -90,6 +135,15 @@ export default function ProductOfferings() {
   if (!data) return <p className="muted">{t("loading")}</p>;
 
   const title = lang === "te" && data.commodity_te ? data.commodity_te : data.commodity;
+
+  // Sort offerings for the buyer: sold-out always last, then by the chosen key.
+  const offerings = [...(data.offerings || [])].sort((a, b) => {
+    if (a.out_of_stock !== b.out_of_stock) return a.out_of_stock ? 1 : -1;
+    if (sortBy === "price") return Number(a.asking_price) - Number(b.asking_price);
+    const ar = a.seller_rating == null ? -1 : a.seller_rating;
+    const br = b.seller_rating == null ? -1 : b.seller_rating;
+    return br - ar || Number(a.asking_price) - Number(b.asking_price);
+  });
 
   return (
     <div>
@@ -114,8 +168,18 @@ export default function ProductOfferings() {
         <WatchButton commodityId={id} />
       )}
 
+      {offerings.length > 1 && (
+        <div className="row" style={{ alignItems: "center", margin: "4px 0 14px" }}>
+          <label style={{ margin: 0 }}>{t("sort_sellers")}</label>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ maxWidth: 220 }}>
+            <option value="rating">{t("sort_top_rated")}</option>
+            <option value="price">{t("sort_lowest_price")}</option>
+          </select>
+        </div>
+      )}
+
       <div className="grid">
-        {data.offerings.map((o) => {
+        {offerings.map((o) => {
           const img = o.media[0] ? mediaUrl(o.media[0].object_key) : null;
           return (
             <div key={o.id} className="card" style={{ opacity: o.out_of_stock ? 0.65 : 1 }}>
@@ -137,6 +201,12 @@ export default function ProductOfferings() {
                   <span className="muted">{t("new_seller")}</span>
                 )}
               </div>
+              {o.top_review?.comment && (
+                <div className="top-review">“{o.top_review.comment}”</div>
+              )}
+              {o.seller?.id && (
+                <SellerReviews sellerId={o.seller.id} count={o.seller_rating_count} t={t} />
+              )}
               <div className="muted" style={{ fontSize: 13 }}>
                 {o.variety ? `${o.variety} · ` : ""}{o.is_organic ? "organic" : "non-organic"}
                 {o.grade ? ` · ${o.grade.label}` : ""}{o.harvest_year ? ` · HY ${o.harvest_year}` : ""}

@@ -351,6 +351,13 @@ def run():
           prod2.get("seller_rating") is not None and prod2["seller_rating_count"] >= 1)
     check("product detail offerings carry per-seller rating",
           any(o.get("seller_rating") == 5.0 for o in prod2["offerings"]))
+    # Review depth: actual comments surface at the decision point, sellers sortable by rating.
+    check("product detail offering carries latest review comment",
+          any((o.get("top_review") or {}).get("comment") for o in prod2["offerings"]))
+    rev = client.get("/api/reviews", params={
+        "subject_type": "farmer", "subject_id": lst["seller"]["id"]}).json()
+    check("public reviews list returns written comments",
+          any(r.get("comment") for r in rev["reviews"]))
     disc = client.get("/api/listings/discovery").json()
     check("discovery featured cards expose rating field",
           all("seller_rating" in p for p in disc["featured"]))
