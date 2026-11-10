@@ -164,6 +164,10 @@ def my_advisory(user=Depends(_seller), db: Session = Depends(get_db)):
             "recommendation": l.recommendation,
             "follow_up_on": l.follow_up_on,
             "follow_up_done": l.follow_up_done,
+            "farmer_ack": l.farmer_ack,
+            "farmer_ack_status": l.farmer_ack_status,
+            "farmer_ack_note": l.farmer_ack_note,
+            "farmer_ack_at": l.farmer_ack_at.isoformat() if l.farmer_ack_at else None,
             "agent_name": agent.name if agent else None,
             "created_at": l.created_at.isoformat() if l.created_at else None,
         }
@@ -173,6 +177,61 @@ def my_advisory(user=Depends(_seller), db: Session = Depends(get_db)):
             upcoming.append({**item, "follow_up_date": d.isoformat(), "days_until": (d - today).days})
     upcoming.sort(key=lambda x: x["follow_up_date"])
     return {"today": today.isoformat(), "notes": notes, "upcoming": upcoming}
+
+
+class AdvisoryAck(BaseModel):
+    status: str = "done"  # done | doing | question
+    note: str | None = None
+
+
+_ACK_LABEL = {
+    "done": "has done this",
+    "doing": "is working on this",
+    "question": "has a question",
+}
+
+
+@router.post("/my-advisory/{log_id}/acknowledge")
+def acknowledge_advisory(
+    log_id: int, body: AdvisoryAck, user=Depends(_seller), db: Session = Depends(get_db)
+):
+    """The farmer replies to a piece of advice — 'done', 'working on it' or 'I have
+    a question' (+ optional note). Notifies the agent so the loop is closed."""
+    from datetime import datetime, timezone
+
+    from app.services import notify
+
+    log = db.get(AdvisoryLog, log_id)
+    if not log or log.farmer_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Advisory note not found")
+    if body.status not in _ACK_LABEL:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "status must be done, doing or question")
+
+    log.farmer_ack = True
+    log.farmer_ack_status = body.status
+    log.farmer_ack_note = (body.note or None)
+    log.farmer_ack_at = datetime.now(timezone.utc)
+    log.agent_ack_seen = False
+    # When the farmer confirms it's done, clear the agent's follow-up to-do too.
+    if body.status == "done":
+        log.follow_up_done = True
+
+    # Tell the agent who logged the advice.
+    crop_txt = f" on {log.crop}" if log.crop else ""
+    note_txt = f" — “{body.note}”" if body.note else ""
+    notify.send(
+        db, user_id=log.agent_id,
+        title="Farmer responded to your advice",
+        body=f"{user.name or 'The farmer'} {_ACK_LABEL[body.status]}{crop_txt}.{note_txt}",
+        object_type="advisory_log", object_id=log.id,
+    )
+    db.commit()
+    return {
+        "id": log.id, "farmer_ack": True, "farmer_ack_status": log.farmer_ack_status,
+        "farmer_ack_note": log.farmer_ack_note,
+        "farmer_ack_at": log.farmer_ack_at.isoformat(),
+        "follow_up_done": log.follow_up_done,
+    }
 
 
 @router.get("/advisories")

@@ -336,6 +336,45 @@ function FollowUps({ online, syncedAt }) {
   );
 }
 
+const RESP_LABEL = { done: "✓ done this", doing: "working on it", question: "has a question" };
+const RESP_BADGE = { done: "", doing: "amber", question: "danger" };
+
+// The other half of the advisory loop: what farmers replied to the agent's advice.
+function FarmerResponses({ syncedAt }) {
+  const [data, setData] = useState(null);
+
+  async function load() {
+    try { setData(await api("/agent/farmer-responses")); } catch {}
+  }
+  useEffect(() => { load(); }, [syncedAt]);
+
+  if (!data || data.responses.length === 0) return null;
+  const fresh = data.responses.filter((r) => r.was_new).length;
+
+  return (
+    <div className="card" style={{ borderLeft: "4px solid var(--brand-600, #15803d)", marginBottom: 16 }}>
+      <h3 style={{ marginTop: 0 }}>
+        💬 Farmer responses {fresh > 0 && <span className="badge danger">{fresh} new</span>}
+      </h3>
+      {data.responses.map((r) => (
+        <div key={r.id} className="followup-row">
+          <div className="between">
+            <b>{r.farmer_name || "A farmer"} · {r.crop || "general"}</b>
+            <span className={`badge ${RESP_BADGE[r.farmer_ack_status] || "grey"}`}>
+              {RESP_LABEL[r.farmer_ack_status] || r.farmer_ack_status}
+            </span>
+          </div>
+          {r.recommendation && <div className="muted" style={{ fontSize: 13 }}>re: {r.recommendation}</div>}
+          {r.farmer_ack_note && <div style={{ fontSize: 14, marginTop: 2 }}>“{r.farmer_ack_note}”</div>}
+          {r.farmer_ack_at && (
+            <div className="muted" style={{ fontSize: 12 }}>{new Date(r.farmer_ack_at).toLocaleDateString()}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AgentJobs() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
@@ -486,6 +525,7 @@ export default function AgentJobs() {
       </p>
 
       <FollowUps online={online} syncedAt={syncedAt} />
+      <FarmerResponses syncedAt={syncedAt} />
 
       {/* Inspection drafts captured on this device */}
       {queue.length > 0 && (

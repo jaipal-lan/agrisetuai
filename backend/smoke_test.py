@@ -608,6 +608,36 @@ def run():
     check("non-seller blocked from my-advisory",
           client.get("/api/my-advisory", headers=hdr(agent)).status_code == 403)
 
+    print("\n== Farmer acknowledges advice back to the agent ==")
+    maize_id = next(f["id"] for f in mine2["upcoming"] if f["crop"] == "maize")
+    r = client.post(f"/api/my-advisory/{maize_id}/acknowledge", headers=hdr(farmer),
+                    json={"status": "done", "note": "Scouted and sprayed as advised."})
+    check("farmer acknowledges advice", r.status_code == 200 and r.json()["farmer_ack"] is True)
+    check("'done' acknowledgement clears the follow-up", r.json()["follow_up_done"] is True)
+    check("agent notified of the farmer's response",
+          any("responded to your advice" in (n["title"] or "").lower()
+              for n in client.get("/api/auth/notifications", headers=hdr(agent)).json()))
+    ad3 = client.get("/api/dashboard", headers=hdr(agent)).json()
+    check("agent dashboard surfaces a new Farmer-responses count",
+          any(c["label"] == "Farmer responses" and c["value"] >= 1 for c in ad3["cards"]))
+    resp = client.get("/api/agent/farmer-responses", headers=hdr(agent)).json()
+    row = next((x for x in resp["responses"] if x["id"] == maize_id), None)
+    check("response appears for the agent with status + farmer name",
+          row is not None and row["farmer_ack_status"] == "done" and row.get("farmer_name"))
+    check("response flagged as new on first view", row["was_new"] is True)
+    resp2 = client.get("/api/agent/farmer-responses", headers=hdr(agent)).json()
+    row2 = next(x for x in resp2["responses"] if x["id"] == maize_id)
+    check("response marked seen after viewing", row2["was_new"] is False)
+    check("invalid ack status rejected",
+          client.post(f"/api/my-advisory/{maize_id}/acknowledge", headers=hdr(farmer),
+                      json={"status": "nope"}).status_code == 400)
+    check("non-farmer cannot acknowledge",
+          client.post(f"/api/my-advisory/{maize_id}/acknowledge", headers=hdr(buyer),
+                      json={"status": "done"}).status_code == 403)
+    check("farmer cannot ack a note that isn't theirs",
+          client.post("/api/my-advisory/99999/acknowledge", headers=hdr(farmer),
+                      json={"status": "done"}).status_code == 404)
+
     print("\n== Superadmin GMV reports ==")
     rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
     check("report has total GMV", float(rep["total_gmv"]) > 0)

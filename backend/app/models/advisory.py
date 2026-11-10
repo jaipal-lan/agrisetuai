@@ -1,4 +1,6 @@
-from sqlalchemy import JSON, Boolean, ForeignKey, Numeric, String, Text
+from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -52,6 +54,14 @@ class AdvisoryLog(Base, TimestampMixin):
     # Offline-first idempotency key: a re-synced draft returns the existing row
     # instead of creating a duplicate (mirrors Inspection.client_draft_id).
     client_draft_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # Farmer's acknowledgement back to the agent — closes the advisory loop so
+    # the agent knows the farmer saw and acted on the advice.
+    farmer_ack: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    farmer_ack_status: Mapped[str | None] = mapped_column(String(16))  # done | doing | question
+    farmer_ack_note: Mapped[str | None] = mapped_column(Text)
+    farmer_ack_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Whether the agent has seen this acknowledgement (clears the "new" badge).
+    agent_ack_seen: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class CropCase(Base, TimestampMixin):

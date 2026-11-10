@@ -69,6 +69,55 @@ function Triage({ ai }) {
   );
 }
 
+const ACK_LABEL = { done: "✓ Done", doing: "Working on it", question: "Question" };
+
+// Lets a farmer reply to a piece of advice so the agent knows they acted on it.
+function AckBox({ note, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  if (note.farmer_ack) {
+    return (
+      <div className="ack-done">
+        <b>You replied:</b> {ACK_LABEL[note.farmer_ack_status] || note.farmer_ack_status}
+        {note.farmer_ack_note ? ` — “${note.farmer_ack_note}”` : ""}
+      </div>
+    );
+  }
+  async function send(status) {
+    setBusy(true); setErr(null);
+    try {
+      await api(`/my-advisory/${note.id}/acknowledge`, {
+        method: "POST", body: { status, note: text || undefined },
+      });
+      onDone();
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <div className="ack-box">
+      {!open ? (
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button className="ghost" disabled={busy} onClick={() => send("done")}>✓ I did this</button>
+          <button className="ghost" disabled={busy} onClick={() => send("doing")}>Working on it</button>
+          <button className="ghost" disabled={busy} onClick={() => setOpen(true)}>I have a question</button>
+        </div>
+      ) : (
+        <div>
+          <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)}
+                    placeholder="Your question for the agent…" />
+          <div className="row" style={{ gap: 8, marginTop: 6 }}>
+            <button disabled={busy} onClick={() => send("question")}>Send to agent</button>
+            <button className="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {err && <div className="error" style={{ marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
 export default function Advisory() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
@@ -105,8 +154,11 @@ export default function Advisory() {
     setMe(getUser());
     load();
   }, []);
+  function loadMyAdv() {
+    api("/my-advisory").then(setMyAdv).catch(() => {});
+  }
   useEffect(() => {
-    if (isSeller) api("/my-advisory").then(setMyAdv).catch(() => {});
+    if (isSeller) loadMyAdv();
   }, [isSeller]);
 
   async function submit() {
@@ -159,6 +211,7 @@ export default function Advisory() {
                   <div className="muted" style={{ fontSize: 12 }}>
                     follow-up {f.follow_up_date} ({f.days_until === 0 ? "today" : `in ${f.days_until}d`})
                   </div>
+                  <AckBox note={f} onDone={loadMyAdv} />
                 </div>
               ))}
             </div>
@@ -178,6 +231,7 @@ export default function Advisory() {
                   Follow-up: {n.follow_up_on}{n.follow_up_done ? " ✓ done" : ""}
                 </div>
               )}
+              <AckBox note={n} onDone={loadMyAdv} />
             </div>
           ))}
         </div>

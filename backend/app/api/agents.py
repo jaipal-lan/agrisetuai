@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -170,6 +170,10 @@ def _log_json(l: AdvisoryLog) -> dict:
         "recommendation": l.recommendation,
         "follow_up_on": l.follow_up_on,
         "follow_up_done": l.follow_up_done,
+        "farmer_ack": l.farmer_ack,
+        "farmer_ack_status": l.farmer_ack_status,
+        "farmer_ack_note": l.farmer_ack_note,
+        "farmer_ack_at": l.farmer_ack_at.isoformat() if l.farmer_ack_at else None,
         "created_at": l.created_at.isoformat() if l.created_at else None,
     }
 
@@ -301,3 +305,38 @@ def mark_follow_up_done(log_id: int, user=Depends(_agent), db: Session = Depends
     log.follow_up_done = True
     db.commit()
     return {"id": log.id, "follow_up_done": True}
+
+
+def unseen_farmer_ack_count(db: Session, agent_id: int) -> int:
+    """How many farmer acknowledgements this agent hasn't looked at yet."""
+    return db.scalar(
+        select(func.count(AdvisoryLog.id)).where(
+            AdvisoryLog.agent_id == agent_id,
+            AdvisoryLog.farmer_ack.is_(True),
+            AdvisoryLog.agent_ack_seen.is_(False),
+        )
+    ) or 0
+
+
+@router.get("/farmer-responses")
+def farmer_responses(user=Depends(_agent), db: Session = Depends(get_db)):
+    """Acknowledgements the farmers sent back on this agent's advice — the other
+    half of the loop. Opening this marks them seen (clears the 'new' badge)."""
+    rows = list(db.scalars(
+        select(AdvisoryLog).where(
+            AdvisoryLog.agent_id == user.id, AdvisoryLog.farmer_ack.is_(True)
+        ).order_by(AdvisoryLog.farmer_ack_at.desc(), AdvisoryLog.id.desc()).limit(100)
+    ))
+    out = []
+    marked = 0
+    for l in rows:
+        farmer = db.get(User, l.farmer_id) if l.farmer_id else None
+        item = {**_log_json(l), "farmer_name": farmer.name if farmer else None,
+                "was_new": not l.agent_ack_seen}
+        out.append(item)
+        if not l.agent_ack_seen:
+            l.agent_ack_seen = True
+            marked += 1
+    if marked:
+        db.commit()
+    return {"responses": out}

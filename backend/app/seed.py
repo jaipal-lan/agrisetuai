@@ -762,6 +762,39 @@ def seed_demo_reviews(db: Session, catalog: dict) -> int:
     return created
 
 
+def seed_demo_advisory_logs(db: Session) -> int:
+    """A couple of field-agent advisory notes for the primary demo farmer so the
+    farmer's advisory page + the agent's follow-ups/responses are populated out of
+    the box. Idempotent — skips once any advisory log exists."""
+    from datetime import date, timedelta
+
+    from sqlalchemy import func
+
+    from app.models.advisory import AdvisoryLog
+
+    if db.scalar(select(func.count(AdvisoryLog.id))):
+        return 0
+    agent = db.scalar(select(User).where(User.phone == "919000000002"))
+    ravi = db.scalar(select(User).where(User.phone == "919000000003"))
+    if not agent or not ravi:
+        return 0
+
+    soon = (date.today() + timedelta(days=5)).isoformat()
+    db.add(AdvisoryLog(
+        agent_id=agent.id, farmer_id=ravi.id, crop="paddy", topic="advisory",
+        observation="Early blast spotting on a few tillers in the north plot.",
+        recommendation="Avoid excess nitrogen; scout weekly; keep 2-3 cm standing water.",
+        follow_up_on=soon,
+    ))
+    db.add(AdvisoryLog(
+        agent_id=agent.id, farmer_id=ravi.id, crop="paddy", topic="education",
+        observation="Discussed safe grain drying to hit buyer moisture limits.",
+        recommendation="Dry to 12-13% moisture before bagging for better grades.",
+    ))
+    db.flush()
+    return 2
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
@@ -781,11 +814,12 @@ def main() -> None:
         n_activity += seed_demo_saved_searches(db)
         n_activity += seed_demo_crop_interests(db, catalog)
         n_reviews = seed_demo_reviews(db, catalog)
+        n_adv = seed_demo_advisory_logs(db)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_plans} subscription plans, "
               f"{n_carriers} couriers, advisory + insights, {n_activity} demo offers/RFQs, "
-              f"{n_reviews} demo reviews.")
+              f"{n_reviews} demo reviews, {n_adv} demo advisory notes.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()
