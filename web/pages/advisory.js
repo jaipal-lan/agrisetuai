@@ -91,6 +91,9 @@ export default function Advisory() {
     }
   }
 
+  const [myAdv, setMyAdv] = useState(null);
+  const isSeller = me && ["farmer", "fpo"].includes(me.role);
+
   async function load() {
     try {
       setCases(await api("/ai/crop-cases"));
@@ -102,6 +105,9 @@ export default function Advisory() {
     setMe(getUser());
     load();
   }, []);
+  useEffect(() => {
+    if (isSeller) api("/my-advisory").then(setMyAdv).catch(() => {});
+  }, [isSeller]);
 
   async function submit() {
     setErr(null);
@@ -138,6 +144,44 @@ export default function Advisory() {
         reviewed, label-sourced guidance, with escalation to a qualified agronomist.
       </p>
       {err && <div className="error">{err}</div>}
+
+      {isSeller && myAdv && (myAdv.notes.length > 0 || myAdv.upcoming.length > 0) && (
+        <div style={{ marginBottom: 22 }}>
+          <h2 style={{ marginTop: 0 }}>Advice from your field agent</h2>
+          {myAdv.upcoming.length > 0 && (
+            <div className="card" style={{ borderLeft: "4px solid var(--amber-600)", marginBottom: 12 }}>
+              <b>📌 Upcoming follow-ups</b>
+              {myAdv.upcoming.map((f) => (
+                <div key={f.id} className="followup-row">
+                  <b>{f.crop || "general"}</b>
+                  <span className="muted" style={{ fontSize: 13 }}> · {f.agent_name || "your agent"}</span>
+                  {f.recommendation && <div style={{ fontSize: 14 }}>{f.recommendation}</div>}
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    follow-up {f.follow_up_date} ({f.days_until === 0 ? "today" : `in ${f.days_until}d`})
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {myAdv.notes.map((n) => (
+            <div className="card" key={n.id} style={{ marginBottom: 10 }}>
+              <div className="between">
+                <b>{n.crop || "general"}</b>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {n.agent_name ? `${n.agent_name} · ` : ""}{n.created_at ? new Date(n.created_at).toLocaleDateString() : ""}
+                </span>
+              </div>
+              {n.observation && <div style={{ fontSize: 14 }}>{n.observation}</div>}
+              {n.recommendation && <div className="ok" style={{ fontSize: 14, marginTop: 6 }}>→ {n.recommendation}</div>}
+              {n.follow_up_on && (
+                <div className="muted" style={{ fontSize: 13 }}>
+                  Follow-up: {n.follow_up_on}{n.follow_up_done ? " ✓ done" : ""}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="card">
         <div className="row">

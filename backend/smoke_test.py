@@ -567,6 +567,25 @@ def run():
           client.post("/api/admin/scheduler/run", headers=hdr(agent)).status_code == 403)
     client.put("/api/auth/notification-preferences", headers=hdr(buyer), json={"digest": []})
 
+    print("\n== Farmer-facing advisory visibility ==")
+    # The paddy advisory logged earlier for farmer 919000000003 is visible to them.
+    mine = client.get("/api/my-advisory", headers=hdr(farmer)).json()
+    check("farmer sees advice logged about them", any(n["crop"] == "paddy" for n in mine["notes"]))
+    check("advice shows the logging agent's name", any(n.get("agent_name") for n in mine["notes"]))
+    # A new advisory with a future follow-up notifies the farmer and shows as upcoming.
+    fb = len(client.get("/api/auth/notifications", headers=hdr(farmer)).json())
+    _fut = (_date.today() + _td(days=4)).isoformat()
+    client.post("/api/agent/advisory-logs", headers=hdr(agent), json={
+        "farmer_phone": "919000000003", "crop": "maize", "observation": "borer",
+        "recommendation": "scout weekly", "follow_up_on": _fut})
+    check("farmer notified when advice is logged",
+          len(client.get("/api/auth/notifications", headers=hdr(farmer)).json()) > fb)
+    mine2 = client.get("/api/my-advisory", headers=hdr(farmer)).json()
+    check("new advice shows in the farmer's upcoming follow-ups",
+          any(f["crop"] == "maize" for f in mine2["upcoming"]))
+    check("non-seller blocked from my-advisory",
+          client.get("/api/my-advisory", headers=hdr(agent)).status_code == 403)
+
     print("\n== Superadmin GMV reports ==")
     rep = client.get("/api/admin/reports", headers=hdr(superadmin)).json()
     check("report has total GMV", float(rep["total_gmv"]) > 0)

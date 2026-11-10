@@ -196,6 +196,17 @@ def create_advisory_log(body: AdvisoryLogCreate, user=Depends(_agent), db: Sessi
         follow_up_on=body.follow_up_on, client_draft_id=body.client_draft_id,
     )
     db.add(log)
+    db.flush()
+    # Close the loop: the farmer sees advice logged about them (respects their
+    # notification preferences via the 'advisory' category).
+    if farmer_id:
+        crop_txt = f" on {body.crop}" if body.crop else ""
+        notify.send(
+            db, user_id=farmer_id,
+            title="New advice from your field agent",
+            body=(body.recommendation or body.observation or "Your agent logged a visit.") + crop_txt,
+            object_type="advisory_log", object_id=log.id,
+        )
     db.commit()
     db.refresh(log)
     return _log_json(log)

@@ -3,17 +3,21 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datetime import date
+
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_roles
 from app.core.ids import case_id
 from app.core.rbac import Role
-from app.models.advisory import CropCase, KnowledgeSource
+from app.models.advisory import AdvisoryLog, CropCase, KnowledgeSource
+from app.models.user import User
 from app.services import audit
 from app.services.advisory_engine import triage
 
 router = APIRouter(tags=["advisory"])
 
 _reviewer = require_roles(Role.AGRONOMIST, Role.SUPERADMIN, Role.MANDAL_MANAGER)
+_seller = require_roles(Role.FARMER, Role.FPO)
 
 
 class CropCaseCreate(BaseModel):
@@ -136,6 +140,39 @@ def expert_review(
     )
     db.commit()
     return _case_json(c)
+
+
+@router.get("/my-advisory")
+def my_advisory(user=Depends(_seller), db: Session = Depends(get_db)):
+    """A farmer's own advisory notes, logged by their field agent — with any
+    upcoming follow-ups highlighted. The farmer's side of the advisory log."""
+    from app.api.agents import _parse_follow_date
+
+    today = date.today()
+    rows = db.scalars(
+        select(AdvisoryLog).where(AdvisoryLog.farmer_id == user.id)
+        .order_by(AdvisoryLog.id.desc()).limit(100)
+    )
+    notes, upcoming = [], []
+    for l in rows:
+        agent = db.get(User, l.agent_id)
+        item = {
+            "id": l.id,
+            "crop": l.crop,
+            "topic": l.topic,
+            "observation": l.observation,
+            "recommendation": l.recommendation,
+            "follow_up_on": l.follow_up_on,
+            "follow_up_done": l.follow_up_done,
+            "agent_name": agent.name if agent else None,
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        }
+        notes.append(item)
+        d = _parse_follow_date(l.follow_up_on)
+        if d is not None and not l.follow_up_done and d >= today:
+            upcoming.append({**item, "follow_up_date": d.isoformat(), "days_until": (d - today).days})
+    upcoming.sort(key=lambda x: x["follow_up_date"])
+    return {"today": today.isoformat(), "notes": notes, "upcoming": upcoming}
 
 
 @router.get("/advisories")
