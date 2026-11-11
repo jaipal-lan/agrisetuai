@@ -33,6 +33,7 @@ from app.models.support import (
     QualityCase,
     SupportTicket,
 )
+from app.models.team import AgentTarget, TeamMeeting
 from app.models.user import (
     AgentProfile,
     BuyerProfile,
@@ -82,4 +83,6 @@ __all__ = [
     "Notification",
     "MediaObject",
     "QualityCase",
+    "AgentTarget",
+    "TeamMeeting",
 ]

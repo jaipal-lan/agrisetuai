@@ -75,7 +75,7 @@ export default function Prices() {
                   <tbody>
                     {s.markets.map((m) => (
                       <tr key={m.id}>
-                        <td>{m.market}</td>
+                        <td>{m.market}{m.stale && <span className="pill-tag" style={{ marginLeft: 6 }}>stale</span>}</td>
                         <td className="muted">{m.variety || "—"}</td>
                         <td>₹{m.min_price}</td>
                         <td><b>₹{m.modal_price}</b></td>

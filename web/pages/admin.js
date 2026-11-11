@@ -36,6 +36,8 @@ export default function Admin() {
   const [annMsg, setAnnMsg] = useState(null);
   const [schedMsg, setSchedMsg] = useState(null);
   const [schedBusy, setSchedBusy] = useState(false);
+  const [priceMsg, setPriceMsg] = useState(null);
+  const [priceBusy, setPriceBusy] = useState(false);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
   const [users, setUsers] = useState([]);
@@ -169,13 +171,33 @@ export default function Admin() {
     }
   }
 
+  async function refreshPrices() {
+    setErr(null);
+    setPriceMsg(null);
+    setPriceBusy(true);
+    try {
+      const r = await api("/admin/prices/refresh", { method: "POST" });
+      if (r.configured === false) {
+        setPriceMsg("Live feed not configured — set PRICES_PROVIDER=data_gov_in and DATA_GOV_IN_API_KEY. Still serving seeded sample prices.");
+      } else if (r.ok === false) {
+        setErr(r.message || "Price feed error.");
+      } else {
+        setPriceMsg(`Refreshed from ${r.source}: ${r.upserted} price(s) updated (${r.new} new)${r.as_of ? `, as of ${r.as_of}` : ""}.`);
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
   async function runScheduler() {
     setErr(null);
     setSchedMsg(null);
     setSchedBusy(true);
     try {
       const r = await api("/admin/scheduler/run", { method: "POST" });
-      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.reminders_raised} follow-up reminder(s) + ${r.reminders_due_raised} calendar reminder(s) raised.`);
+      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.prices_refreshed || 0} market price(s) refreshed.`);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -571,6 +593,19 @@ export default function Admin() {
             Send announcement
           </button>
         </div>
+      </div>
+
+      <h2>Market price feed</h2>
+      <div className="card">
+        <p className="muted" style={{ fontSize: 14, marginTop: 0 }}>
+          Pulls today&apos;s government-declared mandi prices (data.gov.in / AGMARKNET)
+          and updates the all-India price screen. Requires a data.gov.in API key in
+          the backend config; until then the app serves the seeded sample prices.
+        </p>
+        {priceMsg && <div className="ok" style={{ marginBottom: 10 }}>{priceMsg}</div>}
+        <button disabled={priceBusy} onClick={refreshPrices}>
+          {priceBusy ? "Refreshing…" : "Refresh prices now"}
+        </button>
       </div>
 
       <h2>Scheduled jobs</h2>

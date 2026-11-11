@@ -598,6 +598,28 @@ def run_scheduler(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = De
     return result
 
 
+@router.post("/prices/refresh")
+def refresh_market_prices(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = Depends(get_db)):
+    """Pull the latest government-declared mandi prices from the live feed
+    (data.gov.in / AGMARKNET) and upsert them. Requires PRICES_PROVIDER=data_gov_in
+    + DATA_GOV_IN_API_KEY; returns a 400-style 'not configured' message otherwise."""
+    from app.services import prices_feed
+
+    if not prices_feed.provider_configured():
+        return {"configured": False,
+                "message": "Live price feed not configured. Set PRICES_PROVIDER=data_gov_in "
+                           "and DATA_GOV_IN_API_KEY, then try again. Showing seeded sample prices."}
+    try:
+        result = prices_feed.refresh_prices(db)
+    except Exception as exc:  # network / upstream failure — report, don't 500
+        db.rollback()
+        return {"configured": True, "ok": False, "message": f"Price feed error: {exc}"}
+    audit.record(db, actor_id=user.id, action="prices.refresh", object_type="system",
+                 object_id="market_prices", new_values=result)
+    db.commit()
+    return {"configured": True, "ok": True, **result}
+
+
 @router.get("/audit-logs")
 def audit_logs(limit: int = 100, user=Depends(_staff), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))

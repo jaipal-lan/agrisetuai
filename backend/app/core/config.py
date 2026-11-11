@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7
 
+    # Market-price feed. "sample" uses the seeded demo rows (default, so dev and
+    # tests need no network or key). Set to "data_gov_in" and provide a key from
+    # https://data.gov.in to pull live AGMARKNET mandi prices on demand
+    # (POST /api/admin/prices/refresh) and on the scheduler tick.
+    prices_provider: str = "sample"
+    data_gov_in_api_key: str = ""
+    prices_feed_limit: int = 500
+
     # Background scheduler (sandboxed): compiles daily digests and raises due
     # follow-up reminders on a timer. 0 disables the in-process loop (the default,
     # so tests and plain dev runs are unaffected); set >0 seconds to enable it.

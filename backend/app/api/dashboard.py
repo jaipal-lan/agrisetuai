@@ -18,6 +18,7 @@ from app.models.finance import Payout
 from app.models.marketplace import Listing, Offer, RFQ
 from app.models.order import Order, Shipment
 from app.models.support import Dispute, Notification
+from app.models.team import AgentTarget, TeamMeeting
 from app.models.user import BuyerProfile, FarmerProfile, User
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -115,8 +116,14 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     elif role == Role.FIELD_AGENT:
         jobs = _count(db, select(func.count(Order.id)).where(
             Order.assigned_agent_id == user.id, Order.status.in_(_INSPECTION_STATES)))
+        my_targets = _count(db, select(func.count(AgentTarget.id)).where(
+            AgentTarget.agent_id == user.id, AgentTarget.status == "active"))
+        meetings = _count(db, select(func.count(TeamMeeting.id)).where(
+            TeamMeeting.status == "scheduled"))
         cards = [
             {"label": "Inspections to do", "value": jobs, "href": "/agent", "alert": jobs > 0},
+            {"label": "My targets", "value": my_targets, "href": "/agent"},
+            {"label": "Upcoming meetings", "value": meetings, "href": "/agent", "alert": meetings > 0},
         ]
         actions = [{"label": "Inspection jobs", "href": "/agent", "primary": True}]
 
@@ -128,10 +135,14 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             Order.status.in_(_INSPECTION_STATES), Order.assigned_agent_id.is_(None)))
         agents = _count(db, select(func.count(User.id)).where(User.role == str(Role.FIELD_AGENT)))
         active_orders = _count(db, select(func.count(Order.id)).where(Order.status.not_in(_TERMINAL)))
+        active_targets = _count(db, select(func.count(AgentTarget.id)).where(AgentTarget.status == "active"))
+        upcoming_meetings = _count(db, select(func.count(TeamMeeting.id)).where(TeamMeeting.status == "scheduled"))
         cards = [
             {"label": "Unassigned inspections", "value": unassigned, "href": "/team", "alert": unassigned > 0},
             {"label": "In inspection", "value": in_inspection, "href": "/team"},
             {"label": "Field agents", "value": agents, "href": "/team"},
+            {"label": "Active targets", "value": active_targets, "href": "/team"},
+            {"label": "Upcoming meetings", "value": upcoming_meetings, "href": "/team"},
             {"label": "Orders in progress", "value": active_orders, "href": "/orders"},
         ]
         actions = [

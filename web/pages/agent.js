@@ -188,6 +188,53 @@ function InspectForm({ job, onQueued, online }) {
   );
 }
 
+// Targets a leader set for this agent + meetings they're invited to.
+function MyTeam() {
+  const [targets, setTargets] = useState([]);
+  const [meetings, setMeetings] = useState([]);
+  useEffect(() => {
+    api("/team/my-targets").then(setTargets).catch(() => {});
+    api("/team/my-meetings").then(setMeetings).catch(() => {});
+  }, []);
+  const upcoming = meetings.filter((m) => m.status === "scheduled");
+  if (targets.length === 0 && upcoming.length === 0) return null;
+  return (
+    <>
+      {targets.length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <h3 style={{ marginTop: 0 }}>🎯 Your targets</h3>
+          {targets.map((tg) => (
+            <div key={tg.id} style={{ marginBottom: 10 }}>
+              <div className="between" style={{ fontSize: 14 }}>
+                <span>{tg.progress} / {tg.target_value} {tg.metric_label}</span>
+                <span className={`badge ${tg.met ? "green" : "grey"}`}>{tg.met ? "met" : `${tg.pct}%`}</span>
+              </div>
+              <div className="pbar" style={{ marginTop: 4 }}><div className="pbar-fill" style={{ width: `${tg.pct}%` }} /></div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                by {tg.period_end}{tg.note ? ` · ${tg.note}` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {upcoming.length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <h3 style={{ marginTop: 0 }}>📅 Upcoming meetings</h3>
+          {upcoming.map((m) => (
+            <div key={m.id} style={{ marginBottom: 8, fontSize: 14 }}>
+              <b>{m.title}</b>
+              <div className="muted" style={{ fontSize: 13 }}>
+                🕒 {(m.scheduled_at || "").replace("T", " ").slice(0, 16)}{m.location ? ` · ${m.location}` : ""}
+              </div>
+              {m.agenda && <div style={{ fontSize: 13 }}>{m.agenda}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function AgentJobs() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
@@ -321,6 +368,8 @@ export default function AgentJobs() {
         you can work in low-signal fields. They sync automatically when you are
         back online.
       </p>
+
+      <MyTeam />
 
       {/* Inspection drafts captured on this device */}
       {queue.length > 0 && (

@@ -72,11 +72,29 @@ def compile_digests(db: Session) -> int:
     return sent
 
 
+def refresh_market_prices(db: Session) -> int:
+    """Refresh live mandi prices if the feed is configured; no-op otherwise.
+    Never raises (a transient upstream failure must not break the job run)."""
+    from app.services import prices_feed
+
+    if not prices_feed.provider_configured():
+        return 0
+    try:
+        result = prices_feed.refresh_prices(db)
+        db.commit()
+        return result.get("upserted", 0)
+    except Exception:
+        db.rollback()
+        log.exception("price feed refresh failed")
+        return 0
+
+
 def run_scheduled_jobs(db: Session) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
     digests = compile_digests(db)
-    return {"ran_at": utcnow().isoformat(), "digests_sent": digests}
+    prices = refresh_market_prices(db)
+    return {"ran_at": utcnow().isoformat(), "digests_sent": digests, "prices_refreshed": prices}
 
 
 async def _loop(interval: int) -> None:

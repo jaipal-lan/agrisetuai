@@ -549,6 +549,36 @@ def run():
     check("prices filter by commodity + state",
           len(filtered) >= 1 and all(p["state"] == "Punjab" and p["commodity"] == "Paddy" for p in filtered))
 
+    print("\n== Market price feed (data.gov.in / AGMARKNET) ==")
+    # Unconfigured by default: the admin refresh reports "not configured" cleanly.
+    rf = client.post("/api/admin/prices/refresh", headers=hdr(superadmin)).json()
+    check("refresh reports not-configured when no feed key", rf.get("configured") is False)
+    check("refresh is superadmin-only",
+          client.post("/api/admin/prices/refresh", headers=hdr(farmer)).status_code == 403)
+    # Exercise the parse/upsert path directly with a synthetic AGMARKNET payload.
+    from app.core.database import SessionLocal  # noqa: E402
+    from app.services import prices_feed  # noqa: E402
+    _db = SessionLocal()
+    try:
+        res = prices_feed.refresh_prices(_db, records=[
+            {"state": "Kerala", "market": "Kochi", "commodity": "Black Pepper",
+             "variety": "Garbled", "min_price": "60000", "max_price": "66000",
+             "modal_price": "63000", "arrival_date": "2026-11-11"},
+            {"state": "Kerala", "market": "Kochi", "commodity": "Black Pepper",
+             "variety": "Garbled", "min_price": "61000", "max_price": "67000",
+             "modal_price": "64000", "arrival_date": "2026-11-12"},  # same key -> update
+            {"commodity": "", "market": "", "modal_price": None},  # unusable -> skipped
+        ])
+        _db.commit()
+    finally:
+        _db.close()
+    check("feed parses + upserts valid rows, skips junk", res["parsed"] == 2 and res["new"] == 1)
+    check("feed is idempotent on a repeated key (1 new row, not 2)", res["upserted"] == 2)
+    pepper = client.get("/api/market-prices", params={"commodity": "Black Pepper"}).json()
+    check("upserted feed row is served + latest price wins",
+          len(pepper) == 1 and pepper[0]["modal_price"] == "64000.00"
+          and pepper[0]["source_name"] == prices_feed.SOURCE_NAME)
+
     print("\n== Team console (field leader / manager) ==")
     ov = client.get("/api/team/overview", headers=hdr(manager)).json()
     check("team overview lists field agents + pipeline",
@@ -558,6 +588,59 @@ def run():
           "unassigned" in ov and "active_orders" in ov)
     check("non-lead cannot read the team console",
           client.get("/api/team/overview", headers=hdr(farmer)).status_code == 403)
+
+    print("\n== Field-leader targets ==")
+    from datetime import date as _date, timedelta as _td  # noqa: E402
+    agent_id = client.get("/api/auth/me", headers=hdr(agent)).json()["id"]
+    start = (_date.today() - _td(days=1)).isoformat()
+    end = (_date.today() + _td(days=1)).isoformat()
+    r = client.post("/api/team/targets", headers=hdr(manager), json={
+        "agent_id": agent_id, "metric": "inspections", "target_value": 3,
+        "period_start": start, "period_end": end, "note": "Weekly goal"})
+    check("leader sets a target for an agent", r.status_code == 200)
+    tgt = r.json()
+    # The agent already completed an inspection earlier today -> progress counts it.
+    check("target shows live progress from the agent's inspections",
+          tgt["progress"] >= 1 and tgt["target_value"] == 3 and 0 < tgt["pct"] <= 100)
+    check("target lists for the leader",
+          any(t["id"] == tgt["id"] for t in client.get("/api/team/targets", headers=hdr(manager)).json()))
+    check("agent sees their own target",
+          any(t["id"] == tgt["id"] for t in client.get("/api/team/my-targets", headers=hdr(agent)).json()))
+    check("bad metric rejected",
+          client.post("/api/team/targets", headers=hdr(manager), json={
+              "agent_id": agent_id, "metric": "bogus", "target_value": 1,
+              "period_start": start, "period_end": end}).status_code == 400)
+    check("non-lead cannot set targets",
+          client.post("/api/team/targets", headers=hdr(farmer), json={
+              "agent_id": agent_id, "metric": "inspections", "target_value": 1,
+              "period_start": start, "period_end": end}).status_code == 403)
+    up = client.patch(f"/api/team/targets/{tgt['id']}", headers=hdr(manager),
+                      json={"target_value": 10}).json()
+    check("target value updated + pct recomputed", up["target_value"] == 10 and up["pct"] <= 30)
+
+    print("\n== Field-leader meetings ==")
+    r = client.post("/api/team/meetings", headers=hdr(manager), json={
+        "title": "Mandal weekly sync", "scheduled_at": "2026-11-15T10:00",
+        "location": "Guntur office", "agenda": "Targets + pending verifications",
+        "attendee_ids": [agent_id]})
+    check("leader schedules a meeting", r.status_code == 200)
+    mtg = r.json()
+    check("meeting records attendees", mtg["attendee_count"] == 1 and mtg["status"] == "scheduled")
+    check("meeting lists for the leader",
+          any(m["id"] == mtg["id"] for m in client.get("/api/team/meetings", headers=hdr(manager)).json()))
+    check("invited agent sees the meeting",
+          any(m["id"] == mtg["id"] for m in client.get("/api/team/my-meetings", headers=hdr(agent)).json()))
+    check("agent notified of the meeting",
+          any(n["object_type"] == "meeting"
+              for n in client.get("/api/auth/notifications", headers=hdr(agent)).json()))
+    done = client.patch(f"/api/team/meetings/{mtg['id']}", headers=hdr(manager),
+                        json={"status": "done", "notes": "All targets reviewed",
+                              "attended_ids": [agent_id]}).json()
+    check("meeting marked done with minutes",
+          done["status"] == "done" and done["notes"] == "All targets reviewed")
+    check("non-lead cannot schedule a meeting",
+          client.post("/api/team/meetings", headers=hdr(farmer), json={
+              "title": "x", "scheduled_at": "2026-11-15T10:00"}).status_code == 403)
 
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={

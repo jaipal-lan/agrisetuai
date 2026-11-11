@@ -385,3 +385,12 @@ tbody tr:hover td { background: var(--green-100); }
 /* Farmer acknowledgement of agent advice */
 .ack-box { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--grey-bg); }
 .ack-done { margin-top: 8px; font-size: 13px; color: var(--accent-text); background: var(--grey-bg); padding: 6px 8px; border-radius: 6px; }
+
+/* Team console: target/meeting forms + progress bars */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form-grid input, .form-grid select { font-size: 16px; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.chk input { width: auto; }
+.pbar { height: 8px; border-radius: 999px; background: var(--card-alt); overflow: hidden; }
+.pbar-fill { height: 100%; background: var(--green-700, #15803d); border-radius: 999px; transition: width 0.3s ease; }
