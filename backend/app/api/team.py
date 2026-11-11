@@ -203,6 +203,60 @@ def delete_target(target_id: int, user=Depends(_lead), db: Session = Depends(get
     return {"deleted": target_id}
 
 
+def _period_window(period: str) -> tuple[datetime, datetime] | None:
+    """(start, end) datetimes for a leaderboard period, or None for all-time."""
+    today = date.today()
+    if period == "week":
+        start = today - timedelta(days=today.weekday())  # Monday
+    elif period == "month":
+        start = today.replace(day=1)
+    else:
+        return None
+    s = datetime.combine(start, time.min, tzinfo=timezone.utc)
+    e = datetime.combine(today + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    return s, e
+
+
+@router.get("/leaderboard")
+def leaderboard(period: str = "month", user=Depends(_lead), db: Session = Depends(get_db)):
+    """Rank field agents by target attainment + activity over a period
+    (week | month | all), with meeting attendance. Powers the team leaderboard."""
+    win = _period_window(period)
+    meetings = list(db.scalars(select(TeamMeeting)))
+    rows = []
+    for a in db.scalars(select(User).where(User.role == str(Role.FIELD_AGENT))):
+        insp_stmt = select(func.count(Inspection.id)).where(Inspection.agent_id == a.id)
+        ord_stmt = select(func.count(Order.id)).where(Order.assigned_agent_id == a.id)
+        if win:
+            insp_stmt = insp_stmt.where(Inspection.created_at >= win[0], Inspection.created_at < win[1])
+            ord_stmt = ord_stmt.where(Order.created_at >= win[0], Order.created_at < win[1])
+        inspections = db.scalar(insp_stmt) or 0
+        orders = db.scalar(ord_stmt) or 0
+
+        targets = list(db.scalars(select(AgentTarget).where(
+            AgentTarget.agent_id == a.id, AgentTarget.status == "active")))
+        pcts = [min(100, round(_progress(db, t) / t.target_value * 100)) if t.target_value else 0
+                for t in targets]
+        met = sum(1 for t in targets if t.target_value and _progress(db, t) >= t.target_value)
+        attainment = round(sum(pcts) / len(pcts)) if pcts else 0
+
+        invited = sum(1 for m in meetings if a.id in (m.attendee_ids or []))
+        attended = sum(1 for m in meetings if a.id in (m.attended_ids or []))
+
+        rows.append({
+            "agent_id": a.id, "agent_name": a.name,
+            "inspections": inspections, "orders": orders,
+            "targets_active": len(targets), "targets_met": met,
+            "attainment_pct": attainment,
+            "meetings_invited": invited, "meetings_attended": attended,
+            "attendance_pct": round(attended / invited * 100) if invited else None,
+        })
+    rows.sort(key=lambda r: (r["attainment_pct"], r["targets_met"], r["inspections"]), reverse=True)
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+    return {"period": period, "rows": rows}
+
+
 @router.get("/my-targets")
 def my_targets(user=Depends(_agent), db: Session = Depends(get_db)):
     """An agent's own active targets with live progress."""

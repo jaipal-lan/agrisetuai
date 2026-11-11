@@ -714,6 +714,18 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
         "eta": eta,
         "eta_basis": eta_basis,
     }
+    # Courier live position (if the courier app has been sharing it) + straight-line
+    # distance to the destination, for the buyer's live map.
+    if shipment is not None and shipment.last_lat is not None and shipment.last_lng is not None \
+            and delivered_at is None:
+        clat, clng = float(shipment.last_lat), float(shipment.last_lng)
+        loc = {"lat": clat, "lng": clng,
+               "at": shipment.last_location_at.isoformat() if shipment.last_location_at else None}
+        if to_coord:
+            from app.services.distance import haversine_km
+            loc["distance_km"] = round(haversine_km(clat, clng, to_coord["lat"], to_coord["lng"]), 1)
+        out["courier_location"] = loc
+
     # Delivery code: the buyer shows it to the courier at handoff. Only the
     # buyer/staff ever see it, and only once the courier is out for delivery.
     pod = (shipment.proof_of_delivery or {}) if shipment else {}

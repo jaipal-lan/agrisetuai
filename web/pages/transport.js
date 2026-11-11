@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
@@ -12,6 +12,7 @@ const NEXT = {
   in_transit: ["out_for_delivery", "Out for delivery"],
   out_for_delivery: ["delivered", "Mark delivered"],
 };
+const SHAREABLE = ["picked_up", "in_transit", "out_for_delivery"];
 
 export default function Transport() {
   const { t } = useI18n();
@@ -19,6 +20,39 @@ export default function Transport() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(null); // order_id currently broadcasting
+  const [locMsg, setLocMsg] = useState(null);
+  const watchRef = useRef(null);
+
+  function stopSharing() {
+    if (watchRef.current != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchRef.current);
+    }
+    watchRef.current = null;
+    setSharing(null);
+  }
+
+  function toggleShare(orderId) {
+    if (sharing === orderId) { stopSharing(); setLocMsg("Stopped sharing location."); return; }
+    stopSharing();
+    if (!navigator.geolocation) { setLocMsg("This device can't share location."); return; }
+    setLocMsg("Getting a GPS fix…");
+    watchRef.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        try {
+          await api(`/transport/orders/${orderId}/location`, { method: "POST",
+            body: { lat: pos.coords.latitude, lng: pos.coords.longitude } });
+          setLocMsg(`Live location shared · ${new Date().toLocaleTimeString()}`);
+        } catch (e) { setLocMsg(`Share failed: ${e.message}`); }
+      },
+      (e) => setLocMsg(`Location error: ${e.message}`),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
+    );
+    setSharing(orderId);
+  }
+
+  // Stop the GPS watcher when leaving the page.
+  useEffect(() => () => stopSharing(), []);
 
   async function load() {
     try {
@@ -73,10 +107,19 @@ export default function Transport() {
                 {j.quantity} {j.unit} · 🚚 {j.courier_name || "unassigned"}{j.vehicle_class ? ` · ${j.vehicle_class}` : ""}
               </div>
               <div className="price" style={{ fontSize: 18, marginTop: 6 }}>₹{j.transport_charge}<small> trip earning</small></div>
-              {next && (
-                <div style={{ marginTop: 10 }}>
+              <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+                {next && (
                   <button disabled={busy} onClick={() => milestone(j.order_id, next[0])}>{next[1]}</button>
-                </div>
+                )}
+                {SHAREABLE.includes(j.status) && (
+                  <button className={sharing === j.order_id ? "" : "ghost"}
+                          onClick={() => toggleShare(j.order_id)}>
+                    {sharing === j.order_id ? "📍 Stop sharing" : "📍 Share live location"}
+                  </button>
+                )}
+              </div>
+              {sharing === j.order_id && locMsg && (
+                <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>{locMsg}</div>
               )}
             </div>
           );

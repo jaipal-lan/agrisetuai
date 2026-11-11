@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     prices_provider: str = "sample"
     data_gov_in_api_key: str = ""
     prices_feed_limit: int = 500
+    # When the scheduler loop is on, refresh live prices at most this often (hours),
+    # so a short scheduler interval doesn't hammer data.gov.in.
+    prices_refresh_hours: int = 12
+    # Remind meeting attendees this many hours before a scheduled team meeting.
+    meeting_reminder_hours: int = 24
 
     # Background scheduler (sandboxed): compiles daily digests and raises due
     # follow-up reminders on a timer. 0 disables the in-process loop (the default,

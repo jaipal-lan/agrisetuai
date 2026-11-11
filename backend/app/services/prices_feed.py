@@ -35,6 +35,29 @@ def provider_configured() -> bool:
     return settings.prices_provider == "data_gov_in" and bool(settings.data_gov_in_api_key)
 
 
+def last_refresh_at(db: Session):
+    """When the live feed last wrote a row, or None if it never has."""
+    from sqlalchemy import func
+    return db.scalar(
+        select(func.max(MarketPrice.updated_at)).where(MarketPrice.source_name == SOURCE_NAME)
+    )
+
+
+def is_refresh_due(db: Session) -> bool:
+    """True when the live feed is configured and hasn't refreshed within the
+    throttle window (prices_refresh_hours)."""
+    if not provider_configured():
+        return False
+    last = last_refresh_at(db)
+    if last is None:
+        return True
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return now - last >= timedelta(hours=settings.prices_refresh_hours)
+
+
 def _num(v) -> float | None:
     try:
         return float(str(v).replace(",", "").strip())

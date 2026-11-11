@@ -23,6 +23,8 @@ export default function Team() {
   const [data, setData] = useState(null);
   const [targets, setTargets] = useState([]);
   const [meetings, setMeetings] = useState([]);
+  const [board, setBoard] = useState(null);
+  const [period, setPeriod] = useState("month");
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(null);
   const [pick, setPick] = useState({}); // orderId -> agentId
@@ -38,8 +40,9 @@ export default function Team() {
     api("/team/overview").then(setData).catch((e) => setErr(e.message));
     api("/team/targets").then(setTargets).catch(() => {});
     api("/team/meetings").then(setMeetings).catch(() => {});
+    api(`/team/leaderboard?period=${period}`).then(setBoard).catch(() => {});
   }
-  usePoll(() => { if (me) load(); }, 20000, [me]);
+  usePoll(() => { if (me) load(); }, 20000, [me, period]);
 
   async function assign(orderId) {
     const agentId = pick[orderId];
@@ -89,6 +92,12 @@ export default function Team() {
     catch (e) { setErr(e.message); } finally { setBusy(null); }
   }
 
+  function toggleAttended(m, agentId) {
+    const cur = m.attended_ids || [];
+    const next = cur.includes(agentId) ? cur.filter((x) => x !== agentId) : [...cur, agentId];
+    patchMeeting(m.id, { attended_ids: next });
+  }
+
   function toggleAttendee(id) {
     setMf((f) => {
       const s = f.attendee_ids.includes(id)
@@ -113,6 +122,44 @@ export default function Team() {
         <div><b>{data.pipeline.length}</b> in verification</div>
         <div><b>{data.active_orders}</b> active orders</div>
       </div>
+
+      {/* ---- Leaderboard ---- */}
+      <div className="between" style={{ marginTop: 22 }}>
+        <h2 style={{ margin: 0 }}>🏆 Agent leaderboard</h2>
+        <div className="row" style={{ gap: 6 }}>
+          {["week", "month", "all"].map((p) => (
+            <button key={p} className={period === p ? "" : "ghost"} onClick={() => setPeriod(p)}
+                    style={{ padding: "4px 10px", fontSize: 13 }}>
+              {p === "all" ? "All time" : `This ${p}`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {!board || board.rows.length === 0 ? (
+        <p className="muted">No field agents yet.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Agent</th><th>Attainment</th><th>Targets met</th>
+                <th>Inspections</th><th>Orders</th><th>Attendance</th></tr>
+            </thead>
+            <tbody>
+              {board.rows.map((r) => (
+                <tr key={r.agent_id}>
+                  <td>{r.rank === 1 ? "🥇" : r.rank === 2 ? "🥈" : r.rank === 3 ? "🥉" : r.rank}</td>
+                  <td>{r.agent_name}</td>
+                  <td><b>{r.attainment_pct}%</b></td>
+                  <td>{r.targets_met}/{r.targets_active}</td>
+                  <td>{r.inspections}</td>
+                  <td>{r.orders}</td>
+                  <td>{r.attendance_pct == null ? "—" : `${r.attendance_pct}% (${r.meetings_attended}/${r.meetings_invited})`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <h2 style={{ marginTop: 20 }}>Orders needing verification</h2>
       {data.pipeline.length === 0 ? (
@@ -253,6 +300,20 @@ export default function Team() {
                 {m.attendee_count} invited{m.attendees?.length ? `: ${m.attendees.map((a) => a.name).join(", ")}` : ""}
               </div>
               {m.notes && <div className="top-review" style={{ marginTop: 6 }}>{m.notes}</div>}
+              {m.status !== "cancelled" && m.attendees?.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Attendance</div>
+                  <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
+                    {m.attendees.map((a) => (
+                      <label key={a.id} className="chk">
+                        <input type="checkbox" checked={(m.attended_ids || []).includes(a.id)}
+                               disabled={busy === `m-${m.id}`}
+                               onChange={() => toggleAttended(m, a.id)} /> {a.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               {m.status === "scheduled" && (
                 <div className="row" style={{ gap: 6, marginTop: 8 }}>
                   <button className="ghost" disabled={busy === `m-${m.id}`}

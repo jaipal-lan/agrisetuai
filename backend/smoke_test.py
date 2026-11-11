@@ -334,6 +334,22 @@ def run():
     trk_s = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(farmer)).json()
     check("seller does not see the delivery code", "delivery_code" not in trk_s)
 
+    # Live courier tracking: the courier app shares GPS; the buyer watches it live.
+    r = client.post(f"/api/transport/orders/{order_id}/location", headers=hdr(transport),
+                    json={"lat": 16.3, "lng": 80.45})
+    check("courier posts live location", r.json().get("ok") is True)
+    check("bad coordinates rejected",
+          client.post(f"/api/transport/orders/{order_id}/location", headers=hdr(transport),
+                      json={"lat": 999, "lng": 0}).status_code == 400)
+    check("buyer cannot post courier location",
+          client.post(f"/api/transport/orders/{order_id}/location", headers=hdr(buyer),
+                      json={"lat": 16.3, "lng": 80.4}).status_code == 403)
+    trk_live = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(buyer)).json()
+    check("tracking shows the live courier position",
+          bool(trk_live.get("courier_location")) and trk_live["courier_location"]["lat"] == 16.3)
+    check("tracking computes courier distance to destination",
+          trk_live["courier_location"].get("distance_km") is not None)
+
     r = client.post(f"/api/orders/{order_id}/shipment/event", headers=hdr(transport),
                     json={"event": "delivered"})
     check("shipment delivered", r.json()["order"]["status"] == "delivered_pending_acceptance")
@@ -578,6 +594,14 @@ def run():
     check("upserted feed row is served + latest price wins",
           len(pepper) == 1 and pepper[0]["modal_price"] == "64000.00"
           and pepper[0]["source_name"] == prices_feed.SOURCE_NAME)
+    _db2 = SessionLocal()
+    try:
+        check("live refresh not due when provider unconfigured", prices_feed.is_refresh_due(_db2) is False)
+    finally:
+        _db2.close()
+    sr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
+    check("scheduler run reports prices + meeting-reminder keys",
+          all(k in sr for k in ("digests_sent", "prices_refreshed", "meeting_reminders")))
 
     print("\n== Team console (field leader / manager) ==")
     ov = client.get("/api/team/overview", headers=hdr(manager)).json()
@@ -641,6 +665,33 @@ def run():
     check("non-lead cannot schedule a meeting",
           client.post("/api/team/meetings", headers=hdr(farmer), json={
               "title": "x", "scheduled_at": "2026-11-15T10:00"}).status_code == 403)
+
+    print("\n== Team leaderboard + meeting reminders ==")
+    lb = client.get("/api/team/leaderboard", headers=hdr(manager), params={"period": "month"}).json()
+    check("leaderboard ranks agents with attainment",
+          lb["period"] == "month" and len(lb["rows"]) >= 1 and lb["rows"][0]["rank"] == 1
+          and "attainment_pct" in lb["rows"][0])
+    row = next((r for r in lb["rows"] if r["agent_id"] == agent_id), None)
+    check("leaderboard reflects the agent's inspections + meeting attendance",
+          row is not None and row["inspections"] >= 1
+          and row["meetings_invited"] >= 1 and row["meetings_attended"] >= 1)
+    check("non-lead cannot read the leaderboard",
+          client.get("/api/team/leaderboard", headers=hdr(farmer)).status_code == 403)
+
+    # Pre-meeting reminders: an imminent meeting reminds its attendees once.
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td3  # noqa: E402
+    soon = (_dt.now(_tz.utc) + _td3(hours=2)).isoformat()
+    client.post("/api/team/meetings", headers=hdr(manager),
+                json={"title": "Imminent sync", "scheduled_at": soon, "attendee_ids": [agent_id]})
+    from app.services.scheduler import raise_meeting_reminders  # noqa: E402
+    _db3 = SessionLocal()
+    try:
+        n1 = raise_meeting_reminders(_db3)
+        n2 = raise_meeting_reminders(_db3)
+    finally:
+        _db3.close()
+    check("reminder raised for an imminent meeting", n1 >= 1)
+    check("reminder is idempotent (reminded once)", n2 == 0)
 
     print("\n== Support ticket + dispute + proportional refund ==")
     r = client.post("/api/tickets", headers=hdr(buyer), json={

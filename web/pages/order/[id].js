@@ -210,6 +210,20 @@ function fmtWhen(iso) {
   return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function fmtAgo(iso) {
+  if (!iso) return "";
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  return `${Math.round(s / 3600)}h ago`;
+}
+
+function osmEmbed(lat, lng) {
+  const d = 0.012; // ~1.3 km half-window
+  const bbox = [lng - d, lat - d, lng + d, lat + d].join(",");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
+}
+
 function TrackingTimeline({ orderId, isBuyer }) {
   const [tr, setTr] = useState(null);
   usePoll(() => { if (orderId) api(`/orders/${orderId}/tracking`).then(setTr).catch(() => {}); }, 12000, [orderId]);
@@ -240,6 +254,27 @@ function TrackingTimeline({ orderId, isBuyer }) {
         <div className={`eta ${delivered ? "ok" : ""}`} style={{ marginTop: 10 }}>
           {delivered ? "Delivered " : "Estimated delivery: "}<b>{fmtWhen(tr.eta)}</b>
           {!delivered && tr.eta_basis === "estimated" ? <span className="muted"> (estimate)</span> : null}
+        </div>
+      )}
+
+      {/* Live courier position on a free OpenStreetMap embed (no API key). */}
+      {!delivered && tr.courier_location && (
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
+            📍 Courier is live{tr.courier_location.distance_km != null ? ` · ~${tr.courier_location.distance_km} km away` : ""}
+            {tr.courier_location.at ? ` · updated ${fmtAgo(tr.courier_location.at)}` : ""}
+          </div>
+          <iframe
+            title="Courier live location"
+            className="live-map"
+            src={osmEmbed(tr.courier_location.lat, tr.courier_location.lng)}
+          />
+          <div style={{ marginTop: 4 }}>
+            <a className="muted" style={{ fontSize: 12 }} target="_blank" rel="noreferrer"
+               href={`https://www.openstreetmap.org/?mlat=${tr.courier_location.lat}&mlon=${tr.courier_location.lng}#map=14/${tr.courier_location.lat}/${tr.courier_location.lng}`}>
+              Open full map ↗
+            </a>
+          </div>
         </div>
       )}
 

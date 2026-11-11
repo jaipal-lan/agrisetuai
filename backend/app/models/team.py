@@ -47,3 +47,4 @@ class TeamMeeting(Base, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text)          # minutes
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled | done | cancelled
     mandal_id: Mapped[int | None] = mapped_column(ForeignKey("mandals.id"))
+    reminded: Mapped[bool] = mapped_column(default=False)  # a pre-meeting reminder was sent

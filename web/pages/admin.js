@@ -197,7 +197,7 @@ export default function Admin() {
     setSchedBusy(true);
     try {
       const r = await api("/admin/scheduler/run", { method: "POST" });
-      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.prices_refreshed || 0} market price(s) refreshed.`);
+      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.prices_refreshed || 0} market price(s) refreshed, ${r.meeting_reminders || 0} meeting reminder(s) sent.`);
     } catch (e) {
       setErr(e.message);
     } finally {

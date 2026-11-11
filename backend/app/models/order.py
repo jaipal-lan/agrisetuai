@@ -158,6 +158,10 @@ class Shipment(Base, TimestampMixin):
     eta_source: Mapped[str | None] = mapped_column(String(40))
     proof_of_delivery: Mapped[dict | None] = mapped_column(JSON)
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # Courier's last-reported live GPS position (for buyer live tracking).
+    last_lat: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    last_lng: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    last_location_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     events: Mapped[list["ShipmentEvent"]] = relationship(back_populates="shipment")
 

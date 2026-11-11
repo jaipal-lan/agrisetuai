@@ -73,11 +73,12 @@ def compile_digests(db: Session) -> int:
 
 
 def refresh_market_prices(db: Session) -> int:
-    """Refresh live mandi prices if the feed is configured; no-op otherwise.
-    Never raises (a transient upstream failure must not break the job run)."""
+    """Refresh live mandi prices if the feed is configured AND due (throttled by
+    prices_refresh_hours); no-op otherwise. Never raises (a transient upstream
+    failure must not break the job run)."""
     from app.services import prices_feed
 
-    if not prices_feed.provider_configured():
+    if not prices_feed.is_refresh_due(db):
         return 0
     try:
         result = prices_feed.refresh_prices(db)
@@ -89,12 +90,51 @@ def refresh_market_prices(db: Session) -> int:
         return 0
 
 
+def raise_meeting_reminders(db: Session) -> int:
+    """Notify attendees + organiser of each scheduled meeting starting within the
+    reminder window (meeting_reminder_hours) that hasn't been reminded yet. Each
+    meeting is reminded once. Returns the number of meetings reminded."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.config import settings
+    from app.models.team import TeamMeeting
+
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(hours=settings.meeting_reminder_hours)
+    sent = 0
+    for m in db.scalars(select(TeamMeeting).where(
+        TeamMeeting.status == "scheduled", TeamMeeting.reminded.is_(False)
+    )):
+        try:
+            when = datetime.fromisoformat(m.scheduled_at)
+        except (TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when < now or when > horizon:
+            continue  # already past, or still further out than the window
+        pretty = m.scheduled_at.replace("T", " ")[:16]
+        recipients = set(m.attendee_ids or []) | {m.organizer_id}
+        for uid in recipients:
+            notify.send(db, user_id=uid, title="Meeting reminder",
+                        body=f"Upcoming: {m.title} — {pretty}"
+                             + (f" at {m.location}" if m.location else ""),
+                        object_type="meeting", object_id=m.id)
+        m.reminded = True
+        sent += 1
+    if sent:
+        db.commit()
+    return sent
+
+
 def run_scheduled_jobs(db: Session) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
     digests = compile_digests(db)
     prices = refresh_market_prices(db)
-    return {"ran_at": utcnow().isoformat(), "digests_sent": digests, "prices_refreshed": prices}
+    meeting_reminders = raise_meeting_reminders(db)
+    return {"ran_at": utcnow().isoformat(), "digests_sent": digests,
+            "prices_refreshed": prices, "meeting_reminders": meeting_reminders}
 
 
 async def _loop(interval: int) -> None:
@@ -112,7 +152,7 @@ async def _loop(interval: int) -> None:
         await asyncio.sleep(interval)
         try:
             result = await asyncio.to_thread(_once)
-            if result["digests_sent"]:
+            if any((result["digests_sent"], result["prices_refreshed"], result["meeting_reminders"])):
                 log.info("scheduler: %s", result)
         except Exception:  # never let the loop die on a transient error
             log.exception("scheduled job run failed")
