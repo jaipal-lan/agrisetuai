@@ -116,6 +116,9 @@ export default function Profile() {
         </>
       )}
 
+      {["farmer", "transport"].includes(me?.role) && <PayoutCard />}
+      {["farmer", "buyer_household", "buyer_business"].includes(me?.role) && <AddressesCard />}
+
       <h2>Language</h2>
       <div className="row">
         {[["te", "తెలుగు"], ["en", "English"], ["hi", "हिन्दी"]].map(([code, labelText]) => (
@@ -132,5 +135,147 @@ export default function Profile() {
         <button className="danger" onClick={doLogout}>{t("logout")}</button>
       </div>
     </div>
+  );
+}
+
+function PayoutCard() {
+  const [acc, setAcc] = useState(null);
+  const [form, setForm] = useState({ method: "upi", upi_id: "", account_name: "", account_number: "", ifsc: "" });
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api("/auth/payout-account").then((r) => {
+      setAcc(r.account);
+      if (r.account) setForm((f) => ({ ...f, method: r.account.method, upi_id: r.account.upi_id || "" }));
+    }).catch(() => {});
+  }, []);
+
+  async function save(e) {
+    e.preventDefault(); setErr(null); setMsg(null); setBusy(true);
+    try {
+      const body = form.method === "upi"
+        ? { method: "upi", upi_id: form.upi_id }
+        : { method: "bank", account_name: form.account_name, account_number: form.account_number, ifsc: form.ifsc };
+      const r = await api("/auth/payout-account", { method: "PUT", body });
+      setAcc(r.account); setMsg("Payout details saved.");
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <>
+      <h2>Payout details</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
+        Where we send your money. {acc ? (acc.verified ? "Verified." : "Pending verification.") : "Not set up yet."}
+      </p>
+      <form className="card" onSubmit={save}>
+        {acc && acc.method === "bank" && acc.account_number_masked && (
+          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>On file: bank {acc.account_number_masked} · {acc.ifsc}</div>
+        )}
+        {acc && acc.method === "upi" && acc.upi_id && (
+          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>On file: UPI {acc.upi_id}</div>
+        )}
+        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+          {[["upi", "UPI"], ["bank", "Bank account"]].map(([m, label]) => (
+            <button type="button" key={m} className={form.method === m ? "" : "ghost"}
+                    onClick={() => setForm((f) => ({ ...f, method: m }))}>{label}</button>
+          ))}
+        </div>
+        {form.method === "upi" ? (
+          <label className="muted" style={{ fontSize: 13 }}>UPI ID
+            <input value={form.upi_id} placeholder="name@bank"
+                   onChange={(e) => setForm((f) => ({ ...f, upi_id: e.target.value }))} />
+          </label>
+        ) : (
+          <div className="form-grid">
+            <label>Account holder
+              <input value={form.account_name} onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))} />
+            </label>
+            <label>Account number
+              <input value={form.account_number} onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))} />
+            </label>
+            <label>IFSC
+              <input value={form.ifsc} maxLength={11} onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value.toUpperCase() }))} />
+            </label>
+          </div>
+        )}
+        {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+        {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
+        <button type="submit" disabled={busy} style={{ marginTop: 10 }}>Save payout details</button>
+      </form>
+    </>
+  );
+}
+
+function AddressesCard() {
+  const [list, setList] = useState([]);
+  const [mandals, setMandals] = useState([]);
+  const [form, setForm] = useState({ label: "Home", mandal_id: "", address_line: "", is_default: false });
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() { api("/auth/addresses").then(setList).catch(() => {}); }
+  useEffect(() => {
+    load();
+    api("/locations/mandals").then(setMandals).catch(() => {});
+  }, []);
+
+  async function add(e) {
+    e.preventDefault(); setErr(null);
+    if (!form.mandal_id) { setErr("Pick a mandal."); return; }
+    setBusy(true);
+    try {
+      await api("/auth/addresses", { method: "POST", body: {
+        label: form.label || "Home", mandal_id: Number(form.mandal_id),
+        address_line: form.address_line || null, is_default: form.is_default } });
+      setForm({ label: "Home", mandal_id: "", address_line: "", is_default: false });
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  async function remove(id) {
+    try { await api(`/auth/addresses/${id}`, { method: "DELETE" }); load(); } catch (e) { setErr(e.message); }
+  }
+
+  return (
+    <>
+      <h2>Delivery addresses</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>Saved addresses speed up ordering and reorders.</p>
+      {list.length > 0 && (
+        <div className="card" style={{ marginBottom: 10 }}>
+          {list.map((a) => (
+            <div key={a.id} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 8 }}>
+              <div>
+                <b>{a.label}</b>{a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>default</span>}
+                <div className="muted" style={{ fontSize: 13 }}>{a.mandal}{a.address_line ? ` · ${a.address_line}` : ""}</div>
+              </div>
+              <button className="ghost" onClick={() => remove(a.id)}>Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <form className="card" onSubmit={add}>
+        <div className="form-grid">
+          <label>Label
+            <input value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+          </label>
+          <label>Mandal
+            <select value={form.mandal_id} onChange={(e) => setForm((f) => ({ ...f, mandal_id: e.target.value }))}>
+              <option value="">Pick mandal…</option>
+              {mandals.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </label>
+          <label style={{ gridColumn: "1 / -1" }}>Address (optional)
+            <input value={form.address_line} onChange={(e) => setForm((f) => ({ ...f, address_line: e.target.value }))} />
+          </label>
+        </div>
+        <label className="chk" style={{ marginTop: 8 }}>
+          <input type="checkbox" checked={form.is_default} onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))} /> Set as default
+        </label>
+        {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+        <div><button type="submit" disabled={busy} style={{ marginTop: 10 }}>Add address</button></div>
+      </form>
+    </>
   );
 }

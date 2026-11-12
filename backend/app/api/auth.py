@@ -201,6 +201,120 @@ def consents(body: ConsentBody, user: User = Depends(get_current_user), db: Sess
     return {"ok": True, "kind": body.kind, "granted": body.granted}
 
 
+# --- Payout account (seller / transport partner) --------------------------
+
+class PayoutAccountBody(BaseModel):
+    method: str = "upi"  # upi | bank
+    upi_id: str | None = None
+    account_name: str | None = None
+    account_number: str | None = None
+    ifsc: str | None = None
+
+
+def _payout_json(a) -> dict | None:
+    if a is None:
+        return None
+    # Mask the account number; never return it in full.
+    acct = a.account_number
+    masked = f"****{acct[-4:]}" if acct and len(acct) >= 4 else acct
+    return {"method": a.method, "upi_id": a.upi_id, "account_name": a.account_name,
+            "account_number_masked": masked, "ifsc": a.ifsc, "verified": a.verified}
+
+
+@router.get("/payout-account")
+def get_payout_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.account import PayoutAccount
+    a = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == user.id))
+    return {"account": _payout_json(a)}
+
+
+@router.put("/payout-account")
+def put_payout_account(body: PayoutAccountBody, user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    from app.models.account import PayoutAccount
+
+    if body.method not in ("upi", "bank"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "method must be upi or bank")
+    if body.method == "upi":
+        if not body.upi_id or "@" not in body.upi_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "A valid UPI id (name@bank) is required")
+    else:
+        if not (body.account_name and body.account_number and body.ifsc):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Bank name, account number and IFSC are required")
+        if len(body.ifsc) != 11:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "IFSC must be 11 characters")
+    a = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == user.id))
+    if a is None:
+        a = PayoutAccount(user_id=user.id)
+        db.add(a)
+    a.method = body.method
+    a.upi_id = body.upi_id if body.method == "upi" else None
+    a.account_name = body.account_name if body.method == "bank" else None
+    a.account_number = body.account_number if body.method == "bank" else None
+    a.ifsc = body.ifsc if body.method == "bank" else None
+    a.verified = False  # re-verify whenever details change
+    audit.record(db, actor_id=user.id, action="payout_account.update", object_type="user",
+                 object_id=user.id, new_values={"method": body.method})
+    db.commit()
+    return {"account": _payout_json(a), "ok": True}
+
+
+# --- Saved delivery addresses (buyers / farmers who buy) -------------------
+
+class AddressBody(BaseModel):
+    label: str = "Home"
+    mandal_id: int
+    address_line: str | None = None
+    is_default: bool = False
+
+
+def _addr_json(a, mandals: dict) -> dict:
+    return {"id": a.id, "label": a.label, "mandal_id": a.mandal_id,
+            "mandal": mandals.get(a.mandal_id), "address_line": a.address_line,
+            "is_default": a.is_default}
+
+
+@router.get("/addresses")
+def list_addresses(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.account import SavedAddress
+    from app.models.location import Mandal
+    mandals = {m.id: m.name for m in db.scalars(select(Mandal))}
+    rows = db.scalars(select(SavedAddress).where(SavedAddress.user_id == user.id)
+                      .order_by(SavedAddress.is_default.desc(), SavedAddress.id.desc()))
+    return [_addr_json(a, mandals) for a in rows]
+
+
+@router.post("/addresses", status_code=status.HTTP_201_CREATED)
+def add_address(body: AddressBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.account import SavedAddress
+    from app.models.location import Mandal
+    if db.get(Mandal, body.mandal_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mandal not found")
+    a = SavedAddress(user_id=user.id, label=body.label.strip() or "Home",
+                     mandal_id=body.mandal_id, address_line=body.address_line,
+                     is_default=body.is_default)
+    db.add(a)
+    db.flush()
+    if body.is_default:
+        for other in db.scalars(select(SavedAddress).where(
+                SavedAddress.user_id == user.id, SavedAddress.id != a.id)):
+            other.is_default = False
+    db.commit()
+    mandals = {m.id: m.name for m in db.scalars(select(Mandal))}
+    return _addr_json(a, mandals)
+
+
+@router.delete("/addresses/{address_id}")
+def delete_address(address_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.account import SavedAddress
+    a = db.get(SavedAddress, address_id)
+    if a is None or a.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Address not found")
+    db.delete(a)
+    db.commit()
+    return {"deleted": address_id}
+
+
 @router.post("/logout")
 def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user.token_version = int(user.token_version or 0) + 1

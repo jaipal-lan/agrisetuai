@@ -16,7 +16,8 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
 
-  const isBuyer = me && ["buyer_household", "buyer_business"].includes(me.role);
+  // Farmers buy with the same login, so they reorder too.
+  const isBuyer = me && ["farmer", "buyer_household", "buyer_business"].includes(me.role);
 
   async function reorder(id, commodityId) {
     setMsg(null);

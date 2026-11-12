@@ -148,17 +148,24 @@ def reorder(order_id: int, user=Depends(get_current_user), db: Session = Depends
     terms = order.accepted_terms or {}
     line = order.lines[0] if order.lines else None
     listing = db.get(Listing, line.listing_id) if line and line.listing_id else None
+    commodity_id = terms.get("commodity_id") or (listing.commodity_id if listing else None)
 
-    if not listing or listing.status != "open":
-        return {"reorderable": False, "commodity_id": terms.get("commodity_id"),
-                "reason": "The original lot is no longer available."}
+    # Prefer the original lot; if it's gone, fall back to any active listing of the
+    # same commodity (the original seller first, then the cheapest) so a returning
+    # buyer can always reorder.
+    if not listing or listing.status != "open" or _qty(listing.available_qty) <= _qty(0):
+        alts = [l for l in db.scalars(select(Listing).where(
+            Listing.commodity_id == commodity_id, Listing.status == "open"))
+            if l.seller_id != user.id and _qty(l.available_qty) > _qty(0)] if commodity_id else []
+        if not alts:
+            return {"reorderable": False, "commodity_id": commodity_id,
+                    "reason": "No active listing for this product right now. Post a requirement (RFQ) to source it."}
+        alts.sort(key=lambda l: (l.seller_id != order.seller_id, float(l.asking_price)))
+        listing = alts[0]
 
     want = _qty(terms.get("quantity") or 0)
     avail = _qty(listing.available_qty)
-    if avail <= _qty(0):
-        return {"reorderable": False, "commodity_id": listing.commodity_id,
-                "reason": "This lot is sold out."}
-    want = min(want, avail)  # clamp to what's left
+    want = min(want, avail) if want > _qty(0) else avail  # clamp to what's left
 
     offer = Offer(listing_id=listing.id, buyer_id=user.id, seller_id=listing.seller_id,
                   status=OfferStatus.OPEN)
@@ -176,7 +183,8 @@ def reorder(order_id: int, user=Depends(get_current_user), db: Session = Depends
                 body=f"A returning buyer re-ordered {want} {listing.unit}.",
                 object_type="offer", object_id=offer.id)
     db.commit()
-    return {"reorderable": True, "offer_id": offer.id}
+    return {"reorderable": True, "offer_id": offer.id, "listing_id": listing.id,
+            "commodity_id": listing.commodity_id}
 
 
 # --- AgriSetu Verified Lot Certificate ------------------------------------
@@ -745,8 +753,6 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
             "recipient_note": pod.get("recipient_note"),
         }
     return out
-
-
 # --- Shipment milestones --------------------------------------------------
 
 _SHIP_FLOW = {

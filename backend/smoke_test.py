@@ -1020,6 +1020,63 @@ def run():
     r = client.get(f"/api/admin/ops-report.csv?from={future}", headers=hdr(superadmin))
     check("ranged ops CSV served", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
 
+    print("\n== Partner payout accounts (UPI / bank) ==")
+    r = client.put("/api/auth/payout-account", headers=hdr(farmer),
+                   json={"method": "upi", "upi_id": "ravi@okaxis"})
+    check("farmer saves a UPI payout account", r.json()["account"]["upi_id"] == "ravi@okaxis")
+    acc = client.get("/api/auth/payout-account", headers=hdr(farmer)).json()["account"]
+    check("payout account read back", acc and acc["method"] == "upi")
+    check("UPI without @ rejected",
+          client.put("/api/auth/payout-account", headers=hdr(farmer),
+                     json={"method": "upi", "upi_id": "notaupi"}).status_code == 400)
+    r = client.put("/api/auth/payout-account", headers=hdr(transport),
+                   json={"method": "bank", "account_name": "Fast Logistics",
+                         "account_number": "123456789012", "ifsc": "HDFC0001234"})
+    check("transport saves a bank payout account", r.json()["account"]["method"] == "bank")
+    check("bank account number is masked",
+          r.json()["account"]["account_number_masked"].endswith("9012")
+          and r.json()["account"]["account_number_masked"].startswith("****"))
+    check("bank without IFSC rejected",
+          client.put("/api/auth/payout-account", headers=hdr(transport),
+                     json={"method": "bank", "account_name": "X", "account_number": "1"}).status_code == 400)
+    po = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
+    check("payouts overview flags missing payout accounts", "missing_payout_accounts" in po)
+
+    print("\n== Buyer saved addresses ==")
+    a1 = client.post("/api/auth/addresses", headers=hdr(buyer),
+                     json={"label": "Shop", "mandal_id": mandal_id, "address_line": "Main Rd", "is_default": True})
+    check("buyer adds a default address", a1.status_code == 201 and a1.json()["is_default"])
+    a2 = client.post("/api/auth/addresses", headers=hdr(buyer),
+                     json={"label": "Home", "mandal_id": mandal_id, "is_default": True})
+    check("second default demotes the first",
+          a2.json()["is_default"] and sum(1 for a in client.get("/api/auth/addresses", headers=hdr(buyer)).json() if a["is_default"]) == 1)
+    addrs = client.get("/api/auth/addresses", headers=hdr(buyer)).json()
+    check("addresses list resolves mandal name", any(a["mandal"] for a in addrs))
+    check("address deleted",
+          client.delete(f"/api/auth/addresses/{a1.json()['id']}", headers=hdr(buyer)).status_code == 200)
+
+    print("\n== One-tap reorder ==")
+    r = client.post(f"/api/orders/{order_id}/reorder", headers=hdr(buyer)).json()
+    check("buyer reorders -> fresh offer on an active listing",
+          r.get("reorderable") is True and r.get("offer_id"))
+    check("reorder targets the same commodity", r.get("commodity_id") is not None)
+    check("non-party cannot reorder someone else's order",
+          client.post(f"/api/orders/{order_id}/reorder", headers=hdr(farmer)).status_code in (403, 404))
+
+    print("\n== Ledger edge cases ==")
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger globally balanced", acct["balanced"] is True)
+    check("no clearing balances left stranded",
+          acct["accounts"].get("seller_clearing", "0.00") == "0.00"
+          and acct["accounts"].get("transport_clearing", "0.00") == "0.00")
+    # Re-settling an already-settled order must not double-accrue a payout.
+    before = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()["pending_count"]
+    client.post(f"/api/orders/{order_id}/acceptance", headers=hdr(buyer))  # already settled -> no-op/err
+    after = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()["pending_count"]
+    check("re-accepting a settled order does not double-accrue payouts", after == before)
+    check("ledger still balanced after the edge-case probe",
+          client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()["balanced"] is True)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

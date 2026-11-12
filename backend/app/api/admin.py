@@ -462,16 +462,23 @@ _finance = require_roles(Role.FIELD_MANAGER, Role.SUPERADMIN)
 @router.get("/payouts")
 def payouts_overview(user=Depends(_finance), db: Session = Depends(get_db)):
     """Accrued (pending) seller payouts awaiting disbursement, plus past batches."""
+    from app.models.account import PayoutAccount
+
     pending = list(db.scalars(select(Payout).where(Payout.status == "pending").order_by(Payout.id)))
     names = {u.id: u.name for u in db.scalars(select(User))}
     orders = {o.id: o.public_id for o in db.scalars(select(Order))}
+    have_account = {a.user_id for a in db.scalars(select(PayoutAccount))}
     total = money(sum(float(p.amount) for p in pending)) if pending else money(0)
+    missing = sum(1 for p in pending if p.seller_id not in have_account)
     batches = db.scalars(select(PayoutBatch).order_by(PayoutBatch.id.desc()).limit(20))
     return {
         "pending_count": len(pending),
         "pending_total": str(total),
+        "missing_payout_accounts": missing,
         "pending": [{
             "id": p.id, "order": orders.get(p.order_id), "seller": names.get(p.seller_id) or f"user {p.seller_id}",
+            "payee_type": getattr(p, "payee_type", "seller"),
+            "has_account": p.seller_id in have_account,
             "amount": str(money(p.amount)), "currency": p.currency,
         } for p in pending],
         "batches": [{

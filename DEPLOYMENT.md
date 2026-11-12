@@ -42,8 +42,25 @@ Set these in production:
 | `SMS_PROVIDER` | `console` | `twilio` / `msg91` / `gupshup` (see §7) |
 | `SMS_API_KEY`, `SMS_SENDER_ID` | empty | real credentials + DLT-approved sender id |
 | `DISTANCE_PROVIDER` | `haversine` | keep, or swap for a maps/routing API |
+| `PRICES_PROVIDER` | `sample` | `data_gov_in` to pull live AGMARKNET mandi prices |
+| `DATA_GOV_IN_API_KEY` | empty | a free key from https://data.gov.in (required for the live feed) |
+| `PRICES_FEED_COMMODITIES` / `PRICES_FEED_STATES` | empty (all) | optional comma-separated whitelists |
+| `PRICES_REFRESH_HOURS` | `12` | throttle for the scheduler's price refresh |
+| `PRICES_STALE_HOURS` | `48` | prices older than this are flagged stale in Admin |
+| `SCHEDULER_INTERVAL_SECONDS` | `0` (off) | e.g. `3600` to run digests, meeting reminders + price refresh on a timer |
+| `MEETING_REMINDER_HOURS` | `24` | how far ahead to remind team-meeting attendees |
+| `COURIER_SPEED_KMPH` / `COURIER_NEARBY_KM` | `25` / `2` | live-ETA speed + buyer "courier nearby" radius |
 
 Generate a secret: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
+### Live market-price feed (data.gov.in / AGMARKNET)
+
+Left at `PRICES_PROVIDER=sample`, the app serves seeded sample prices (no network,
+no key). To go live: register a free key at https://data.gov.in, set
+`PRICES_PROVIDER=data_gov_in` + `DATA_GOV_IN_API_KEY=<key>`, then either refresh on
+demand (Admin → "Refresh prices now") or set `SCHEDULER_INTERVAL_SECONDS>0` so the
+in-process timer refreshes them (throttled by `PRICES_REFRESH_HOURS`). Admin →
+Market price feed shows the live status + a "feed stale" warning.
 
 ## 4. Database & migrations
 
@@ -56,8 +73,23 @@ DATABASE_URL=postgresql+psycopg://... python -m alembic upgrade head
 Do **not** rely on `AUTO_MIGRATE` in production — run the line above from CI/CD
 so a bad migration fails the deploy rather than a booting web process. The
 pilot's demo data comes from `python -m app.seed`; in production seed only the
-reference data you actually need (locations, catalog, pricing rule, plans) and
-**skip `seed_demo_activity` / demo users**.
+reference data you actually need (locations, catalog, pricing rule, market
+prices) and **skip `seed_demo_activity` / demo users / demo reviews**.
+
+### Staging (Postgres) quickstart
+
+A staging run mirrors production but with the sandbox providers. Checklist:
+
+1. Provision a Postgres 15+ DB; set `DATABASE_URL=postgresql+psycopg://…`.
+2. `DEV_MODE=false`, a real `AUTH_SECRET`, `AUTO_MIGRATE=false`.
+3. Run migrations from CI: `python -m alembic upgrade head`.
+4. Seed reference data only (no demo users/activity).
+5. `PAYMENT_PROVIDER=sandbox`, `SMS_PROVIDER` on a test sender, `PRICES_PROVIDER=data_gov_in`
+   with a key, `SCHEDULER_INTERVAL_SECONDS=3600`.
+6. Restrict CORS `_origin_regex` (app/main.py) to the staging web origin.
+7. Smoke the deploy: `GET /api/health` and `GET /api/admin/ledger/accounts` → `balanced: true`.
+8. Run `python smoke_test.py` in CI (it uses its own throwaway SQLite DB, so it
+   validates the code, not the Postgres instance).
 
 ## 5. Running the services
 
@@ -105,17 +137,21 @@ is a localized change:
   Point `PAYMENT_PROVIDER`/`PAYMENT_WEBHOOK_SECRET` at a real marketplace
   provider (Razorpay Route / Cashfree Easy Split / PhonePe). Keep the webhook
   signature check; capture already routes through `orders.capture_order_payment`.
-- **Seller payouts** — `app/api/admin.py` `run_payout_batch` currently writes a
-  mock disbursement to the ledger. Replace the per-payout step with a real
-  bank/UPI payout API (RazorpayX / Cashfree Payouts), store the provider ref,
-  and only mark `processed` on the provider's success callback.
+- **Seller & transport payouts** — `app/api/admin.py` `run_payout_batch` writes a
+  mock disbursement to the ledger for both seller and transport-partner payouts
+  (`Payout.payee_type`). Replace the per-payout step with a real bank/UPI payout
+  API (RazorpayX / Cashfree Payouts), store the provider ref, and only mark
+  `processed` on the provider's success callback. Payees capture their UPI/bank
+  details via `PUT /api/auth/payout-account`; Admin → Payouts flags any pending
+  payee with no account on file (`missing_payout_accounts`).
 - **SMS/OTP** — `app/services/sms.py` (console provider). Add a real gateway
   (MSG91 / Gupshup / Twilio) with a **DLT-registered** template + sender id.
-- **AI crop triage** — `app/services/advisory_engine.py` `_visual_prescreen`
-  is a non-diagnosing stub. Wire a real vision model only with agronomist
-  sign-off; never auto-prescribe pesticide doses.
+- **Market prices** — `app/services/prices_feed.py` pulls live AGMARKNET prices
+  from data.gov.in once `PRICES_PROVIDER=data_gov_in` + `DATA_GOV_IN_API_KEY` are
+  set (retry/backoff + optional commodity/state whitelists built in).
 - **Distance/maps** — `app/services/distance.py` is haversine×road-factor;
-  swap for a routing API behind the same interface if needed.
+  live courier GPS tracking is real, but turn-by-turn is a maps deep link
+  (`nav_url`). Swap for a routing/maps API behind the same interface if needed.
 
 ## 8. Compliance gates before go-live (not code — owner/legal)
 
@@ -143,5 +179,6 @@ These must clear before real trades/payments:
 
 ## 10. Smoke test
 
-`cd backend && python smoke_test.py` runs ~188 end-to-end checks against a
-throwaway SQLite DB. Run it in CI on every change; it must stay green.
+`cd backend && python smoke_test.py` runs 300+ end-to-end checks against a
+throwaway SQLite DB (covering the ledger, payouts, orders, tracking, team tools
+and the price feed). Run it in CI on every change; it must stay green.

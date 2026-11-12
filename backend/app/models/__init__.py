@@ -23,6 +23,7 @@ from app.models.order import (
     ShipmentEvent,
 )
 from app.models.prices import MarketPrice
+from app.models.account import PayoutAccount, SavedAddress
 from app.models.pricing import PricingRule
 from app.models.review import Review
 from app.models.support import (
@@ -85,4 +86,6 @@ __all__ = [
     "QualityCase",
     "AgentTarget",
     "TeamMeeting",
+    "PayoutAccount",
+    "SavedAddress",
 ]

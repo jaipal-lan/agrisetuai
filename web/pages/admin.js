@@ -527,13 +527,18 @@ export default function Admin() {
 
       {payouts && (
         <>
-          <h2>Seller payouts {payouts.pending_count > 0 && <span className="badge amber">{payouts.pending_count} pending</span>}</h2>
+          <h2>Payouts {payouts.pending_count > 0 && <span className="badge amber">{payouts.pending_count} pending</span>}</h2>
           {payoutMsg && <div className="ok">{payoutMsg}</div>}
+          {payouts.missing_payout_accounts > 0 && (
+            <div className="error" style={{ marginBottom: 10 }}>
+              ⚠ {payouts.missing_payout_accounts} pending payee(s) have no UPI/bank details on file — they can&apos;t be paid until they add them in their profile.
+            </div>
+          )}
           <div className="card">
             <div className="between">
               <div>
                 <b>₹{payouts.pending_total}</b> accrued across {payouts.pending_count} payout(s)
-                <div className="muted" style={{ fontSize: 13 }}>Settled orders accrue here until a disbursement batch runs.</div>
+                <div className="muted" style={{ fontSize: 13 }}>Settled orders accrue seller + transport payouts here until a disbursement batch runs.</div>
               </div>
               <button className="amber" disabled={payouts.pending_count === 0} onClick={runPayoutBatch}>
                 Run payout batch
@@ -541,10 +546,15 @@ export default function Admin() {
             </div>
             {payouts.pending.length > 0 && (
               <table>
-                <thead><tr><th>Order</th><th>Seller</th><th>Amount</th></tr></thead>
+                <thead><tr><th>Order</th><th>Payee</th><th>Type</th><th>Amount</th><th>Account</th></tr></thead>
                 <tbody>
                   {payouts.pending.map((p) => (
-                    <tr key={p.id}><td>{p.order || "—"}</td><td>{p.seller}</td><td>₹{p.amount}</td></tr>
+                    <tr key={p.id}>
+                      <td>{p.order || "—"}</td><td>{p.seller}</td>
+                      <td><span className="badge grey">{p.payee_type || "seller"}</span></td>
+                      <td>₹{p.amount}</td>
+                      <td>{p.has_account ? <span className="badge green">on file</span> : <span className="badge amber">missing</span>}</td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
