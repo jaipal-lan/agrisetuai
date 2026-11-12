@@ -349,6 +349,18 @@ def run():
           bool(trk_live.get("courier_location")) and trk_live["courier_location"]["lat"] == 16.3)
     check("tracking computes courier distance to destination",
           trk_live["courier_location"].get("distance_km") is not None)
+    check("tracking gives a live ETA in minutes",
+          trk_live["courier_location"].get("eta_minutes") is not None)
+    # Drive the courier onto the delivery address -> buyer gets a 'nearby' ping.
+    to_coord = trk_live.get("to_coord")
+    if to_coord:
+        rn = client.post(f"/api/transport/orders/{order_id}/location", headers=hdr(transport),
+                         json={"lat": to_coord["lat"], "lng": to_coord["lng"]}).json()
+        check("courier-nearby distance computed at the door",
+              rn.get("distance_km") is not None and rn["distance_km"] <= 2)
+        bnotes = client.get("/api/auth/notifications", headers=hdr(buyer)).json()
+        check("buyer pinged that the courier is nearby",
+              any("nearby" in (str(n.get("title", "")) + str(n.get("body", ""))).lower() for n in bnotes))
 
     r = client.post(f"/api/orders/{order_id}/shipment/event", headers=hdr(transport),
                     json={"event": "delivered"})
@@ -368,6 +380,15 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger still balanced after settlement", acct["balanced"] is True)
     check("seller_payable cleared to 0", acct["accounts"].get("seller_payable") == "0.00")
+
+    print("\n== Transport earnings + payout (delivery partner) ==")
+    te = client.get("/api/transport/earnings", headers=hdr(transport)).json()
+    check("settlement accrued a transport payout",
+          te["trip_count"] >= 1 and float(te["pending_total"]) > 0)
+    check("transport earnings lists the settled trip",
+          any(t["public_id"] for t in te["trips"]))
+    check("transport earnings CSV served",
+          client.get("/api/transport/earnings.csv", headers=hdr(transport)).status_code == 200)
 
     print("\n== Ratings & reviews + earnings ==")
     r = client.post("/api/reviews", headers=hdr(buyer), json={
@@ -498,6 +519,12 @@ def run():
         "requested_qty": 200, "target_price": 23, "destination_mandal_id": mandal_id,
     })
     check("buyer creates RFQ", r.status_code == 201)
+    # Single login: a farmer shops too — they can post a buyer RFQ with the same account.
+    rf = client.post("/api/rfqs", headers=hdr(farmer), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id,
+        "requested_qty": 50, "target_price": 24, "destination_mandal_id": mandal_id,
+    })
+    check("farmer can post a buyer RFQ (one login, sells + buys)", rf.status_code == 201)
     rfq = r.json()
     check("RFQ starts open", rfq["status"] == "open")
 
@@ -602,6 +629,10 @@ def run():
     sr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
     check("scheduler run reports prices + meeting-reminder keys",
           all(k in sr for k in ("digests_sent", "prices_refreshed", "meeting_reminders")))
+    st = client.get("/api/admin/prices/status", headers=hdr(superadmin)).json()
+    check("price-feed status reports config + counts",
+          "configured" in st and st["row_count"] >= 1 and "feed_is_stale" in st
+          and "stale_rows" in st)
 
     print("\n== Team console (field leader / manager) ==")
     ov = client.get("/api/team/overview", headers=hdr(manager)).json()
@@ -677,6 +708,11 @@ def run():
           and row["meetings_invited"] >= 1 and row["meetings_attended"] >= 1)
     check("non-lead cannot read the leaderboard",
           client.get("/api/team/leaderboard", headers=hdr(farmer)).status_code == 403)
+    check("leaderboard CSV served",
+          client.get("/api/team/leaderboard.csv", headers=hdr(manager), params={"period": "month"}).status_code == 200)
+    tr = client.get("/api/team/trends", headers=hdr(manager), params={"weeks": 4}).json()
+    check("trends returns a weekly activity series",
+          len(tr["series"]) == 4 and "inspections" in tr["series"][0] and "orders" in tr["series"][0])
 
     # Pre-meeting reminders: an imminent meeting reminds its attendees once.
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td3  # noqa: E402
@@ -801,8 +837,11 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced after payout batch", acct["balanced"] is True)
     check("seller_clearing cleared to 0", acct["accounts"].get("seller_clearing", "0.00") == "0.00")
+    check("transport_clearing cleared to 0 too", acct["accounts"].get("transport_clearing", "0.00") == "0.00")
     snotes = client.get("/api/auth/notifications", headers=hdr(farmer)).json()
     check("seller notified of payout", any("payout" in n["title"].lower() for n in snotes))
+    te2 = client.get("/api/transport/earnings", headers=hdr(transport)).json()
+    check("transport payout marked paid after the batch", float(te2["paid_total"]) > 0)
     r = client.post("/api/admin/payouts/run", headers=hdr(superadmin), json={})
     check("empty payout run rejected", r.status_code == 409)
     r = client.post("/api/admin/payouts/run", headers=hdr(agent), json={})

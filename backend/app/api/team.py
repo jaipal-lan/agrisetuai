@@ -5,6 +5,7 @@ oversees leaders across a district."""
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -255,6 +256,45 @@ def leaderboard(period: str = "month", user=Depends(_lead), db: Session = Depend
     for i, r in enumerate(rows):
         r["rank"] = i + 1
     return {"period": period, "rows": rows}
+
+
+@router.get("/leaderboard.csv")
+def leaderboard_csv(period: str = "month", user=Depends(_lead), db: Session = Depends(get_db)):
+    import csv
+    import io
+
+    data = leaderboard(period=period, user=user, db=db)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["rank", "agent", "attainment_pct", "targets_met", "targets_active",
+                "inspections", "orders", "meetings_attended", "meetings_invited"])
+    for r in data["rows"]:
+        w.writerow([r["rank"], r["agent_name"], r["attainment_pct"], r["targets_met"],
+                    r["targets_active"], r["inspections"], r["orders"],
+                    r["meetings_attended"], r["meetings_invited"]])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="leaderboard-{period}.csv"'})
+
+
+@router.get("/trends")
+def trends(weeks: int = 6, user=Depends(_lead), db: Session = Depends(get_db)):
+    """Team-wide weekly activity for the last N weeks (inspections + orders handled),
+    so a leader can see the trend over time."""
+    weeks = max(1, min(26, weeks))
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    out = []
+    for i in range(weeks - 1, -1, -1):
+        wk_start = this_monday - timedelta(weeks=i)
+        s = datetime.combine(wk_start, time.min, tzinfo=timezone.utc)
+        e = datetime.combine(wk_start + timedelta(days=7), time.min, tzinfo=timezone.utc)
+        insp = db.scalar(select(func.count(Inspection.id)).where(
+            Inspection.created_at >= s, Inspection.created_at < e)) or 0
+        orders = db.scalar(select(func.count(Order.id)).where(
+            Order.assigned_agent_id.is_not(None),
+            Order.created_at >= s, Order.created_at < e)) or 0
+        out.append({"week_start": wk_start.isoformat(), "inspections": insp, "orders": orders})
+    return {"weeks": weeks, "series": out}
 
 
 @router.get("/my-targets")

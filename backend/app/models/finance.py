@@ -49,6 +49,8 @@ class Payout(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), index=True)
     seller_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # Who this payout is for: the produce seller, or the transport partner.
+    payee_type: Mapped[str] = mapped_column(String(16), default="seller")  # seller|transport
     amount: Mapped[float] = mapped_column(Numeric(14, 2))
     currency: Mapped[str] = mapped_column(String(4), default="INR")
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|processed|failed

@@ -39,7 +39,9 @@ def _notify_matching_sellers(db: Session, rfq: RFQ) -> None:
     except Exception:
         pass  # alerts must never block RFQ creation
 
-_buyer = require_roles(Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS)
+# A farmer shops with the same login they sell with, so they can post buyer
+# requirements (RFQs) too — alongside household and business buyers.
+_buyer = require_roles(Role.FARMER, Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS)
 _seller = require_roles(Role.FARMER)
 
 

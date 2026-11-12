@@ -54,8 +54,19 @@ class Settings(BaseSettings):
     # When the scheduler loop is on, refresh live prices at most this often (hours),
     # so a short scheduler interval doesn't hammer data.gov.in.
     prices_refresh_hours: int = 12
+    # Optional comma-separated whitelists for the live feed (empty = fetch all).
+    prices_feed_commodities: str = ""
+    prices_feed_states: str = ""
+    # Prices older than this (hours) are considered stale and flagged in Admin.
+    prices_stale_hours: int = 48
     # Remind meeting attendees this many hours before a scheduled team meeting.
     meeting_reminder_hours: int = 24
+
+    # Live delivery tracking. Assumed last-mile speed for a live ETA from the
+    # courier's distance-to-door, and the radius at which the buyer is pinged
+    # that the courier is nearby.
+    courier_speed_kmph: float = 25.0
+    courier_nearby_km: float = 2.0
 
     # Background scheduler (sandboxed): compiles daily digests and raises due
     # follow-up reminders on a timer. 0 disables the in-process loop (the default,

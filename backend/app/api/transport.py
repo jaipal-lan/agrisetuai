@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,7 +8,9 @@ from app.core.database import get_db
 from app.core.deps import require_roles
 from app.core.money import money
 from app.core.rbac import Role
+from app.models.catalog import Commodity
 from app.models.common import OrderStatus as S, utcnow
+from app.models.finance import Payout
 from app.models.order import Order, Shipment
 
 router = APIRouter(prefix="/transport", tags=["transport"])
@@ -49,6 +52,74 @@ def transport_jobs(include_done: bool = False, user=Depends(_transport), db: Ses
             sum(1 for j in jobs if j["status"] in [str(s) for s in _ACTIVE])}
 
 
+def _earnings(db: Session, user) -> dict:
+    """A transport partner's delivery earnings: accrued-but-unpaid vs paid payouts
+    (settled trips) plus in-progress charges on trips still in flight."""
+    payouts = list(db.scalars(select(Payout).where(
+        Payout.payee_type == "transport", Payout.seller_id == user.id).order_by(Payout.id.desc())))
+    pending = money(0)
+    paid = money(0)
+    trips = []
+    for p in payouts:
+        amt = money(p.amount)
+        if p.status == "processed":
+            paid += amt
+        else:
+            pending += amt
+        o = db.get(Order, p.order_id) if p.order_id else None
+        t = (o.accepted_terms or {}) if o else {}
+        c = db.get(Commodity, t.get("commodity_id")) if t.get("commodity_id") else None
+        trips.append({
+            "order_id": p.order_id,
+            "public_id": o.public_id if o else None,
+            "commodity": c.name if c else None,
+            "quantity": t.get("quantity"), "unit": t.get("unit", "kg"),
+            "amount": str(amt),
+            "status": "paid" if p.status == "processed" else "awaiting payout",
+            "batch_id": p.batch_id,
+        })
+    # Trips still moving — charge not yet accrued (order not settled).
+    in_progress = money(0)
+    for o in db.scalars(select(Order).where(Order.status.in_(_ACTIVE))):
+        sh = db.scalar(select(Shipment).where(Shipment.order_id == o.id))
+        if sh and sh.carrier_id == user.id:
+            in_progress += money((o.quote or {}).get("transport_charge", 0))
+    return {
+        "trips": trips,
+        "paid_total": str(paid),
+        "pending_total": str(pending),
+        "in_progress_total": str(in_progress),
+        "lifetime_total": str(paid + pending),
+        "trip_count": len(trips),
+    }
+
+
+@router.get("/earnings")
+def transport_earnings(user=Depends(_transport), db: Session = Depends(get_db)):
+    """Per-trip delivery earnings + paid/pending/in-progress totals for the courier."""
+    return _earnings(db, user)
+
+
+@router.get("/earnings.csv")
+def transport_earnings_csv(user=Depends(_transport), db: Session = Depends(get_db)):
+    import csv
+    import io
+
+    rep = _earnings(db, user)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["order", "commodity", "quantity", "unit", "amount_inr", "status", "batch"])
+    for t in rep["trips"]:
+        w.writerow([t["public_id"], t["commodity"], t["quantity"], t["unit"],
+                    t["amount"], t["status"], t["batch_id"] or ""])
+    w.writerow([])
+    w.writerow(["paid_total", rep["paid_total"]])
+    w.writerow(["pending_total", rep["pending_total"]])
+    w.writerow(["in_progress_total", rep["in_progress_total"]])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="transport-earnings.csv"'})
+
+
 class LocationPing(BaseModel):
     lat: float
     lng: float
@@ -73,5 +144,29 @@ def post_location(order_id: int, body: LocationPing, user=Depends(_transport),
     shipment.last_lat = body.lat
     shipment.last_lng = body.lng
     shipment.last_location_at = utcnow()
+
+    # Ping the buyer once when the courier gets close to the delivery address.
+    nearby_km = None
+    try:
+        from app.core.config import settings
+        from app.models.location import Mandal
+        from app.services.distance import haversine_km
+        from app.services import notify
+
+        terms = order.accepted_terms or {}
+        dest_id = terms.get("destination_mandal_id") or terms.get("mandal_id")
+        m = db.get(Mandal, dest_id) if dest_id else None
+        if m and m.latitude is not None and m.longitude is not None:
+            nearby_km = round(haversine_km(body.lat, body.lng, float(m.latitude), float(m.longitude)), 1)
+            pod = dict(shipment.proof_of_delivery or {})
+            if nearby_km <= settings.courier_nearby_km and not pod.get("nearby_notified"):
+                notify.send(db, user_id=order.buyer_id, title="Your courier is nearby",
+                            body=f"Your delivery is about {nearby_km} km away. Keep your delivery code ready.",
+                            object_type="order", object_id=order.public_id)
+                pod["nearby_notified"] = True
+                shipment.proof_of_delivery = pod
+    except Exception:
+        pass  # a tracking ping must never fail on the nearby-notify side effect
+
     db.commit()
-    return {"ok": True, "at": shipment.last_location_at.isoformat()}
+    return {"ok": True, "at": shipment.last_location_at.isoformat(), "distance_km": nearby_km}

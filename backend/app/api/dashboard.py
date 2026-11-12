@@ -163,10 +163,20 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
 
     elif role == Role.TRANSPORT:
         active = _count(db, select(func.count(Shipment.id)).where(Shipment.status.in_(_ACTIVE_SHIPMENT)))
+        paid = money(0)
+        pending_pay = money(0)
+        for p in db.scalars(select(Payout).where(Payout.payee_type == "transport", Payout.seller_id == user.id)):
+            if p.status == "pending":
+                pending_pay += money(p.amount)
+            else:
+                paid += money(p.amount)
         cards = [
             {"label": "Active deliveries", "value": active, "href": "/transport", "alert": active > 0},
+            {"label": "Earnings (paid)", "value": f"₹{paid}", "href": "/transport"},
+            {"label": "Awaiting payout", "value": f"₹{pending_pay}", "href": "/transport", "alert": pending_pay > money(0)},
         ]
-        actions = [{"label": "Delivery jobs", "href": "/transport", "primary": True}]
+        actions = [{"label": "Delivery jobs", "href": "/transport", "primary": True},
+                   {"label": "My earnings", "href": "/transport"}]
 
     else:  # superadmin
         total_orders = _count(db, select(func.count(Order.id)))

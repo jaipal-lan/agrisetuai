@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, downloadFile, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
@@ -18,6 +18,7 @@ export default function Transport() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
   const [data, setData] = useState(null);
+  const [earn, setEarn] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState(null); // order_id currently broadcasting
@@ -57,6 +58,7 @@ export default function Transport() {
   async function load() {
     try {
       setData(await api("/transport/jobs?include_done=true"));
+      setEarn(await api("/transport/earnings"));
     } catch (e) {
       setErr(e.message);
     }
@@ -124,6 +126,40 @@ export default function Transport() {
             </div>
           );
         })
+      )}
+
+      {earn && (
+        <div style={{ marginTop: 24 }}>
+          <div className="between">
+            <h2 style={{ margin: 0 }}>💰 My earnings</h2>
+            <button className="ghost" onClick={() => downloadFile("/transport/earnings.csv", "transport-earnings.csv")}
+                    style={{ padding: "4px 10px", fontSize: 13 }}>Download CSV</button>
+          </div>
+          <div className="stat-strip" style={{ marginTop: 10 }}>
+            <div><b>₹{earn.paid_total}</b> paid</div>
+            <div><b>₹{earn.pending_total}</b> awaiting payout</div>
+            <div><b>₹{earn.in_progress_total}</b> in progress</div>
+            <div><b>{earn.trip_count}</b> paid/accrued trips</div>
+          </div>
+          {earn.trips.length > 0 && (
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th>Order</th><th>Product</th><th>Qty</th><th>Amount</th><th>Status</th></tr></thead>
+                <tbody>
+                  {earn.trips.map((tp, i) => (
+                    <tr key={i}>
+                      <td>{tp.public_id ? <Link href={`/order/${tp.order_id}`}>{tp.public_id}</Link> : "—"}</td>
+                      <td>{tp.commodity || "—"}</td>
+                      <td>{tp.quantity} {tp.unit}</td>
+                      <td>₹{tp.amount}</td>
+                      <td><span className={`badge ${tp.status === "paid" ? "green" : "grey"}`}>{tp.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

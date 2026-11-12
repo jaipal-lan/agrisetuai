@@ -722,8 +722,13 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
         loc = {"lat": clat, "lng": clng,
                "at": shipment.last_location_at.isoformat() if shipment.last_location_at else None}
         if to_coord:
+            from app.core.config import settings
             from app.services.distance import haversine_km
-            loc["distance_km"] = round(haversine_km(clat, clng, to_coord["lat"], to_coord["lng"]), 1)
+            d = round(haversine_km(clat, clng, to_coord["lat"], to_coord["lng"]), 1)
+            loc["distance_km"] = d
+            # Live ETA from distance-to-door at the assumed last-mile speed.
+            spd = settings.courier_speed_kmph or 25.0
+            loc["eta_minutes"] = max(1, round(d / spd * 60)) if d > 0 else 0
         out["courier_location"] = loc
 
     # Delivery code: the buyer shows it to the courier at handoff. Only the
@@ -776,6 +781,9 @@ def shipment_event(
                             carrier_id=user.id, status="created")
         db.add(shipment)
         db.flush()
+    # The transport partner who works the milestones is the delivery-payout payee.
+    if shipment.carrier_id is None and user.role == Role.TRANSPORT:
+        shipment.carrier_id = user.id
     shipment.status = body.event
     if body.event == "out_for_delivery":
         import secrets as _secrets
@@ -864,6 +872,29 @@ def acceptance(order_id: int, user=Depends(get_current_user), db: Session = Depe
             )
             db.add(Payout(order_id=order.id, seller_id=order.seller_id, amount=payable,
                           status="pending", idempotency_key=idem))
+
+    # Accrue the transport partner's payout the same way: reclassify the
+    # transport_payable liability to a clearing account and record a pending
+    # payout for the courier user who handled the shipment.
+    q = order.quote or {}
+    charge = money(q.get("transport_charge", 0))
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    transport_user = shipment.carrier_id if shipment else None
+    if charge > money(0) and transport_user:
+        tidem = f"tpayout:{order.public_id}"
+        if not db.scalar(select(Payout).where(Payout.idempotency_key == tidem)):
+            ledger.post(
+                db,
+                txn_group=f"settle-transport:{order.public_id}",
+                order_id=order.id,
+                currency=q.get("currency", "INR"),
+                legs=[
+                    Leg("transport_payable", LedgerDirection.DEBIT, charge, "accrue transport payout"),
+                    Leg("transport_clearing", LedgerDirection.CREDIT, charge, "transport payout awaiting disbursement"),
+                ],
+            )
+            db.add(Payout(order_id=order.id, seller_id=transport_user, payee_type="transport",
+                          amount=charge, status="pending", idempotency_key=tidem))
     _safe_transition(db, order, S.SETTLED, actor_id=user.id, reason_code="settled")
     audit.record(db, actor_id=user.id, action="order.settle", object_type="order",
                  object_id=order.public_id, new_values={"seller_payout": str(payable)})

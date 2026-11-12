@@ -509,13 +509,18 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
     total = money(0)
     for p in pending:
         amt = money(p.amount)
+        # Transport payouts clear the transport_clearing account; seller payouts
+        # clear seller_clearing. Both settle out to cash_clearing.
+        is_transport = getattr(p, "payee_type", "seller") == "transport"
+        clearing = "transport_clearing" if is_transport else "seller_clearing"
+        who = "transport partner" if is_transport else "seller"
         ledger.post(
             db,
             txn_group=f"payout_batch:{batch.public_id}:{p.order_id}",
             order_id=p.order_id,
             currency=p.currency,
             legs=[
-                Leg("seller_clearing", LedgerDirection.DEBIT, amt, "disburse to seller"),
+                Leg(clearing, LedgerDirection.DEBIT, amt, f"disburse to {who}"),
                 Leg("cash_clearing", LedgerDirection.CREDIT, amt, "payout sent"),
             ],
         )
@@ -525,7 +530,8 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
         total += amt
         try:
             notify.send(db, user_id=p.seller_id, title="Payout sent",
-                        body=f"Your payout of Rs. {amt} has been disbursed (batch {batch.public_id}).",
+                        body=f"Your {('delivery ' if is_transport else '')}payout of Rs. {amt} "
+                             f"has been disbursed (batch {batch.public_id}).",
                         object_type="payout", object_id=batch.public_id)
         except Exception:
             pass
@@ -596,6 +602,13 @@ def run_scheduler(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = De
                  object_id="scheduler", new_values=result)
     db.commit()
     return result
+
+
+@router.get("/prices/status")
+def prices_status(user=Depends(_staff), db: Session = Depends(get_db)):
+    """Live-feed health: configuration, row counts and freshness, for the badge."""
+    from app.services import prices_feed
+    return prices_feed.status(db)
 
 
 @router.post("/prices/refresh")

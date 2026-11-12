@@ -262,6 +262,7 @@ function TrackingTimeline({ orderId, isBuyer }) {
         <div style={{ marginTop: 12 }}>
           <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
             📍 Courier is live{tr.courier_location.distance_km != null ? ` · ~${tr.courier_location.distance_km} km away` : ""}
+            {tr.courier_location.eta_minutes != null ? ` · ~${tr.courier_location.eta_minutes} min away` : ""}
             {tr.courier_location.at ? ` · updated ${fmtAgo(tr.courier_location.at)}` : ""}
           </div>
           <iframe

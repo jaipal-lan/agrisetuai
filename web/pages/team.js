@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, getUser } from "../lib/api";
+import { api, downloadFile, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
@@ -24,6 +24,7 @@ export default function Team() {
   const [targets, setTargets] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const [board, setBoard] = useState(null);
+  const [trend, setTrend] = useState(null);
   const [period, setPeriod] = useState("month");
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -41,6 +42,7 @@ export default function Team() {
     api("/team/targets").then(setTargets).catch(() => {});
     api("/team/meetings").then(setMeetings).catch(() => {});
     api(`/team/leaderboard?period=${period}`).then(setBoard).catch(() => {});
+    api("/team/trends?weeks=6").then(setTrend).catch(() => {});
   }
   usePoll(() => { if (me) load(); }, 20000, [me, period]);
 
@@ -126,15 +128,38 @@ export default function Team() {
       {/* ---- Leaderboard ---- */}
       <div className="between" style={{ marginTop: 22 }}>
         <h2 style={{ margin: 0 }}>🏆 Agent leaderboard</h2>
-        <div className="row" style={{ gap: 6 }}>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
           {["week", "month", "all"].map((p) => (
             <button key={p} className={period === p ? "" : "ghost"} onClick={() => setPeriod(p)}
                     style={{ padding: "4px 10px", fontSize: 13 }}>
               {p === "all" ? "All time" : `This ${p}`}
             </button>
           ))}
+          <button className="ghost" style={{ padding: "4px 10px", fontSize: 13 }}
+                  onClick={() => downloadFile(`/team/leaderboard.csv?period=${period}`, `leaderboard-${period}.csv`)}>
+            CSV
+          </button>
         </div>
       </div>
+
+      {trend && trend.series?.some((w) => w.inspections || w.orders) && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>📈 Inspections per week (last 6)</div>
+          <div className="row" style={{ alignItems: "flex-end", gap: 8, height: 90 }}>
+            {(() => {
+              const max = Math.max(1, ...trend.series.map((w) => w.inspections));
+              return trend.series.map((w) => (
+                <div key={w.week_start} style={{ flex: 1, textAlign: "center" }}>
+                  <div className="pbar-fill" title={`${w.inspections} inspections`}
+                       style={{ height: `${Math.round((w.inspections / max) * 70)}px`, minHeight: 2, borderRadius: 4 }} />
+                  <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{w.week_start.slice(5)}</div>
+                  <div style={{ fontSize: 12 }}>{w.inspections}</div>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
       {!board || board.rows.length === 0 ? (
         <p className="muted">No field agents yet.</p>
       ) : (

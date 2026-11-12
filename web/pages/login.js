@@ -4,15 +4,13 @@ import { useState } from "react";
 import { api, setSession } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
+// Public sign-up roles only. A farmer sells AND buys with one login. Staff roles
+// (field agent/leader/manager, transport, superadmin) are provisioned internally,
+// so they're not offered here — those accounts just log in with their phone.
 const ROLES = [
-  ["farmer", "Farmer / రైతు"],
+  ["farmer", "Farmer — sell & buy / రైతు"],
   ["buyer_household", "Household buyer / గృహ కొనుగోలుదారు"],
   ["buyer_business", "Business buyer / వ్యాపార కొనుగోలుదారు"],
-  ["field_agent", "Field agent / క్షేత్ర ఏజెంట్"],
-  ["field_leader", "Field leader / క్షేత్ర నాయకుడు"],
-  ["field_manager", "Field manager / క్షేత్ర మేనేజర్"],
-  ["transport", "Transport / రవాణా"],
-  ["superadmin", "Superadmin"],
 ];
 
 export default function Login() {

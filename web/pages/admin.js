@@ -38,6 +38,7 @@ export default function Admin() {
   const [schedBusy, setSchedBusy] = useState(false);
   const [priceMsg, setPriceMsg] = useState(null);
   const [priceBusy, setPriceBusy] = useState(false);
+  const [priceStatus, setPriceStatus] = useState(null);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
   const [users, setUsers] = useState([]);
@@ -184,6 +185,7 @@ export default function Admin() {
       } else {
         setPriceMsg(`Refreshed from ${r.source}: ${r.upserted} price(s) updated (${r.new} new)${r.as_of ? `, as of ${r.as_of}` : ""}.`);
       }
+      loadPriceStatus();
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -228,11 +230,16 @@ export default function Admin() {
     }
   }
 
+  function loadPriceStatus() {
+    api("/admin/prices/status").then(setPriceStatus).catch(() => {});
+  }
+
   useEffect(() => {
     setMe(getUser());
     load();
     loadPayouts();
     loadUsers();
+    loadPriceStatus();
   }, []);
 
   // Refetch both report surfaces whenever the date range changes.
@@ -602,6 +609,16 @@ export default function Admin() {
           and updates the all-India price screen. Requires a data.gov.in API key in
           the backend config; until then the app serves the seeded sample prices.
         </p>
+        {priceStatus && (
+          <div className="stat-strip" style={{ marginBottom: 10 }}>
+            <div>Feed: <b>{priceStatus.configured ? "live (data.gov.in)" : "sample"}</b></div>
+            <div><b>{priceStatus.row_count}</b> prices{priceStatus.stale_rows ? ` · ${priceStatus.stale_rows} stale` : ""}</div>
+            <div>Last refresh: <b>{priceStatus.last_refresh_at ? new Date(priceStatus.last_refresh_at).toLocaleString() : "never"}</b></div>
+            {priceStatus.feed_is_stale && (
+              <div className="badge danger">⚠ feed stale ({priceStatus.stale_after_hours}h+)</div>
+            )}
+          </div>
+        )}
         {priceMsg && <div className="ok" style={{ marginBottom: 10 }}>{priceMsg}</div>}
         <button disabled={priceBusy} onClick={refreshPrices}>
           {priceBusy ? "Refreshing…" : "Refresh prices now"}
@@ -611,9 +628,10 @@ export default function Admin() {
       <h2>Scheduled jobs</h2>
       <div className="card">
         <p className="muted" style={{ fontSize: 14, marginTop: 0 }}>
-          Compiles each user&apos;s batched alerts into a daily-digest push and raises
-          due advisory follow-up reminders — the sandboxed job a timer (or cron)
-          runs automatically. Trigger it here to see it work now.
+          Compiles each user&apos;s batched alerts into a daily-digest push, refreshes
+          live market prices (if the feed is configured) and sends team-meeting
+          reminders — the sandboxed job a timer (or cron) runs automatically.
+          Trigger it here to see it work now.
         </p>
         {schedMsg && <div className="ok" style={{ marginBottom: 10 }}>{schedMsg}</div>}
         <button disabled={schedBusy} onClick={runScheduler}>
@@ -657,8 +675,8 @@ export default function Admin() {
             <label>Role</label>
             <select value={userRole} onChange={(e) => setUserRole(e.target.value)}>
               <option value="">All roles</option>
-              {["farmer", "fpo", "buyer_household", "buyer_business", "field_agent",
-                "agronomist", "transport", "support", "mandal_manager", "finance", "superadmin"]
+              {["farmer", "buyer_household", "buyer_business", "field_agent",
+                "field_leader", "field_manager", "transport", "superadmin"]
                 .map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>

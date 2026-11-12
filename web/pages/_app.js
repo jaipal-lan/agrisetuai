@@ -183,7 +183,7 @@ export default function App({ Component, pageProps }) {
       <ToastProvider>
         <Head>
           <title>AgriSetuAI — verified farm-to-market</title>
-          <meta name="description" content="AI advisory plus a verified farm-to-market for Andhra Pradesh & Telangana." />
+          <meta name="description" content="Door-to-door farm-to-market: farmers sell, buyers order, we verify, pack and deliver across Andhra Pradesh & Telangana." />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <meta name="theme-color" content="#14532d" />
           <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

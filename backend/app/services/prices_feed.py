@@ -100,7 +100,11 @@ def normalize(rec: dict) -> dict | None:
     }
 
 
-def _http_fetch(limit: int, commodity: str | None, state: str | None) -> list[dict]:
+def _csv_list(raw: str) -> list[str]:
+    return [s.strip() for s in (raw or "").split(",") if s.strip()]
+
+
+def _http_fetch_once(limit: int, commodity: str | None, state: str | None) -> list[dict]:
     params = {"api-key": settings.data_gov_in_api_key, "format": "json", "limit": str(limit)}
     if commodity:
         params["filters[commodity]"] = commodity
@@ -111,6 +115,32 @@ def _http_fetch(limit: int, commodity: str | None, state: str | None) -> list[di
     with urllib.request.urlopen(req, timeout=25) as resp:  # noqa: S310 (fixed gov URL)
         data = json.loads(resp.read().decode("utf-8"))
     return data.get("records", []) or []
+
+
+def _http_fetch(limit: int, commodity: str | None, state: str | None, *, retries: int = 3) -> list[dict]:
+    """Fetch with simple exponential backoff, and honour the commodity/state
+    whitelists when no explicit filter is passed."""
+    import time as _time
+
+    commodities = [commodity] if commodity else (_csv_list(settings.prices_feed_commodities) or [None])
+    states = [state] if state else (_csv_list(settings.prices_feed_states) or [None])
+
+    records: list[dict] = []
+    for c in commodities:
+        for st in states:
+            last_err = None
+            for attempt in range(retries):
+                try:
+                    records.extend(_http_fetch_once(limit, c, st))
+                    last_err = None
+                    break
+                except Exception as exc:  # noqa: BLE001 - retry any transient failure
+                    last_err = exc
+                    if attempt < retries - 1:
+                        _time.sleep(2 ** attempt)
+            if last_err is not None:
+                log.warning("price feed fetch failed for commodity=%s state=%s: %s", c, st, last_err)
+    return records
 
 
 def _key(state, market, commodity, variety) -> tuple:
@@ -178,4 +208,32 @@ def refresh_prices(db: Session, *, records: list[dict] | None = None,
         "new": added,
         "source": SOURCE_NAME,
         "as_of": max(as_of_vals) if as_of_vals else None,
+    }
+
+
+def status(db: Session) -> dict:
+    """Feed health for the Admin console: configuration, row counts, freshness."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func
+
+    total = db.scalar(select(func.count(MarketPrice.id))) or 0
+    stale = db.scalar(select(func.count(MarketPrice.id)).where(MarketPrice.stale.is_(True))) or 0
+    last = last_refresh_at(db)
+    is_stale = True
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        is_stale = (datetime.now(timezone.utc) - last) >= timedelta(hours=settings.prices_stale_hours)
+    return {
+        "configured": provider_configured(),
+        "provider": settings.prices_provider,
+        "commodities_whitelist": _csv_list(settings.prices_feed_commodities),
+        "states_whitelist": _csv_list(settings.prices_feed_states),
+        "last_refresh_at": last.isoformat() if last else None,
+        "row_count": total,
+        "stale_rows": stale,
+        "fresh_rows": total - stale,
+        "stale_after_hours": settings.prices_stale_hours,
+        "feed_is_stale": is_stale if provider_configured() else False,
     }

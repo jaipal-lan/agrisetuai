@@ -364,9 +364,8 @@ export default function AgentJobs() {
 
       <h1>{t("agent_jobs")}</h1>
       <p className="tagline">
-        Inspections, photos and advisory notes are saved on this device first, so
-        you can work in low-signal fields. They sync automatically when you are
-        back online.
+        Inspections and photos are saved on this device first, so you can work in
+        low-signal fields. They sync automatically when you are back online.
       </p>
 
       <MyTeam />
