@@ -15,6 +15,13 @@ _tmp.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
 os.environ["DEV_MODE"] = "true"
 os.environ["AUTH_SECRET"] = "smoke-test-secret"
+# Keep the test hermetic: ignore any local backend/.env secrets (a configured
+# live price feed, scheduler, etc.) so the feed tests see the known sample state.
+os.environ["PRICES_PROVIDER"] = "sample"
+os.environ["DATA_GOV_IN_API_KEY"] = ""
+os.environ["PRICES_FEED_STATES"] = ""
+os.environ["PRICES_FEED_COMMODITIES"] = ""
+os.environ["SCHEDULER_INTERVAL_SECONDS"] = "0"
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -585,6 +592,9 @@ def run():
     pc = client.get("/api/market-prices/commodities").json()
     check("priced commodities list has market/state counts",
           any(c["commodity"] == "Paddy" and c["market_count"] >= 2 and c["state_count"] >= 2 for c in pc))
+    check("priced commodities carry a category (for filtering)",
+          all("category" in c for c in pc)
+          and any(c["commodity"] == "Paddy" and c["category"] == "cereal" for c in pc))
     ai = client.get("/api/market-prices/all-india", params={"commodity": "Paddy"}).json()
     check("all-India price view groups a commodity by state",
           ai["commodity"] == "Paddy" and len(ai["states"]) >= 2 and ai["modal_avg"] is not None)

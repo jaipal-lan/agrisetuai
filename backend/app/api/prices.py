@@ -12,6 +12,55 @@ router = APIRouter(tags=["prices"])
 
 _DISCLAIMER = "Official mandi observation, not a guaranteed sale price on this platform."
 
+# Best-effort grouping of AGMARKNET commodity names into shopper-friendly
+# categories, so the (large) price list can be filtered. Checked in ORDER; first
+# keyword hit wins. Cereals/pulses/oilseeds/spices are checked before
+# vegetables/fruits so staple grains and legumes aren't mislabelled by a stray
+# substring (e.g. "Pearl Millet" vs "pear", "Urd Beans" vs "beans"). Unmatched
+# falls to "other".
+_CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("cereal", ("rice", "paddy", "wheat", "maize", "jowar", "bajra", "ragi", "barley",
+                "millet", "corn")),
+    ("pulse", ("gram", "tur", "arhar", "moong", "urad", "masur", "lentil", "dal",
+               "rajma", "horse gram", "moth", "kulthi", "black gram", "green gram",
+               "red gram", "bengal gram", "pulse", "kabuli", "cowpea", "peas(dry)",
+               "field pea", "lobia")),
+    # Dairy, meat, fish & livestock (checked after pulse so "cowpea" isn't caught
+    # by "cow"). AGMARKNET lists these in some markets.
+    ("dairy_meat", ("milk", "ghee", "butter", "curd", "paneer", "khoa", "cream",
+                    "cow", "ox", "buffalo", "bullock", "goat", "sheep", "prawn",
+                    "fish", "egg", "mutton", "chicken", "meat", "poultry")),
+    ("oilseed", ("groundnut", "sunflower", "soyabean", "soybean", "mustard", "sesamum",
+                 "sesame", "til ", "castor", "safflower", "niger", "linseed", "copra",
+                 "coconut", "cottonseed")),
+    ("spice", ("chilli", "chili", "turmeric", "coriander", "cumin", "jeera", "pepper",
+               "cardamom", "clove", "cinnamon", "fenugreek", "ajwain", "tamarind",
+               "dry ginger", "ginger(dry)", "garlic", "fennel", "saunf", "nutmeg", "mace")),
+    ("fruit", ("apple", "banana", "mango", "orange", "mosambi", "sweet lime", "grape",
+               "pomegranate", "papaya", "guava", "watermelon", "water melon", "musk melon",
+               "karbuja", "pineapple", "sapota", "chikoo", "pear", "plum", "peach",
+               "lemon", "lime", "ber(", "custard apple", "jack fruit", "fig", "amla",
+               "kinnow", "pomo", "grapes", "litchi", "lichi", "strawberry",
+               "seetapal", "sitaphal", "seethaphal")),
+    ("vegetable", ("tomato", "onion", "potato", "brinjal", "bhindi", "ladies finger",
+                   "cabbage", "cauliflower", "carrot", "beetroot", "beans", "peas",
+                   "green chilli", "capsicum", "cucumber", "cucumbar", "kheera",
+                   "pumpkin", "gourd", "radish", "spinach", "methi", "drumstick",
+                   "knol khol", "tapioca", "sweet potato", "colocasia", "colacasia",
+                   "yam", "amaranthus", "cluster beans", "field bean",
+                   "tinda", "chow chow", "leafy", "raw banana", "mint", "ginger",
+                   "ash gourd", "raddish", "ridge", "snake", "thondekai", "tori",
+                   "pea pod", "green and fresh", "knolkhol")),
+]
+
+
+def _category(name: str | None) -> str:
+    n = (name or "").lower()
+    for cat, keys in _CATEGORY_KEYWORDS:
+        if any(k in n for k in keys):
+            return cat
+    return "other"
+
 
 def _row(p: MarketPrice) -> dict:
     return {
@@ -58,6 +107,7 @@ def priced_commodities(db: Session = Depends(get_db)):
         modals = [float(p.modal_price) for p in ps]
         out.append({
             "commodity": name,
+            "category": _category(name),
             "market_count": len(ps),
             "state_count": len({p.state for p in ps if p.state}),
             "modal_min": min(modals) if modals else None,

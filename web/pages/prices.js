@@ -10,6 +10,20 @@ export default function Prices() {
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [err, setErr] = useState(null);
+  const [query, setQuery] = useState("");
+  const [cat, setCat] = useState("all");
+
+  const CAT_LABELS = {
+    all: "All", vegetable: "🥬 Vegetables", fruit: "🍎 Fruits", cereal: "🌾 Cereals",
+    pulse: "🫘 Pulses", oilseed: "🛢️ Oilseeds", spice: "🌶️ Spices",
+    dairy_meat: "🥛 Dairy & meat", other: "Other",
+  };
+  const cats = ["all", ...Array.from(new Set(commodities.map((c) => c.category || "other")))
+    .sort((a, b) => Object.keys(CAT_LABELS).indexOf(a) - Object.keys(CAT_LABELS).indexOf(b))];
+  const q = query.trim().toLowerCase();
+  const shown = commodities.filter((c) =>
+    (cat === "all" || (c.category || "other") === cat) &&
+    (!q || (c.commodity || "").toLowerCase().includes(q)));
 
   useEffect(() => {
     api("/market-prices/commodities").then(setCommodities).catch((e) => setErr(e.message));
@@ -33,12 +47,35 @@ export default function Prices() {
       {!selected ? (
         <>
           <p className="muted" style={{ fontSize: 14 }}>Tap a product to see its price across all markets.</p>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a product (e.g. tomato, paddy, apple)…"
+            style={{ fontSize: 16, width: "100%", maxWidth: 420, marginBottom: 10 }}
+          />
+          <div className="row" style={{ flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+            {cats.map((cx) => (
+              <button key={cx} className={cat === cx ? "" : "ghost"}
+                      style={{ padding: "4px 10px", fontSize: 13 }}
+                      onClick={() => setCat(cx)}>
+                {CAT_LABELS[cx] || cx}
+              </button>
+            ))}
+          </div>
+          <p className="muted" style={{ fontSize: 13, marginTop: -6 }}>
+            {shown.length} of {commodities.length} products
+          </p>
           <div className="grid">
-            {commodities.map((c) => (
+            {shown.map((c) => (
               <button key={c.commodity} className="card stat-card"
-                      style={{ textAlign: "left", cursor: "pointer" }}
+                      style={{ textAlign: "left", cursor: "pointer", color: "var(--ink)" }}
                       onClick={() => setSelected(c.commodity)}>
-                <h3 style={{ margin: "0 0 6px" }}>{c.commodity}</h3>
+                <div className="between" style={{ alignItems: "flex-start" }}>
+                  <h3 style={{ margin: "0 0 6px", color: "var(--ink)" }}>{c.commodity}</h3>
+                  {c.category && c.category !== "other" && (
+                    <span className="pill-tag">{(CAT_LABELS[c.category] || c.category).replace(/^\S+\s/, "")}</span>
+                  )}
+                </div>
                 <div className="price" style={{ fontSize: 20 }}>
                   ₹{c.modal_min}{c.modal_max !== c.modal_min ? `–${c.modal_max}` : ""}
                   <small> {c.unit}</small>
@@ -49,6 +86,7 @@ export default function Prices() {
               </button>
             ))}
           </div>
+          {shown.length === 0 && <p className="muted">No products match that search.</p>}
         </>
       ) : !detail ? (
         <p className="muted">{t("loading")}</p>
