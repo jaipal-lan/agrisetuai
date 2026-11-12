@@ -31,3 +31,4 @@ Thumbs.db
 .idea/
 backend/uvicorn.log
 web/next.log
+backend/var/
