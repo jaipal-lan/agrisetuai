@@ -852,6 +852,33 @@ def run():
     print("\n== Scheduled payout batches (accrue -> disburse) ==")
     po = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
     check("settled order accrued a pending payout", po["pending_count"] >= 1 and float(po["pending_total"]) > 0)
+
+    # Payouts disburse ONLY to verified payout accounts.
+    r = client.post("/api/admin/payouts/run", headers=hdr(superadmin), json={})
+    check("payout run blocked while no payee account is verified", r.status_code == 409)
+    client.put("/api/auth/payout-account", headers=hdr(farmer),
+               json={"method": "upi", "upi_id": "ravi@okaxis"})
+    client.put("/api/auth/payout-account", headers=hdr(transport),
+               json={"method": "bank", "account_name": "Kisan Logistics",
+                     "account_number": "123456789012", "ifsc": "HDFC0001234"})
+    queue = client.get("/api/admin/payout-accounts", headers=hdr(superadmin)).json()
+    check("unverified accounts show in the verify queue", len(queue) >= 2)
+    check("verify queue masks bank account numbers",
+          all(a["method"] != "bank" or (a["account_number_masked"] or "").startswith("****") for a in queue))
+    po_blocked = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
+    check("overview flags payouts blocked on unverified accounts", po_blocked.get("blocked_unverified", 0) >= 1)
+    r = client.post("/api/admin/payouts/run", headers=hdr(superadmin), json={})
+    check("payout run still blocked while accounts unverified", r.status_code == 409)
+    check("non-finance cannot verify payout accounts",
+          client.post(f"/api/admin/payout-accounts/{queue[0]['user_id']}/verify",
+                      headers=hdr(agent), json={"approve": True}).status_code in (401, 403))
+    for a in queue:
+        vr = client.post(f"/api/admin/payout-accounts/{a['user_id']}/verify",
+                         headers=hdr(superadmin), json={"approve": True})
+        check("admin verifies a payout account", vr.json()["verified"] is True)
+    check("nothing blocked after verification",
+          client.get("/api/admin/payouts", headers=hdr(superadmin)).json().get("blocked_unverified", 0) == 0)
+
     r = client.post("/api/admin/payouts/run", headers=hdr(superadmin), json={})
     check("payout batch disburses pending", r.json()["payout_count"] >= 1 and float(r.json()["total_amount"]) > 0)
     po2 = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()

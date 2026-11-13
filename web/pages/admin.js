@@ -41,6 +41,7 @@ export default function Admin() {
   const [priceStatus, setPriceStatus] = useState(null);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
+  const [payoutAccts, setPayoutAccts] = useState(null);
   const [users, setUsers] = useState([]);
   const [userQ, setUserQ] = useState("");
   const [userRole, setUserRole] = useState("");
@@ -146,6 +147,11 @@ export default function Admin() {
     } catch {
       setPayouts(null);
     }
+    try {
+      setPayoutAccts(await api("/admin/payout-accounts?status_filter=unverified"));
+    } catch {
+      setPayoutAccts(null);
+    }
   }
 
   async function runPayoutBatch() {
@@ -153,7 +159,22 @@ export default function Admin() {
     setPayoutMsg(null);
     try {
       const r = await api("/admin/payouts/run", { method: "POST", body: {} });
-      setPayoutMsg(`Batch ${r.batch}: disbursed ₹${r.total_amount} across ${r.payout_count} payout(s).`);
+      setPayoutMsg(
+        `Batch ${r.batch}: disbursed ₹${r.total_amount} across ${r.payout_count} payout(s).`
+        + (r.held_unverified ? ` ${r.held_unverified} held (unverified account).` : "")
+      );
+      loadPayouts();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function verifyPayoutAccount(userId, approve) {
+    setErr(null);
+    setPayoutMsg(null);
+    try {
+      await api(`/admin/payout-accounts/${userId}/verify`, { method: "POST", body: { approve } });
+      setPayoutMsg(approve ? "Payout account verified." : "Payout account rejected.");
       loadPayouts();
     } catch (e) {
       setErr(e.message);
@@ -525,6 +546,42 @@ export default function Admin() {
         </>
       )}
 
+      {payoutAccts && payoutAccts.length > 0 && (
+        <>
+          <h2>Payout accounts <span className="badge amber">{payoutAccts.length} to verify</span></h2>
+          <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
+            Partners are paid only after their UPI/bank account is verified. Check the details against the partner, then approve or reject.
+          </p>
+          <div className="card">
+            <table>
+              <thead><tr><th>Partner</th><th>Role</th><th>Method</th><th>Details</th><th>Action</th></tr></thead>
+              <tbody>
+                {payoutAccts.map((a) => (
+                  <tr key={a.user_id}>
+                    <td>{a.name}{a.phone ? <div className="muted" style={{ fontSize: 12 }}>{a.phone}</div> : null}</td>
+                    <td><span className="badge grey">{(a.role || "").replace(/_/g, " ")}</span></td>
+                    <td>{a.method === "upi" ? "UPI" : "Bank"}</td>
+                    <td className="muted" style={{ fontSize: 13 }}>
+                      {a.method === "upi"
+                        ? a.upi_id
+                        : `${a.account_name || "—"} · ${a.account_number_masked || "—"} · ${a.ifsc || "—"}`}
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="green" style={{ padding: "4px 10px", fontSize: 13 }}
+                                onClick={() => verifyPayoutAccount(a.user_id, true)}>Verify</button>
+                        <button className="ghost" style={{ padding: "4px 10px", fontSize: 13 }}
+                                onClick={() => verifyPayoutAccount(a.user_id, false)}>Reject</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {payouts && (
         <>
           <h2>Payouts {payouts.pending_count > 0 && <span className="badge amber">{payouts.pending_count} pending</span>}</h2>
@@ -532,6 +589,11 @@ export default function Admin() {
           {payouts.missing_payout_accounts > 0 && (
             <div className="error" style={{ marginBottom: 10 }}>
               ⚠ {payouts.missing_payout_accounts} pending payee(s) have no UPI/bank details on file — they can&apos;t be paid until they add them in their profile.
+            </div>
+          )}
+          {payouts.blocked_unverified > 0 && (
+            <div className="error" style={{ marginBottom: 10 }}>
+              ⚠ {payouts.blocked_unverified} pending payout(s) are held — the payee&apos;s account is not verified yet. Verify it above to release it.
             </div>
           )}
           <div className="card">
@@ -553,7 +615,11 @@ export default function Admin() {
                       <td>{p.order || "—"}</td><td>{p.seller}</td>
                       <td><span className="badge grey">{p.payee_type || "seller"}</span></td>
                       <td>₹{p.amount}</td>
-                      <td>{p.has_account ? <span className="badge green">on file</span> : <span className="badge amber">missing</span>}</td>
+                      <td>{!p.has_account
+                        ? <span className="badge amber">missing</span>
+                        : p.verified
+                          ? <span className="badge green">verified</span>
+                          : <span className="badge amber">unverified</span>}</td>
                     </tr>
                   ))}
                 </tbody>

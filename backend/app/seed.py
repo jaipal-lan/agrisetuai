@@ -288,6 +288,15 @@ def seed_users(db: Session, mandals: dict) -> dict:
     if not db.scalar(select(AgentProfile).where(AgentProfile.user_id == agent.id)):
         db.add(AgentProfile(user_id=agent.id, skill_level="Field Agricultural Advisor",
                             service_mandals=[tenali.id] if tenali else [], languages="te,en"))
+    # Demo payout accounts: the farmer's awaits verification (shows up in the
+    # admin verify queue); the transport partner's is already verified.
+    from app.models.account import PayoutAccount
+    transport_u = users[Role.TRANSPORT]
+    if not db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == farmer.id)):
+        db.add(PayoutAccount(user_id=farmer.id, method="upi", upi_id="ravi@okaxis", verified=False))
+    if not db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == transport_u.id)):
+        db.add(PayoutAccount(user_id=transport_u.id, method="bank", account_name="Transport Co",
+                             account_number="123456789012", ifsc="HDFC0001234", verified=True))
     return users
 
 

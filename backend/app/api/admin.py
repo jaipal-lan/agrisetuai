@@ -467,18 +467,24 @@ def payouts_overview(user=Depends(_finance), db: Session = Depends(get_db)):
     pending = list(db.scalars(select(Payout).where(Payout.status == "pending").order_by(Payout.id)))
     names = {u.id: u.name for u in db.scalars(select(User))}
     orders = {o.id: o.public_id for o in db.scalars(select(Order))}
-    have_account = {a.user_id for a in db.scalars(select(PayoutAccount))}
+    accounts = {a.user_id: a for a in db.scalars(select(PayoutAccount))}
+    have_account = set(accounts)
+    verified_accounts = {uid for uid, a in accounts.items() if a.verified}
     total = money(sum(float(p.amount) for p in pending)) if pending else money(0)
     missing = sum(1 for p in pending if p.seller_id not in have_account)
+    # Payouts that cannot be disbursed yet: no account at all, or an unverified one.
+    blocked = sum(1 for p in pending if p.seller_id not in verified_accounts)
     batches = db.scalars(select(PayoutBatch).order_by(PayoutBatch.id.desc()).limit(20))
     return {
         "pending_count": len(pending),
         "pending_total": str(total),
         "missing_payout_accounts": missing,
+        "blocked_unverified": blocked,
         "pending": [{
             "id": p.id, "order": orders.get(p.order_id), "seller": names.get(p.seller_id) or f"user {p.seller_id}",
             "payee_type": getattr(p, "payee_type", "seller"),
             "has_account": p.seller_id in have_account,
+            "verified": p.seller_id in verified_accounts,
             "amount": str(money(p.amount)), "currency": p.currency,
         } for p in pending],
         "batches": [{
@@ -501,9 +507,23 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
     balanced), marks the payout processed, links it to the batch, and alerts the
     seller. Mock disbursement in the pilot; a real bank/UPI payout API plugs in here.
     """
-    pending = list(db.scalars(select(Payout).where(Payout.status == "pending").order_by(Payout.id)))
-    if not pending:
+    from app.models.account import PayoutAccount
+
+    all_pending = list(db.scalars(select(Payout).where(Payout.status == "pending").order_by(Payout.id)))
+    if not all_pending:
         raise HTTPException(status.HTTP_409_CONFLICT, "No pending payouts to disburse")
+
+    # Only disburse to payees with a VERIFIED payout account. Payouts to payees
+    # with a missing or unverified account are held (left pending) until verified.
+    verified_accounts = {a.user_id for a in db.scalars(select(PayoutAccount)) if a.verified}
+    pending = [p for p in all_pending if p.seller_id in verified_accounts]
+    held = len(all_pending) - len(pending)
+    if not pending:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"No payouts are disbursable — {held} pending payout(s) are held because the "
+            "payee has no verified payout account. Verify accounts under Payout accounts first.",
+        )
 
     batch = PayoutBatch(
         public_id=public_id("PB", 8), status="processed", payout_count=len(pending),
@@ -546,7 +566,72 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
     audit.record(db, actor_id=user.id, action="payout.batch", object_type="payout_batch",
                  object_id=batch.public_id, new_values={"count": len(pending), "total": str(total)})
     db.commit()
-    return {"batch": batch.public_id, "payout_count": len(pending), "total_amount": str(total)}
+    return {"batch": batch.public_id, "payout_count": len(pending),
+            "total_amount": str(total), "held_unverified": held}
+
+
+# --- Payout-account verification ------------------------------------------
+
+@router.get("/payout-accounts")
+def payout_accounts_queue(status_filter: str = "unverified",
+                          user=Depends(_finance), db: Session = Depends(get_db)):
+    """Partner payout accounts (seller/transport) for finance to verify. Defaults
+    to the unverified queue; pass status_filter=verified|all to see others."""
+    from app.models.account import PayoutAccount
+
+    accounts = list(db.scalars(select(PayoutAccount).order_by(PayoutAccount.updated_at.desc())))
+    if status_filter == "unverified":
+        accounts = [a for a in accounts if not a.verified]
+    elif status_filter == "verified":
+        accounts = [a for a in accounts if a.verified]
+    users = {u.id: u for u in db.scalars(select(User))}
+    out = []
+    for a in accounts:
+        u = users.get(a.user_id)
+        acct = a.account_number
+        masked = f"****{acct[-4:]}" if acct and len(acct) >= 4 else acct
+        out.append({
+            "user_id": a.user_id,
+            "name": (u.name if u else None) or f"user {a.user_id}",
+            "phone": u.phone if u else None,
+            "role": u.role if u else None,
+            "method": a.method,
+            "upi_id": a.upi_id,
+            "account_name": a.account_name,
+            "account_number_masked": masked,
+            "ifsc": a.ifsc,
+            "verified": a.verified,
+            "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+        })
+    return out
+
+
+class PayoutVerifyDecision(BaseModel):
+    approve: bool
+    reason: str | None = None
+
+
+@router.post("/payout-accounts/{user_id}/verify")
+def verify_payout_account(user_id: int, body: PayoutVerifyDecision,
+                          actor=Depends(_finance), db: Session = Depends(get_db)):
+    """Approve or reject a partner's payout account. Only verified accounts are
+    paid out (see run_payout_batch)."""
+    from app.models.account import PayoutAccount
+
+    a = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == user_id))
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No payout account for this user")
+    a.verified = bool(body.approve)
+    notify.send(db, user_id=user_id,
+                title="Payout account " + ("verified" if body.approve else "rejected"),
+                body=("Your payout account is verified — you'll receive payouts here."
+                      if body.approve else
+                      f"Your payout account was not approved. {body.reason or 'Please re-check the details.'}".strip()),
+                object_type="payout_account", object_id=user_id)
+    audit.record(db, actor_id=actor.id, action="payout_account.verify", object_type="user",
+                 object_id=user_id, new_values={"verified": a.verified}, reason=body.reason)
+    db.commit()
+    return {"user_id": user_id, "verified": a.verified}
 
 
 @router.get("/users")
