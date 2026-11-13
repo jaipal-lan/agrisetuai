@@ -1,3 +1,34 @@
+// The backend origin the client talks to (XHR + media images). Derived from the
+// baked API base so the CSP stays in sync with wherever the app is deployed.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
+let API_ORIGIN = "http://127.0.0.1:8000";
+try {
+  API_ORIGIN = new URL(API_BASE).origin;
+} catch {
+  // keep the fallback
+}
+
+// Content-Security-Policy, scoped to exactly what the app loads:
+//  - self for scripts/styles/pages; 'unsafe-inline' is required because the app
+//    uses inline style={{…}} attributes and Next's inline bootstrap (no nonce).
+//  - images from self + data:/blob: (agent photos) + the API origin (media).
+//  - XHR/fetch to self + the API origin.
+//  - the live courier map is an openstreetmap.org iframe (frame-src).
+// No external scripts, fonts or CDNs are used, so everything else is denied.
+const csp = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: ${API_ORIGIN}`,
+  `connect-src 'self' ${API_ORIGIN}`,
+  "frame-src 'self' https://www.openstreetmap.org",
+  "font-src 'self' data:",
+].join("; ");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -10,12 +41,13 @@ const nextConfig = {
   productionBrowserSourceMaps: false,
 
   // Browser-level security headers on every response. These close off framing/
-  // clickjacking, MIME-sniffing and referrer-leak vectors at the browser.
+  // clickjacking, MIME-sniffing, injection and referrer-leak vectors.
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
+          { key: "Content-Security-Policy", value: csp },
           // Block other sites from framing the app (clickjacking).
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           // Don't let the browser guess content types.
