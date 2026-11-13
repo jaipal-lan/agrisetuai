@@ -21,7 +21,9 @@ _DISCLAIMER = "Official mandi observation, not a guaranteed sale price on this p
 _CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("cereal", ("rice", "paddy", "wheat", "maize", "jowar", "bajra", "ragi", "barley",
                 "millet", "corn")),
-    ("pulse", ("gram", "tur", "arhar", "moong", "urad", "masur", "lentil", "dal",
+    # NB: no bare "tur" — it is a substring of "Turmeric" (a spice). Toor/Arhar
+    # dal are still caught by "toor", "arhar", "red gram" and "dal".
+    ("pulse", ("gram", "toor", "arhar", "moong", "urad", "masur", "lentil", "dal",
                "rajma", "horse gram", "moth", "kulthi", "black gram", "green gram",
                "red gram", "bengal gram", "pulse", "kabuli", "cowpea", "peas(dry)",
                "field pea", "lobia")),
