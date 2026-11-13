@@ -390,6 +390,10 @@ class ConfirmBody(BaseModel):
     # Omit route_km (or send null) to let the server compute it from mandal
     # coordinates. An explicit value is treated as a manual override.
     route_km: float | None = None
+    # Delivery destination. Prefer address_id (one of the buyer's saved
+    # addresses, which also carries the street line for the courier); to_mandal_id
+    # is the lower-level fallback when the buyer has no saved address.
+    address_id: int | None = None
     to_mandal_id: int | None = None
 
 
@@ -421,12 +425,37 @@ def confirm_quote(
     if not rule:
         raise HTTPException(status.HTTP_409_CONFLICT, "No published pricing rule applies")
 
+    # Delivery destination, in priority order: a chosen saved address (which also
+    # supplies the street line for the courier), then an explicit mandal, then
+    # whatever was already on the order, finally the produce's own mandal.
+    delivery_label = terms.get("delivery_label")
+    delivery_address_line = terms.get("delivery_address_line")
+    chosen_mandal_id = body.to_mandal_id
+    if body.address_id is not None:
+        from app.models.account import SavedAddress
+        addr = db.get(SavedAddress, body.address_id)
+        if addr is None or addr.user_id != order.buyer_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Saved address not found")
+        chosen_mandal_id = addr.mandal_id
+        delivery_label = addr.label
+        delivery_address_line = addr.address_line
+
     # Resolve the billable distance server-side: origin = the produce's mandal,
     # destination = the buyer's delivery mandal (defaults to the order mandal).
-    to_mandal_id = body.to_mandal_id or terms.get("destination_mandal_id") or mandal_id
+    to_mandal_id = chosen_mandal_id or terms.get("destination_mandal_id") or mandal_id
     route = distance.route_km_between(
         db, mandal_id, to_mandal_id, override=body.route_km,
     )
+
+    # Persist the resolved delivery destination onto the order so the courier and
+    # the tracking timeline route to the right door (JSON column: reassign to flag
+    # the change for SQLAlchemy).
+    order.accepted_terms = {
+        **terms,
+        "destination_mandal_id": to_mandal_id,
+        "delivery_label": delivery_label,
+        "delivery_address_line": delivery_address_line,
+    }
 
     quote = compute(rule, QuoteInput(
         product_value=product_value, billable_kg=D(terms["quantity"]), route_km=route.route_km,
@@ -716,6 +745,8 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
         "events": events,
         "from_place": from_place,
         "to_place": to_place,
+        "to_label": terms.get("delivery_label"),
+        "to_address_line": terms.get("delivery_address_line"),
         "from_coord": from_coord,
         "to_coord": to_coord,
         "nav_url": nav_url,

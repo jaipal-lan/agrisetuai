@@ -237,6 +237,13 @@ function TrackingTimeline({ orderId, isBuyer }) {
         {tr.shipment?.courier_name && <span className="badge grey">{tr.shipment.status.replace(/_/g, " ")}</span>}
       </div>
 
+      {(tr.to_label || tr.to_address_line || tr.to_place) && (
+        <div style={{ fontSize: 13, marginTop: 4 }}>
+          📦 <b>Deliver to:</b> {tr.to_label ? `${tr.to_label} — ` : ""}
+          {tr.to_address_line ? `${tr.to_address_line}, ` : ""}{tr.to_place}
+        </div>
+      )}
+
       {tr.shipment?.courier_name && (
         <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
           {tr.shipment.courier_name}{tr.shipment.vehicle_class ? ` · ${tr.shipment.vehicle_class}` : ""}
@@ -331,6 +338,8 @@ export default function OrderDetail() {
   const [carriers, setCarriers] = useState([]);
   const [courierId, setCourierId] = useState("");
   const [showDispute, setShowDispute] = useState(false);
+  const [addresses, setAddresses] = useState([]);
+  const [addrId, setAddrId] = useState("");
 
   useEffect(() => {
     setMe(getUser());
@@ -351,6 +360,17 @@ export default function OrderDetail() {
       api("/carriers?active_only=true").then((cs) => setCarriers(cs.filter((c) => c.kyc_status === "verified"))).catch(() => {});
     }
   }, [me]);
+
+  // Buyer's saved delivery addresses, loaded when a quote is ready to confirm.
+  useEffect(() => {
+    if (me && order && me.id === order.buyer_id && order.status === "confirmed") {
+      api("/auth/addresses").then((list) => {
+        setAddresses(list);
+        const def = list.find((a) => a.is_default) || list[0];
+        if (def) setAddrId(String(def.id));
+      }).catch(() => {});
+    }
+  }, [me, order?.status]);
 
   async function act(path, body, headers) {
     setErr(null);
@@ -515,19 +535,39 @@ export default function OrderDetail() {
         </Action>
       )}
 
-      {/* Buyer: lock quote */}
+      {/* Buyer: choose delivery address + lock quote */}
       {isBuyer && s === "confirmed" && (
         <Action>
           <h3>Confirm quote</h3>
-          <label>Route distance (km) — leave blank to compute from mandal location</label>
-          <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal"
-                 placeholder="auto" />
+          <label>Deliver to</label>
+          {addresses.length > 0 ? (
+            <select value={addrId} onChange={(e) => setAddrId(e.target.value)}>
+              {addresses.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}{a.is_default ? " (default)" : ""} — {a.address_line ? `${a.address_line}, ` : ""}{a.mandal}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="muted" style={{ fontSize: 13 }}>
+              No saved address yet. The order will deliver to the default mandal — add an address in{" "}
+              <a href="/profile">your profile</a> for door-to-door delivery.
+            </p>
+          )}
+          <details style={{ marginTop: 10 }}>
+            <summary className="muted" style={{ fontSize: 13, cursor: "pointer" }}>Advanced: override route distance</summary>
+            <label style={{ marginTop: 6 }}>Route distance (km) — leave blank to compute from location</label>
+            <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal"
+                   placeholder="auto" />
+          </details>
           <div style={{ marginTop: 12 }}>
             <button
               disabled={busy}
               onClick={() =>
-                act(`/orders/${id}/confirm-quote`,
-                    routeKm.trim() === "" ? {} : { route_km: Number(routeKm) })
+                act(`/orders/${id}/confirm-quote`, {
+                  ...(addrId ? { address_id: Number(addrId) } : {}),
+                  ...(routeKm.trim() === "" ? {} : { route_km: Number(routeKm) }),
+                })
               }
             >
               Lock quote

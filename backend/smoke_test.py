@@ -567,12 +567,25 @@ def run():
     client.post(f"/api/agent/orders/{rfq_order_id}/inspection", headers=hdr(agent),
                 json={"gross_weight": 200, "tare_weight": 0, "outcome": "pass"})
     client.post(f"/api/orders/{rfq_order_id}/buyer-approve", headers=hdr(buyer))
-    # No route_km -> the server computes it from mandal coordinates.
-    r = client.post(f"/api/orders/{rfq_order_id}/confirm-quote", headers=hdr(buyer), json={})
+    # Checkout with a saved delivery address: the server resolves the destination
+    # mandal from it and persists the street line for the courier. No route_km ->
+    # the server computes distance from mandal coordinates.
+    chk_addr = client.post("/api/auth/addresses", headers=hdr(buyer),
+                           json={"label": "Shop", "mandal_id": mandal_id,
+                                 "address_line": "12-3-45 Market Rd"}).json()
+    r = client.post(f"/api/orders/{rfq_order_id}/confirm-quote", headers=hdr(buyer),
+                    json={"address_id": chk_addr["id"]})
     rq = r.json()["quote"]
     check("RFQ order prices without a listing", r.json()["status"] == "payment_pending"
           and rq["product_value"] == "4800.00")  # 24 * 200
     check("RFQ route_km auto-computed", rq.get("route_km_source") in ("haversine", "default"))
+    terms_after = r.json()["accepted_terms"]
+    check("checkout persists delivery destination from saved address",
+          terms_after.get("destination_mandal_id") == mandal_id
+          and terms_after.get("delivery_address_line") == "12-3-45 Market Rd")
+    trk = client.get(f"/api/orders/{rfq_order_id}/tracking", headers=hdr(buyer)).json()
+    check("tracking surfaces the delivery address line + label",
+          trk.get("to_address_line") == "12-3-45 Market Rd" and trk.get("to_label") == "Shop")
     r = client.post(f"/api/orders/{rfq_order_id}/pay",
                     headers={**hdr(buyer), "Idempotency-Key": "rfq-pay-1"})
     check("RFQ order paid", r.json()["status"] == "paid")

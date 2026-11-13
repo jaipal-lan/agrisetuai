@@ -32,3 +32,4 @@ Thumbs.db
 backend/uvicorn.log
 web/next.log
 backend/var/
+web/next-build.log
