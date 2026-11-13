@@ -91,6 +91,21 @@ A staging run mirrors production but with the sandbox providers. Checklist:
 8. Run `python smoke_test.py` in CI (it uses its own throwaway SQLite DB, so it
    validates the code, not the Postgres instance).
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request with three gates:
+
+| Job | What it proves |
+| --- | --- |
+| **Backend smoke (SQLite)** | `python smoke_test.py` — the full regression (323 checks) on a throwaway SQLite DB. Must stay green. |
+| **Migrations + seed on Postgres** | Spins a `postgres:16` service, runs `python -m alembic upgrade head` (twice, to confirm the head is idempotent), then `python -m app.seed`. Catches Postgres-only schema issues the SQLite smoke can't — this is the staging-engine safety net. |
+| **Frontend build** | `npm ci && npm run build` — the Next.js app compiles. |
+
+The Postgres job uses the same env shape as staging (`DATABASE_URL=postgresql+psycopg://…`,
+`AUTO_MIGRATE=false`), so a green run means your migrations will apply to the
+staging/production DB. Python is pinned to 3.13 (the version with prebuilt
+pydantic-core / psycopg wheels — see §2).
+
 ## 5. Running the services
 
 Backend (behind your TLS proxy, multiple workers):

@@ -1,0 +1,93 @@
+name: CI
+
+# Runs on every push and PR. Three gates:
+#   1. backend-smoke        — the full 323-check regression on a throwaway SQLite DB
+#   2. migrations-postgres  — every Alembic migration + the seed apply cleanly on
+#                             Postgres (the staging/prod engine; SQLite can hide
+#                             Postgres-only schema issues)
+#   3. frontend-build       — the Next.js app compiles
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-smoke:
+    name: Backend smoke (SQLite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Run the smoke regression (hermetic — its own temp SQLite DB)
+        run: python smoke_test.py
+
+  migrations-postgres:
+    name: Migrations + seed on Postgres
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agrisetu
+          POSTGRES_PASSWORD: agrisetu
+          POSTGRES_DB: agrisetu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agrisetu"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Mirrors the staging config: Postgres, migrations run explicitly (not AUTO_MIGRATE).
+      DATABASE_URL: postgresql+psycopg://agrisetu:agrisetu@localhost:5432/agrisetu
+      DEV_MODE: "true"
+      AUTH_SECRET: ci-migration-secret
+      AUTO_MIGRATE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Apply all migrations to Postgres
+        run: python -m alembic upgrade head
+      - name: Re-running upgrade is a no-op (head is idempotent)
+        run: python -m alembic upgrade head
+      - name: Seed reference data on Postgres (exercises the ORM end-to-end)
+        run: python -m app.seed
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Build the Next.js app
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE: http://localhost:8000/api
