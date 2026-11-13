@@ -106,6 +106,56 @@ The Postgres job uses the same env shape as staging (`DATABASE_URL=postgresql+ps
 staging/production DB. Python is pinned to 3.13 (the version with prebuilt
 pydantic-core / psycopg wheels — see §2).
 
+### Staging on Vercel + Neon + Render (free tiers)
+
+Three services: **Neon** (Postgres), **Render** (FastAPI backend, via the
+checked-in `render.yaml`), **Vercel** (Next.js frontend). Do them in this order.
+
+**1. Neon — the database**
+1. Create a project at [neon.tech](https://neon.tech) → copy the connection string.
+2. Convert the scheme for this app: change `postgresql://` to
+   `postgresql+psycopg://` and keep `?sslmode=require`. Example:
+   `postgresql+psycopg://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/agrisetu?sslmode=require`
+   — this is your `DATABASE_URL`.
+
+**2. Render — the backend**
+1. Render dashboard → **New → Blueprint** → pick the `jaipal-lan/agrisetuai` repo.
+   Render reads [`render.yaml`](render.yaml) and creates `agrisetuai-backend`.
+2. In the service's **Environment**, set the three secrets left as `sync:false`:
+   - `DATABASE_URL` = the Neon string from step 1
+   - `DATA_GOV_IN_API_KEY` = your data.gov.in key
+   - `CORS_ORIGINS` = your Vercel URL (fill in after step 3, e.g.
+     `https://agrisetuai.vercel.app`) — then redeploy.
+3. The app runs `alembic upgrade head` itself on boot (`AUTO_MIGRATE=true`), so the
+   schema is created automatically. Note the backend URL, e.g.
+   `https://agrisetuai-backend.onrender.com`.
+4. (Optional) Seed reference data once from the Render **Shell**:
+   `python -m app.seed` (idempotent). Free instances sleep when idle, so the first
+   request after a lull — and the in-process price scheduler — can lag; wake it or
+   use **Admin → refresh** to pull prices.
+
+**3. Vercel — the frontend**
+1. Vercel → **Add New → Project** → import the same repo.
+2. **Root Directory = `web`** (important — it's a monorepo). Framework auto-detects
+   as Next.js.
+3. Add env var **`NEXT_PUBLIC_API_BASE`** = `https://agrisetuai-backend.onrender.com/api`
+   (your Render URL + `/api`). This is baked into the bundle **and** drives the CSP's
+   allowed API origin, so it must be set before the build.
+4. Deploy → copy the Vercel URL → put it in Render's `CORS_ORIGINS` (step 2.2) and
+   redeploy the backend.
+
+**Verify:** check `GET <backend>/api/health` → `{"ok":true,"dev_mode":false}` and
+`GET <backend>/api/admin/ledger/accounts` → `balanced:true`, then open the Vercel URL.
+
+> **Logging in on staging.** With `DEV_MODE=false` the dev master-OTP (`123456`) is
+> disabled and the OTP is not returned to the browser, so you cannot log in without
+> a way to receive the code. Pick one:
+> - **For a quick private demo:** set `DEV_MODE=true` on the Render service. The
+>   master OTP `123456` then works for any demo login — but anyone with the URL can
+>   too, so only do this for a throwaway/unlisted staging, never a real launch.
+> - **For a realistic/secure staging:** wire a real SMS provider (`SMS_PROVIDER` +
+>   credentials) so OTPs are actually delivered, and keep `DEV_MODE=false`.
+
 ## 5. Running the services
 
 Backend (behind your TLS proxy, multiple workers):

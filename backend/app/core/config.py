@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # production and run migrations from the deploy pipeline instead.
     auto_migrate: bool = True
 
+    # Extra exact CORS origins (comma-separated), e.g. the deployed web app:
+    # CORS_ORIGINS=https://agrisetuai.vercel.app  (dev LAN origins stay allowed
+    # via the built-in regex; use this for the staging/prod frontend).
+    cors_origins: str = ""
+
     # OTP
     otp_ttl_seconds: int = 300
     master_otp: str = "123456"  # accepted only in dev_mode

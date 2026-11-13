@@ -43,8 +43,12 @@ _origin_regex = (
     r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
     r"):(3000|3001|3002)$"
 )
+# Exact extra origins (the deployed web app, e.g. https://agrisetuai.vercel.app),
+# configured via CORS_ORIGINS. The LAN regex above still covers local dev.
+_extra_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=_extra_origins,
     allow_origin_regex=_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],

@@ -1,0 +1,44 @@
+# Render blueprint for the AgriSetuAI backend (FastAPI).
+# Frontend is on Vercel, Postgres is on Neon — this file only defines the API.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Render reads
+# this file and creates the service. Then set the three `sync:false` secrets
+# (DATABASE_URL, DATA_GOV_IN_API_KEY, CORS_ORIGINS) in the service's Environment.
+services:
+  - type: web
+    name: agrisetuai-backend
+    runtime: python
+    rootDir: backend
+    region: singapore          # closest Render region to India
+    plan: free                 # free tier: the service sleeps when idle
+    buildCommand: pip install -r requirements.txt
+    # Single free instance: the app runs `alembic upgrade head` itself on startup
+    # (AUTO_MIGRATE=true). For true production with >1 instance, set AUTO_MIGRATE
+    # false and run migrations via preDeployCommand instead.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.1"
+      - key: DEV_MODE
+        value: "false"
+      - key: AUTO_MIGRATE
+        value: "true"
+      - key: AUTH_SECRET
+        generateValue: true     # Render generates a strong secret
+      - key: DATABASE_URL
+        sync: false             # set to the Neon connection string (see DEPLOYMENT.md)
+      - key: DATA_GOV_IN_API_KEY
+        sync: false             # your data.gov.in key (secret)
+      - key: CORS_ORIGINS
+        sync: false             # set to your Vercel URL, e.g. https://agrisetuai.vercel.app
+      - key: PRICES_PROVIDER
+        value: data_gov_in
+      - key: PRICES_FEED_LIMIT
+        value: "2000"
+      - key: PRICES_REFRESH_HOURS
+        value: "12"
+      - key: PRICES_STALE_HOURS
+        value: "48"
+      - key: SCHEDULER_INTERVAL_SECONDS
+        value: "3600"
