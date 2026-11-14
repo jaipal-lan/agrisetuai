@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, getUser, mediaUrl } from "../lib/api";
+import { api, getUser, productImage } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
 // --- per-viewer "shopping area", remembered in localStorage -------------------
@@ -33,7 +33,7 @@ function ProductCard({ p, lang, t }) {
   const available = p.offering_count > 0;
   return (
     <Link href={`/product/${p.commodity_id}`} className="card product-card" style={{ color: "inherit" }}>
-      {p.image && <img className="product-thumb" src={mediaUrl(p.image)} alt={name} loading="lazy" />}
+      {p.image && <img className="product-thumb" src={productImage(p.image)} alt={name} loading="lazy" />}
       <div className="between">
         <h3>{name}</h3>
         {p.any_verified && <span className="badge">✓ verified</span>}
@@ -66,7 +66,7 @@ function FreshCard({ f, lang }) {
   const name = lang === "te" && f.commodity_te ? f.commodity_te : f.commodity;
   return (
     <Link href={`/product/${f.commodity_id}`} className="card fresh-card" style={{ color: "inherit" }}>
-      {f.image && <img className="fresh-thumb" src={mediaUrl(f.image)} alt={name} loading="lazy" />}
+      {f.image && <img className="fresh-thumb" src={productImage(f.image)} alt={name} loading="lazy" />}
       <div className="between">
         <b>{name}</b>
         {f.agent_verified && <span className="badge">✓</span>}

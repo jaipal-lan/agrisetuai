@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, getUser, mediaUrl } from "../../lib/api";
+import { api, getUser, mediaUrl, productImage } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 
 // Record this product in the per-viewer "recently viewed" list (newest first,
@@ -123,7 +123,7 @@ export default function ProductOfferings() {
 
       <div className="grid">
         {offerings.map((o) => {
-          const img = o.media[0] ? mediaUrl(o.media[0].object_key) : null;
+          const img = o.media[0] ? productImage(o.media[0].object_key) : null;
           return (
             <div key={o.id} className="card" style={{ opacity: o.out_of_stock ? 0.65 : 1 }}>
               {img && (

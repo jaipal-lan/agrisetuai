@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import { api, getUser, mediaUrl } from "../../lib/api";
+import { api, getUser, mediaUrl, productImage } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 
 export default function ListingDetail() {
@@ -82,7 +82,7 @@ export default function ListingDetail() {
       {listing.media && listing.media.length > 0 && (
         <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "nowrap", overflowX: "auto" }}>
           {listing.media.map((m, i) => (
-            <img key={i} src={mediaUrl(m.object_key)} alt={`sample ${i + 1}`} loading="lazy"
+            <img key={i} src={productImage(m.object_key)} alt={`sample ${i + 1}`} loading="lazy"
                  style={{ width: 150, height: 110, objectFit: "cover", borderRadius: 8, flex: "0 0 auto" }} />
           ))}
         </div>

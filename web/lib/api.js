@@ -16,6 +16,26 @@ export function absUrl(path) {
   return path.startsWith("http") ? path : `${BASE}${path}`;
 }
 
+// Temporary demo produce photos (royalty-free, in web/public/produce/). Shown
+// only for seeded "sample/..." listings that have no real photo yet; a real
+// seller upload (any non-sample object_key) always wins. Remove this map (and
+// the files) once the catalogue has real seller photos.
+const DEMO_PRODUCE = [
+  "milled-rice", "black-pepper", "coriander-seed", "cumin-seed", "dry-ginger",
+  "green-gram", "bengal-gram", "toor-dal", "red-chilli", "groundnut",
+  "turmeric", "tamarind", "mustard", "maize", "paddy",
+].sort((a, b) => b.length - a.length); // longest first for prefix matching
+
+// Resolve a listing/product image key to a display URL, preferring a real
+// upload, then a bundled demo photo, then the neutral SVG placeholder.
+export function productImage(objectKey) {
+  if (!objectKey) return null;
+  if (!objectKey.startsWith("sample/")) return mediaUrl(objectKey); // real upload
+  const slug = objectKey.slice("sample/".length).replace(/\.svg$/, "");
+  const match = DEMO_PRODUCE.find((d) => slug === d || slug.startsWith(d + "-"));
+  return match ? `/produce/${match}.jpg` : mediaUrl(objectKey);
+}
+
 export function getToken() {
   if (typeof window === "undefined") return null;
   try {
