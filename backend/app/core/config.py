@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     prices_stale_hours: int = 48
     # Remind meeting attendees this many hours before a scheduled team meeting.
     meeting_reminder_hours: int = 24
+    # Escalate an open buyer request (RFQ) to field agents if no farmer has
+    # accepted within this many hours (the "agents source it like a PO" flow).
+    rfq_escalation_hours: int = 24
 
     # Live delivery tracking. Assumed last-mile speed for a live ETA from the
     # courier's distance-to-door, and the radius at which the buyer is pinged

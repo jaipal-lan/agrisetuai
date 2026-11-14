@@ -83,13 +83,38 @@ class RFQ(Base, TimestampMixin):
     requested_qty: Mapped[float] = mapped_column(Numeric(14, 3))
     unit: Mapped[str] = mapped_column(String(8), default="kg")
     target_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    # Buyer's acceptable price band (per unit). target_price is kept for
+    # back-compat; new requests set the range.
+    price_min: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    price_max: Mapped[float | None] = mapped_column(Numeric(12, 2))
 
     destination_mandal_id: Mapped[int | None] = mapped_column(ForeignKey("mandals.id"))
+    # Areas (mandal ids) the buyer wants to source from (multi-select). Routing
+    # notifies farmers/agents in these areas.
+    source_mandal_ids: Mapped[list | None] = mapped_column(JSON)
     delivery_window: Mapped[str | None] = mapped_column(String(80))
     packaging: Mapped[str | None] = mapped_column(String(80))
     acceptable_variation: Mapped[dict | None] = mapped_column(JSON)
     inspection_required: Mapped[bool] = mapped_column(default=True)
     status: Mapped[str] = mapped_column(String(16), default=RFQStatus.OPEN, index=True)
+    # Set when no farmer accepted within rfq_escalation_hours and the request was
+    # escalated to field agents to source (PO-style follow-up).
+    escalated: Mapped[bool] = mapped_column(default=False, index=True)
+    escalated_at: Mapped[str | None] = mapped_column(String(40))
+
+
+class RfqComment(Base, TimestampMixin):
+    """Shared activity/comment thread on a request, so the buyer, offering
+    farmers and field staff can all follow what's happening. author_id is null
+    for system/activity entries (created, escalated, offer received)."""
+
+    __tablename__ = "rfq_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rfq_id: Mapped[int] = mapped_column(ForeignKey("rfqs.id"), index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(Text)
+    is_system: Mapped[bool] = mapped_column(default=False)
 
 
 class Offer(Base, TimestampMixin):

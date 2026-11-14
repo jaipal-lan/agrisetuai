@@ -698,6 +698,50 @@ def run():
     rfq_now = client.get(f"/api/rfqs/{rfq['id']}").json()
     check("RFQ marked matched after accept", rfq_now["status"] == "matched")
 
+    # --- Enhanced RFQ: price range, source areas, comment thread, escalation ---
+    er = client.post("/api/rfqs", headers=hdr(buyer), json={
+        "commodity_id": paddy["id"], "requested_qty": 100,
+        "price_min": 20, "price_max": 26, "source_mandal_ids": [mandal_id],
+        "note": "Need clean, dry paddy."})
+    check("RFQ accepts a price range + source areas",
+          er.status_code == 201 and er.json()["price_min"] == "20.00"
+          and er.json()["price_max"] == "26.00" and er.json()["source_mandal_ids"] == [mandal_id])
+    erid = er.json()["id"]
+    thread = client.get(f"/api/rfqs/{erid}/comments", headers=hdr(buyer)).json()
+    check("request thread has a system entry + the buyer's note",
+          any(c["is_system"] for c in thread) and any(c["body"] == "Need clean, dry paddy." for c in thread))
+    check("farmer can comment on a request",
+          client.post(f"/api/rfqs/{erid}/comments", headers=hdr(farmer),
+                      json={"body": "I can supply 100 kg."}).status_code == 201)
+    client.post(f"/api/rfqs/{erid}/offers", headers=hdr(farmer),
+                json={"price_per_unit": 24, "quantity": 100})
+    thread2 = client.get(f"/api/rfqs/{erid}/comments", headers=hdr(farmer)).json()
+    check("an offer is recorded on the request thread",
+          any(c["is_system"] and "offered" in c["body"] for c in thread2))
+    other = login(client, "919000000091", role="buyer_business", name="Other Biz")
+    check("a non-participant buyer cannot read another's request thread",
+          client.get(f"/api/rfqs/{erid}/comments", headers=hdr(other)).status_code == 403)
+    # Escalation: backdate an untouched request, then run the scheduler job.
+    esc = client.post("/api/rfqs", headers=hdr(buyer), json={
+        "commodity_id": paddy["id"], "requested_qty": 30, "source_mandal_ids": [mandal_id]}).json()
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
+
+    from app.core.database import SessionLocal
+    from app.models.marketplace import RFQ as _RFQ
+    from app.services.scheduler import escalate_stale_rfqs
+    _db = SessionLocal()
+    try:
+        _db.get(_RFQ, esc["id"]).created_at = _dt.now(_tz.utc) - _td(hours=48)
+        _db.commit()
+        n_esc = escalate_stale_rfqs(_db)
+    finally:
+        _db.close()
+    check("a stale request escalates to agents", n_esc >= 1)
+    check("the escalated request is flagged",
+          client.get(f"/api/rfqs/{esc['id']}").json()["escalated"] is True)
+
     # The RFQ-based order (no listing) still runs the full lifecycle & prices.
     client.post(f"/api/orders/{rfq_order_id}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
     client.post(f"/api/agent/orders/{rfq_order_id}/inspection", headers=hdr(agent),

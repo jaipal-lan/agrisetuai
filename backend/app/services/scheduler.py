@@ -127,14 +127,53 @@ def raise_meeting_reminders(db: Session) -> int:
     return sent
 
 
+def escalate_stale_rfqs(db: Session) -> int:
+    """Open buyer requests with no accepted offer after rfq_escalation_hours are
+    escalated to field agents to source (PO-style follow-up). Each RFQ is
+    escalated once. Returns the number escalated."""
+    from app.core.config import settings
+    from app.models.common import RFQStatus, ensure_aware, utcnow
+    from app.models.marketplace import RFQ, RfqComment
+    from app.models.user import AgentProfile
+
+    now = utcnow()
+    cutoff_hours = settings.rfq_escalation_hours
+    agents = list(db.scalars(select(AgentProfile)))
+    sent = 0
+    for rfq in db.scalars(select(RFQ).where(
+        RFQ.status == str(RFQStatus.OPEN), RFQ.escalated.is_(False)
+    )):
+        created = ensure_aware(rfq.created_at) if rfq.created_at else now
+        if (now - created).total_seconds() < cutoff_hours * 3600:
+            continue
+        areas = set(rfq.source_mandal_ids or ([rfq.destination_mandal_id] if rfq.destination_mandal_id else []))
+        for ap in agents:
+            svc = set(ap.service_mandals or [])
+            if not areas or (svc & areas) or not svc:
+                notify.send(db, user_id=ap.user_id, title="Request needs sourcing",
+                            body=f"No farmer accepted request #{rfq.id} within {cutoff_hours}h. "
+                                 "Please follow up with farmers and source it.",
+                            object_type="rfq", object_id=rfq.id)
+        db.add(RfqComment(rfq_id=rfq.id, author_id=None, is_system=True,
+                          body=f"Escalated to field agents — no farmer accepted within {cutoff_hours}h."))
+        rfq.escalated = True
+        rfq.escalated_at = now.isoformat()
+        sent += 1
+    if sent:
+        db.commit()
+    return sent
+
+
 def run_scheduled_jobs(db: Session) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
     digests = compile_digests(db)
     prices = refresh_market_prices(db)
     meeting_reminders = raise_meeting_reminders(db)
+    rfq_escalations = escalate_stale_rfqs(db)
     return {"ran_at": utcnow().isoformat(), "digests_sent": digests,
-            "prices_refreshed": prices, "meeting_reminders": meeting_reminders}
+            "prices_refreshed": prices, "meeting_reminders": meeting_reminders,
+            "rfq_escalations": rfq_escalations}
 
 
 async def _loop(interval: int) -> None:
@@ -152,7 +191,8 @@ async def _loop(interval: int) -> None:
         await asyncio.sleep(interval)
         try:
             result = await asyncio.to_thread(_once)
-            if any((result["digests_sent"], result["prices_refreshed"], result["meeting_reminders"])):
+            if any((result["digests_sent"], result["prices_refreshed"],
+                    result["meeting_reminders"], result["rfq_escalations"])):
                 log.info("scheduler: %s", result)
         except Exception:  # never let the loop die on a transient error
             log.exception("scheduled job run failed")
