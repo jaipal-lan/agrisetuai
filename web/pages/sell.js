@@ -244,7 +244,7 @@ export default function Sell() {
 
       <h2>My listings</h2>
       <p className="muted" style={{ fontSize: 13 }}>
-        Add at least 3 quality/sample images before publishing. A field agent may verify your lot at the farm gate.
+        Add at least 3 real photos of your produce before publishing (take them on the spot or upload from your gallery). A field agent may verify your lot at the farm gate.
       </p>
       {listings.length === 0 ? (
         <p className="muted">None yet.</p>
@@ -281,6 +281,11 @@ export default function Sell() {
                   {l.video ? " · 🎥 video" : ""}
                 </div>
                 <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                  <label className="btn ghost" style={{ cursor: "pointer" }}>
+                    📷 Take photo
+                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+                           onChange={(e) => addMedia(l.id, Array.from(e.target.files), "image")} />
+                  </label>
                   <label className="btn ghost" style={{ cursor: "pointer" }}>
                     + Images
                     <input type="file" accept="image/*" multiple style={{ display: "none" }}

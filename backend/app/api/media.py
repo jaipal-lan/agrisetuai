@@ -14,33 +14,33 @@ from app.services import audit
 
 router = APIRouter(prefix="/media", tags=["media"])
 
-_PLACEHOLDER_COLORS = [
-    ("#2e7d32", "#60ad5e"), ("#558b2f", "#85bb5c"), ("#9e6d1f", "#ca9b52"),
-    ("#8d6e63", "#be9c91"), ("#6a1b9a", "#9c4dcc"), ("#00838f", "#4fb3bf"),
-]
-_PLACEHOLDER_ICON = {
-    "paddy": "🌾", "rice": "🍚", "milled": "🍚", "chilli": "🌶️", "turmeric": "🫚",
-    "pepper": "⚫", "coriander": "🌿", "cumin": "🌿", "tamarind": "🫘", "ginger": "🫚",
-    "mustard": "🌼", "groundnut": "🥜", "maize": "🌽", "gram": "🫘", "dal": "🫘",
-}
+def _xml_escape(s: str) -> str:
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
 def _placeholder_svg(label: str) -> str:
+    """Neutral 'photo coming soon' placeholder shown until a seller uploads a
+    real photo of their produce. Deliberately plain and photo-like (a muted
+    frame + image glyph), NOT a cartoon emoji — a real upload replaces it."""
     text = (label.replace("sample/", "").replace(".svg", "").replace("-", " ")).strip()[:28]
-    key = text.lower()
-    icon = next((v for k, v in _PLACEHOLDER_ICON.items() if k in key), "🧺")
-    c1, c2 = _PLACEHOLDER_COLORS[sum(ord(c) for c in label) % len(_PLACEHOLDER_COLORS)]
+    label_text = _xml_escape(text.title())
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">'
-        f'<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0" stop-color="{c2}"/><stop offset="1" stop-color="{c1}"/>'
-        f'</linearGradient></defs>'
-        f'<rect width="400" height="300" fill="url(#g)"/>'
-        f'<text x="200" y="130" font-size="80" text-anchor="middle" dominant-baseline="middle">{icon}</text>'
-        f'<text x="200" y="210" fill="#ffffff" font-family="sans-serif" font-size="22" '
-        f'text-anchor="middle" dominant-baseline="middle">{text}</text>'
-        f'<text x="200" y="240" fill="#ffffff" font-family="sans-serif" font-size="12" '
-        f'text-anchor="middle" opacity="0.85">sample photo</text></svg>'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" '
+        'viewBox="0 0 400 300" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">'
+        '<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#f1f3f4"/><stop offset="1" stop-color="#e3e6e8"/>'
+        '</linearGradient></defs>'
+        '<rect width="400" height="300" fill="url(#bg)"/>'
+        # Simple framed-image glyph (no emoji), muted grey.
+        '<g stroke="#b2b8bd" stroke-width="3" fill="none">'
+        '<rect x="150" y="96" width="100" height="78" rx="10"/>'
+        '</g>'
+        '<circle cx="174" cy="120" r="8" fill="#b2b8bd"/>'
+        '<path d="M154 170 L182 134 L202 156 L224 126 L248 170 Z" fill="#c4c9cd"/>'
+        f'<text x="200" y="212" fill="#5f6368" font-size="22" font-weight="600" '
+        f'text-anchor="middle">{label_text}</text>'
+        '<text x="200" y="238" fill="#9aa0a6" font-size="13" '
+        'text-anchor="middle">Photo coming soon</text></svg>'
     )
 
 _ALLOWED = {
