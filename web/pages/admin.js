@@ -826,6 +826,8 @@ export default function Admin() {
         </div>
       </div>
 
+      <CatalogManager me={me} />
+
       <h2>Product minimum order quantities</h2>
       <table>
         <thead>
@@ -865,5 +867,139 @@ function MoqRow({ c, onSave }) {
         <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>Save</button>
       </td>
     </tr>
+  );
+}
+
+// Staff catalogue management: add products (any staff) and the removal flow
+// (leader/manager request -> superadmin approve/reject/restore).
+const CAT_OPTS = ["vegetable", "fruit", "cereal", "pulse", "oilseed", "spice", "dairy_meat", "other"];
+
+function CatalogManager({ me }) {
+  const [rows, setRows] = useState([]);
+  const [form, setForm] = useState({ name: "", category: "vegetable", name_te: "", unit: "kg" });
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const isSuper = me?.role === "superadmin";
+
+  function load() { api("/catalog/commodities/manage").then(setRows).catch((e) => setErr(e.message)); }
+  useEffect(() => { load(); }, []);
+
+  async function add(e) {
+    e.preventDefault(); setErr(null); setMsg(null);
+    if (!form.name.trim()) return;
+    setBusy(true);
+    try {
+      await api("/catalog/commodities", { method: "POST", body: {
+        name: form.name.trim(), category: form.category,
+        name_te: form.name_te.trim() || undefined, unit: form.unit } });
+      setForm({ name: "", category: form.category, name_te: "", unit: "kg" });
+      setMsg("Product saved to the catalogue."); load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function act(path, body) {
+    setErr(null);
+    try { await api(path, { method: "POST", body }); load(); } catch (e) { setErr(e.message); }
+  }
+  function requestDel(c) {
+    const reason = window.prompt(`Why should "${c.name}" be removed from the list?`);
+    if (reason && reason.trim()) act(`/catalog/commodities/${c.id}/request-deletion`, { reason: reason.trim() });
+  }
+
+  const pending = rows.filter((r) => r.pending_deletion);
+
+  return (
+    <>
+      <h2>Catalogue / products</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
+        Add products so farmers and buyers can list or request them. To remove one,
+        a field leader/manager requests it and the superadmin approves.
+      </p>
+      {err && <div className="error">{err}</div>}
+      {msg && <div className="ok">{msg}</div>}
+
+      <form className="card" onSubmit={add}>
+        <div className="form-grid">
+          <label>Product name
+            <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          </label>
+          <label>Category
+            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+              {CAT_OPTS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label>Telugu name (optional)
+            <input value={form.name_te} onChange={(e) => setForm((f) => ({ ...f, name_te: e.target.value }))} />
+          </label>
+          <label>Unit
+            <select value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
+              <option value="kg">kg</option>
+              <option value="piece">piece</option>
+              <option value="dozen">dozen</option>
+              <option value="litre">litre</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add product</button>
+      </form>
+
+      {isSuper && pending.length > 0 && (
+        <div className="card" style={{ borderLeft: "4px solid var(--amber-600)" }}>
+          <h3 style={{ marginTop: 0 }}>Removal requests awaiting your approval ({pending.length})</h3>
+          {pending.map((c) => (
+            <div key={c.id} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
+              <div>
+                <b>{c.name}</b> <span className="muted">· {c.category}</span>
+                <div className="muted" style={{ fontSize: 13 }}>
+                  “{c.deletion_reason}” — requested by {c.deletion_requested_by_name || "—"}
+                  {c.listing_count > 0 && <span className="badge amber" style={{ marginLeft: 6 }}>{c.listing_count} listings use it</span>}
+                </div>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                <button onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: true })}>Approve removal</button>
+                <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: false })}>Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Product</th><th>Category</th><th>Status</th><th>Listings</th><th></th></tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.id} style={{ opacity: c.active ? 1 : 0.6 }}>
+                <td>{c.name}</td>
+                <td className="muted">{c.category}</td>
+                <td>
+                  {!c.active ? <span className="badge grey">removed</span>
+                    : c.pending_deletion ? <span className="badge amber" title={c.deletion_reason}>removal requested</span>
+                    : <span className="badge green">active</span>}
+                </td>
+                <td className="muted">{c.listing_count}</td>
+                <td>
+                  {c.active && !c.pending_deletion && (
+                    <button className="ghost" onClick={() => requestDel(c)}>Request removal</button>
+                  )}
+                  {c.pending_deletion && !isSuper && <span className="muted" style={{ fontSize: 12 }}>awaiting superadmin</span>}
+                  {c.pending_deletion && isSuper && (
+                    <span className="row" style={{ gap: 6 }}>
+                      <button onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: true })}>Approve</button>
+                      <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: false })}>Reject</button>
+                    </span>
+                  )}
+                  {!c.active && isSuper && (
+                    <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/restore`)}>Restore</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

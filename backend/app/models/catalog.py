@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import JSON, ForeignKey, Numeric, String
+from sqlalchemy import JSON, Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -21,6 +21,14 @@ class Commodity(Base, TimestampMixin):
     # Minimum order quantity for this product (superadmin-configurable). Justifies
     # inspection/packing/transport cost: e.g. rice 25 kg, dal 10 kg, chilli 5 kg.
     min_order_qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=0)
+    # Soft-delete: inactive commodities drop out of the catalogue (farmers/buyers
+    # can't list/request them) but the row stays so existing listings/orders/
+    # prices that reference it keep resolving. Removal is a request→approve flow:
+    # a field leader/manager requests, the superadmin approves (sets active=False).
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    deletion_requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    deletion_requested_at: Mapped[str | None] = mapped_column(String(40))
+    deletion_reason: Mapped[str | None] = mapped_column(String(300))
 
     varieties: Mapped[list["Variety"]] = relationship(back_populates="commodity")
     grade_specs: Mapped[list["GradeSpec"]] = relationship(back_populates="commodity")

@@ -197,6 +197,50 @@ def run():
     check("adding the same product reuses it (no duplicate)",
           client.post("/api/catalog/commodities", headers=hdr(farmer),
                       json={"name": "dragon fruit"}).json()["id"] == nc.json()["id"])
+
+    # --- Catalog management: staff add + removal request/approve workflow ---
+    ag = client.post("/api/catalog/commodities", headers=hdr(agent),
+                     json={"name": "Jackfruit", "category": "fruit"})
+    check("field agent can add a product", ag.status_code == 201 and ag.json()["name"] == "Jackfruit")
+    jid = ag.json()["id"]
+    check("buyer cannot add a product",
+          client.post("/api/catalog/commodities", headers=hdr(buyer), json={"name": "Zucchini"}).status_code == 403)
+    rq = client.post(f"/api/catalog/commodities/{jid}/request-deletion", headers=hdr(manager),
+                     json={"reason": "duplicate entry"})
+    check("field leader can request product removal", rq.status_code == 200 and rq.json()["pending_deletion"] is True)
+    check("farmer cannot request product removal",
+          client.post(f"/api/catalog/commodities/{jid}/request-deletion", headers=hdr(farmer),
+                      json={"reason": "x"}).status_code == 403)
+    check("duplicate removal request is blocked",
+          client.post(f"/api/catalog/commodities/{jid}/request-deletion", headers=hdr(manager),
+                      json={"reason": "again"}).status_code == 409)
+    check("non-superadmin cannot approve removal",
+          client.post(f"/api/catalog/commodities/{jid}/deletion-decision", headers=hdr(manager),
+                      json={"approve": True}).status_code == 403)
+    mgmt = client.get("/api/catalog/commodities/manage", headers=hdr(manager)).json()
+    mrow = next(c for c in mgmt if c["id"] == jid)
+    check("manage list flags the pending removal + requester",
+          mrow["pending_deletion"] and mrow.get("deletion_requested_by_name"))
+    check("pending product is still in the active catalog",
+          any(c["id"] == jid for c in client.get("/api/catalog/commodities").json()))
+    ap = client.post(f"/api/catalog/commodities/{jid}/deletion-decision", headers=hdr(superadmin),
+                     json={"approve": True})
+    check("superadmin approves removal", ap.status_code == 200 and ap.json()["active"] is False)
+    check("removed product disappears from the active catalog",
+          not any(c["id"] == jid for c in client.get("/api/catalog/commodities").json()))
+    check("approving with no pending request 400s",
+          client.post(f"/api/catalog/commodities/{jid}/deletion-decision", headers=hdr(superadmin),
+                      json={"approve": True}).status_code == 400)
+    check("superadmin can restore a removed product",
+          client.post(f"/api/catalog/commodities/{jid}/restore", headers=hdr(superadmin)).json()["active"] is True)
+    check("restored product reappears in the catalog",
+          any(c["id"] == jid for c in client.get("/api/catalog/commodities").json()))
+    client.post(f"/api/catalog/commodities/{jid}/request-deletion", headers=hdr(manager),
+                json={"reason": "reconsider"})
+    rej = client.post(f"/api/catalog/commodities/{jid}/deletion-decision", headers=hdr(superadmin),
+                      json={"approve": False})
+    check("superadmin can reject a removal (product stays active)",
+          rej.status_code == 200 and rej.json()["active"] is True and rej.json()["pending_deletion"] is False)
     # A sample video attaches as video media (separate from the 3 image requirement).
     client.post(f"/api/listings/{listing['id']}/media", headers=hdr(farmer),
                 json={"object_key": "sample/paddy-clip.mp4", "media_type": "video"})

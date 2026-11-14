@@ -370,6 +370,8 @@ export default function AgentJobs() {
 
       <MyTeam />
 
+      <AddProductCard />
+
       {/* Inspection drafts captured on this device */}
       {queue.length > 0 && (
         <div className="card draft-panel">
@@ -432,5 +434,63 @@ export default function AgentJobs() {
         })
       )}
     </div>
+  );
+}
+
+// Field agents can add a product to the catalogue so farmers/buyers can list or
+// request it. Collapsed by default to keep the inspection page focused.
+function AddProductCard() {
+  const CATS = ["vegetable", "fruit", "cereal", "pulse", "oilseed", "spice", "dairy_meat", "other"];
+  const [form, setForm] = useState({ name: "", category: "vegetable", name_te: "", unit: "kg" });
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function add(e) {
+    e.preventDefault(); setErr(null); setMsg(null);
+    if (!form.name.trim()) return;
+    setBusy(true);
+    try {
+      const c = await api("/catalog/commodities", { method: "POST", body: {
+        name: form.name.trim(), category: form.category,
+        name_te: form.name_te.trim() || undefined, unit: form.unit } });
+      setForm({ name: "", category: form.category, name_te: "", unit: "kg" });
+      setMsg(`Added “${c.name}” to the catalogue.`);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <details className="card" style={{ marginBottom: 12 }}>
+      <summary style={{ cursor: "pointer", fontWeight: 600 }}>➕ Add a product to the catalogue</summary>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Missing a crop farmers want to sell or buyers want to order? Add it here.
+      </p>
+      {err && <div className="error">{err}</div>}
+      {msg && <div className="ok">{msg}</div>}
+      <form onSubmit={add}>
+        <div className="form-grid">
+          <label>Product name
+            <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          </label>
+          <label>Category
+            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+              {CATS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label>Telugu name (optional)
+            <input value={form.name_te} onChange={(e) => setForm((f) => ({ ...f, name_te: e.target.value }))} />
+          </label>
+          <label>Unit
+            <select value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
+              <option value="kg">kg</option>
+              <option value="piece">piece</option>
+              <option value="dozen">dozen</option>
+              <option value="litre">litre</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add product</button>
+      </form>
+    </details>
   );
 }
