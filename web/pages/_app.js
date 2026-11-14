@@ -139,7 +139,12 @@ function Nav() {
       {user ? (
         <button className="pill" onClick={doLogout}>{t("logout")}</button>
       ) : (
-        <Link href="/login" className="pill">{t("login")}</Link>
+        <>
+          <Link href="/login" className="pill">{t("login")}</Link>
+          <Link href="/register" className="pill" style={{ background: "var(--green-600, #16a34a)", color: "#fff" }}>
+            {t("register")}
+          </Link>
+        </>
       )}
     </nav>
   );

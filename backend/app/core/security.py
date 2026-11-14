@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import time
 
 from app.core.config import settings
@@ -59,6 +60,52 @@ def verify_token(token: str) -> int | None:
     if payload is None:
         return None
     return int(payload["sub"])
+
+
+# --- Passwords (stdlib PBKDF2; no external bcrypt dependency) ---------------
+# Chosen to match the project's stdlib-only ethos (see tokens above). Format is
+# self-describing so the iteration count can be raised later without a migration.
+_PBKDF2_ITERATIONS = 180_000
+
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${_b64e(salt)}${_b64e(dk)}"
+
+
+def verify_password(password: str, stored: str | None) -> bool:
+    if not stored:
+        return False
+    try:
+        algo, iters, salt_b64, hash_b64 = stored.split("$")
+        if algo != "pbkdf2_sha256":
+            return False
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), _b64d(salt_b64), int(iters))
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(_b64e(dk), hash_b64)
+
+
+# --- Short-lived phone-ownership token -------------------------------------
+# Issued once an OTP is verified, so multi-step registration / password reset
+# can prove phone ownership on a later request without re-sending the OTP (which
+# is single-use). Purpose-scoped ("pv") so it can't be used as an auth token.
+def issue_phone_token(phone: str) -> str:
+    payload = {
+        "ph": phone,
+        "pur": "pv",
+        "exp": int(time.time()) + settings.phone_token_ttl_seconds,
+    }
+    payload_b64 = _b64e(json.dumps(payload, separators=(",", ":")).encode())
+    return f"{payload_b64}.{_sign(payload_b64)}"
+
+
+def verify_phone_token(token: str) -> str | None:
+    payload = decode_token(token)  # validates signature + expiry
+    if not payload or payload.get("pur") != "pv":
+        return None
+    return payload.get("ph")
 
 
 # --- OTP store ------------------------------------------------------------

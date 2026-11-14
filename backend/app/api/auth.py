@@ -1,6 +1,8 @@
+import hashlib
+import os
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -8,11 +10,21 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.ids import public_id
 from app.core.rbac import Role
-from app.core.security import check_otp, issue_token, otp_rate_ok, set_otp
+from app.core.security import (
+    check_otp,
+    hash_password,
+    issue_phone_token,
+    issue_token,
+    otp_rate_ok,
+    set_otp,
+    verify_password,
+    verify_phone_token,
+)
 from app.core.serializers import self_user
 from app.models.common import utcnow
-from app.models.support import ConsentRecord, Notification
+from app.models.support import ConsentRecord, MediaObject, Notification
 from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, Organisation, User
 from app.services import audit, sms
 
@@ -20,22 +32,48 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _PHONE_OK = {10, 11, 12}  # digit-length sanity (local or with country code)
 
+# Roles a member of the public may self-register as. Staff roles (agents, leads,
+# managers, transport, superadmin) are provisioned internally.
+_SELF_SIGNUP_ROLES = {Role.FARMER, Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS}
+
 
 class OtpRequest(BaseModel):
     phone: str = Field(min_length=8, max_length=15)
 
 
 class OtpVerify(BaseModel):
+    # OTP login (fallback for staff / accounts without a password). Account
+    # creation now goes through POST /auth/register.
     phone: str
     code: str
-    # Role is chosen at first sign-up; ignored for existing users.
-    role: Role | None = None
-    name: str | None = None
-    preferred_language: str = "te"
+
+
+class VerifyPhoneBody(BaseModel):
+    phone: str
+    code: str
+
+
+class LoginBody(BaseModel):
+    phone: str
+    password: str
+
+
+class PasswordResetBody(BaseModel):
+    phone_token: str
+    new_password: str = Field(min_length=1)
+
+
+class PasswordChangeBody(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=1)
 
 
 class MePatch(BaseModel):
     name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    avatar_object_key: str | None = None
     preferred_language: str | None = None
     village: str | None = None
     pickup_point: str | None = None
@@ -75,45 +113,278 @@ def request_otp(body: OtpRequest, db: Session = Depends(get_db)):
 
 @router.post("/otp/verify")
 def verify_otp(body: OtpVerify, db: Session = Depends(get_db)):
+    """OTP login — a fallback for staff accounts and any account without a
+    password set, and for password recovery. New accounts are NOT created here;
+    members of the public sign up via POST /auth/register."""
     phone = body.phone.strip()
     if not check_otp(phone, body.code.strip()):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired code")
 
     user = db.scalar(select(User).where(User.phone == phone))
-    created = False
     if user is None:
-        if body.role is None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "role is required for new accounts"
-            )
-        user = User(
-            phone=phone,
-            role=str(body.role),
-            name=body.name,
-            preferred_language=body.preferred_language,
-            consent_at=utcnow().isoformat(),
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No account found for this phone. Please register first.",
         )
-        db.add(user)
-        db.flush()
-        if user.role == Role.FARMER:
-            db.add(FarmerProfile(user_id=user.id))
-        elif user.role in (Role.BUYER_HOUSEHOLD, Role.BUYER_BUSINESS):
-            kind = "household" if user.role == Role.BUYER_HOUSEHOLD else "business"
-            db.add(BuyerProfile(user_id=user.id, buyer_type=kind))
-        elif user.role == Role.FIELD_AGENT:
-            db.add(AgentProfile(user_id=user.id))
-        db.commit()
-        db.refresh(user)
-        created = True
-
     if user.status != "active":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is not active")
 
     return {
         "token": issue_token(user.id, user.token_version or 0),
-        "created": created,
+        "created": False,
         "user": self_user(user),
     }
+
+
+@router.post("/otp/verify-phone")
+def verify_phone(body: VerifyPhoneBody, db: Session = Depends(get_db)):
+    """Confirm phone ownership during registration / password reset. Consumes
+    the OTP and returns a short-lived phone_token used to finish the flow, plus
+    whether an account already exists for this phone (so the UI can redirect to
+    login instead of registering a duplicate)."""
+    phone = body.phone.strip()
+    if not check_otp(phone, body.code.strip()):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired code")
+    exists = db.scalar(select(User.id).where(User.phone == phone)) is not None
+    return {"phone_token": issue_phone_token(phone), "exists": exists}
+
+
+@router.post("/login")
+def login(body: LoginBody, db: Session = Depends(get_db)):
+    """Phone + password login (the primary path)."""
+    phone = body.phone.strip()
+    user = db.scalar(select(User).where(User.phone == phone))
+    # Constant-ish response whether or not the phone exists; never reveal which.
+    if user is None or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid phone or password")
+    if user.status != "active":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is not active")
+    return {"token": issue_token(user.id, user.token_version or 0), "user": self_user(user)}
+
+
+def _normalize_email(raw: str | None) -> str | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        from email_validator import EmailNotValidError, validate_email
+
+        return validate_email(raw, check_deliverability=False).normalized
+    except Exception as exc:  # noqa: BLE001 - map any validator error to 400
+        if isinstance(exc, ImportError):
+            return raw  # validator missing: accept as-is rather than block sign-up
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter a valid email address")
+
+
+async def _store_evidence(db: Session, owner_id: int, upload: UploadFile) -> str:
+    """Persist a registration evidence file (reg doc / PAN) owned by the new
+    user. Mirrors media.upload; kept here so it can run inside /register."""
+    from app.api.media import _ALLOWED
+
+    ctype = (upload.content_type or "").split(";")[0].strip().lower()
+    if ctype not in _ALLOWED:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Evidence must be a JPEG, PNG, WebP or PDF file.",
+        )
+    raw = await upload.read()
+    if len(raw) > settings.media_max_bytes:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Evidence file is too large.")
+    ext = _ALLOWED[ctype]
+    key = f"{owner_id}/{public_id('REG', 10).lower()}.{ext}"
+    root = os.path.abspath(settings.media_dir)
+    dest = os.path.join(root, key.replace("/", os.sep))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "wb") as fh:
+        fh.write(raw)
+    db.add(MediaObject(
+        object_key=key,
+        owner_id=owner_id,
+        media_type="document" if ext == "pdf" else "image",
+        content_type=ctype,
+        size_bytes=len(raw),
+        checksum=hashlib.sha256(raw).hexdigest(),
+        access_class="restricted",
+    ))
+    return key
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(
+    phone_token: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    first_name: str = Form(...),
+    last_name: str | None = Form(None),
+    email: str | None = Form(None),
+    preferred_language: str = Form("te"),
+    address_label: str = Form("Home"),
+    address_mandal_id: int | None = Form(None),
+    address_line: str | None = Form(None),
+    address_lat: float | None = Form(None),
+    address_lng: float | None = Form(None),
+    # Business buyer extras
+    biz_legal_name: str | None = Form(None),
+    biz_registration_number: str | None = Form(None),
+    biz_gst: str | None = Form(None),
+    biz_address_line: str | None = Form(None),
+    biz_mandal_id: int | None = Form(None),
+    evidence: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+):
+    """Create a public account after phone verification. Multipart so business
+    buyers can attach their registration document / org PAN as evidence in the
+    same request (there is no session yet to upload against). Returns no auth
+    token — the user is sent back to the login page to sign in."""
+    from app.models.location import Mandal
+
+    phone = verify_phone_token(phone_token)
+    if not phone:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Phone verification expired. Please verify your number again.",
+        )
+    try:
+        role_val = Role(role)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role")
+    if role_val not in _SELF_SIGNUP_ROLES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That role can't self-register")
+    if len(password) < settings.password_min_length:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Password must be at least {settings.password_min_length} characters.",
+        )
+    first_name = (first_name or "").strip()
+    if not first_name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "First name is required")
+    last_name = (last_name or "").strip() or None
+    email_norm = _normalize_email(email)
+
+    if db.scalar(select(User.id).where(User.phone == phone)) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "An account already exists for this phone. Please log in.",
+        )
+
+    is_business = role_val == Role.BUYER_BUSINESS
+    evidence = [f for f in (evidence or []) if f and f.filename]
+    if is_business:
+        if not (biz_legal_name or "").strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Business name is required")
+        if not evidence:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Attach your business registration document or organisation PAN.",
+            )
+
+    # Validate the delivery mandal up front (if supplied).
+    if address_mandal_id is not None and db.get(Mandal, address_mandal_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Delivery mandal not found")
+
+    full_name = " ".join(p for p in (first_name, last_name) if p)
+    user = User(
+        phone=phone,
+        role=str(role_val),
+        name=full_name,
+        first_name=first_name,
+        last_name=last_name,
+        email=email_norm,
+        password_hash=hash_password(password),
+        preferred_language=preferred_language or "te",
+        consent_at=utcnow().isoformat(),
+    )
+    db.add(user)
+    db.flush()
+
+    if role_val == Role.FARMER:
+        db.add(FarmerProfile(user_id=user.id, mandal_id=address_mandal_id))
+    else:
+        kind = "business" if is_business else "household"
+        db.add(BuyerProfile(user_id=user.id, buyer_type=kind))
+
+    # Business organisation + evidence.
+    if is_business:
+        evidence_keys = [await _store_evidence(db, user.id, f) for f in evidence]
+        org = Organisation(
+            type="business",
+            legal_name=biz_legal_name.strip(),
+            verification_status="unverified",
+            licence_refs={
+                "registration_number": (biz_registration_number or "").strip() or None,
+                "gst": (biz_gst or "").strip() or None,
+                "address_line": (biz_address_line or "").strip() or None,
+                "mandal_id": biz_mandal_id,
+                "evidence_keys": evidence_keys,
+            },
+        )
+        db.add(org)
+        db.flush()
+        user.organisation_id = org.id
+
+    # Default delivery address (buyers + farmers who also buy).
+    if address_mandal_id is not None:
+        from app.models.account import SavedAddress
+
+        db.add(SavedAddress(
+            user_id=user.id,
+            label=(address_label or "Home").strip() or "Home",
+            mandal_id=address_mandal_id,
+            address_line=(address_line or "").strip() or None,
+            latitude=address_lat,
+            longitude=address_lng,
+            is_default=True,
+        ))
+
+    audit.record(db, actor_id=user.id, action="user.register", object_type="user",
+                 object_id=user.id, new_values={"role": str(role_val), "business": is_business})
+    db.commit()
+    return {"created": True, "role": str(role_val), "phone": phone}
+
+
+@router.post("/password/reset")
+def reset_password(body: PasswordResetBody, db: Session = Depends(get_db)):
+    """Set a new password after OTP phone verification (forgot-password flow).
+    Revokes existing sessions."""
+    phone = verify_phone_token(body.phone_token)
+    if not phone:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Phone verification expired. Please verify your number again.",
+        )
+    user = db.scalar(select(User).where(User.phone == phone))
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No account for this phone")
+    if len(body.new_password) < settings.password_min_length:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Password must be at least {settings.password_min_length} characters.",
+        )
+    user.password_hash = hash_password(body.new_password)
+    user.token_version = int(user.token_version or 0) + 1  # log out other sessions
+    audit.record(db, actor_id=user.id, action="auth.password_reset", object_type="user",
+                 object_id=user.id)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/password/change")
+def change_password(body: PasswordChangeBody, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Change password while logged in. If the account has no password yet
+    (OTP-only), the current password check is skipped so it can set one."""
+    if user.password_hash and not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
+    if len(body.new_password) < settings.password_min_length:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Password must be at least {settings.password_min_length} characters.",
+        )
+    user.password_hash = hash_password(body.new_password)
+    audit.record(db, actor_id=user.id, action="auth.password_change", object_type="user",
+                 object_id=user.id)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/me")
@@ -140,13 +411,36 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
             "available": ap.available,
             "service_mandals": ap.service_mandals,
         }
+    if user.organisation_id:
+        org = db.get(Organisation, user.organisation_id)
+        if org:
+            refs = org.licence_refs or {}
+            out["organisation"] = {
+                "id": org.id,
+                "type": org.type,
+                "legal_name": org.legal_name,
+                "verification_status": org.verification_status,
+                "registration_number": refs.get("registration_number"),
+                "gst": refs.get("gst"),
+            }
     return out
 
 
 @router.patch("/me")
 def patch_me(body: MePatch, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if body.first_name is not None:
+        user.first_name = body.first_name.strip() or None
+    if body.last_name is not None:
+        user.last_name = body.last_name.strip() or None
+    if body.email is not None:
+        user.email = _normalize_email(body.email)
+    if body.avatar_object_key is not None:
+        user.avatar_object_key = body.avatar_object_key.strip() or None
     if body.name is not None:
         user.name = body.name
+    elif body.first_name is not None or body.last_name is not None:
+        # Keep the display name in sync with the structured name.
+        user.name = " ".join(p for p in (user.first_name, user.last_name) if p) or user.name
     if body.preferred_language is not None:
         user.preferred_language = body.preferred_language
     fp = user.farmer_profile

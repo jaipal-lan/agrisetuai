@@ -11,6 +11,16 @@ class User(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     phone: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     name: Mapped[str | None] = mapped_column(String(120))
+    # Structured name (first/last) collected at sign-up; `name` is the display
+    # fallback (kept in sync as "First Last") for legacy screens and cards.
+    first_name: Mapped[str | None] = mapped_column(String(80))
+    last_name: Mapped[str | None] = mapped_column(String(80))
+    email: Mapped[str | None] = mapped_column(String(160), index=True)
+    # PBKDF2 hash (see core/security.py). Null for staff seeded before passwords
+    # existed / accounts that only use OTP login.
+    password_hash: Mapped[str | None] = mapped_column(String(200))
+    # Profile photo (object_key into MediaObject / media.serve_file).
+    avatar_object_key: Mapped[str | None] = mapped_column(String(300))
     role: Mapped[str] = mapped_column(String(32), index=True)
     preferred_language: Mapped[str] = mapped_column(String(8), default="te")  # te | en
     status: Mapped[str] = mapped_column(String(16), default="active")  # active|suspended

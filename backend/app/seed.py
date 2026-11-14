@@ -264,16 +264,30 @@ def seed_users(db: Session, mandals: dict) -> dict:
         ("919000000006", "Field Manager (District)", Role.FIELD_MANAGER),
         ("919000000009", "Household Buyer", Role.BUYER_HOUSEHOLD),
     ]
+    from app.core.security import hash_password
+
+    # Shared demo password so every seeded account can use phone+password login
+    # in dev/sandbox (never seeded in production — these are demo users only).
+    demo_pw = hash_password("demo1234")
     users = {}
     for phone, name, role in defs:
+        first = name.split(" ", 1)[0]
+        last = name.split(" ", 1)[1] if " " in name else None
         u, created = _get_or_create(db, User, phone=phone,
                                     defaults={"name": name, "role": str(role),
+                                              "first_name": first, "last_name": last,
+                                              "password_hash": demo_pw,
                                               "onboarding_complete": True})
         if not created:
             # Keep demo accounts aligned with the current role set (the pivot
             # renamed/removed several roles).
             u.role = str(role)
             u.name = name
+            if not u.first_name:
+                u.first_name = first
+                u.last_name = last
+            if not u.password_hash:
+                u.password_hash = demo_pw
         users[role] = u
     # Attach minimal profiles.
     farmer = users[Role.FARMER]

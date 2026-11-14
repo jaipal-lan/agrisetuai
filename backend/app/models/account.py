@@ -5,7 +5,9 @@ payouts are real-world ready. One per user.
 SavedAddress — a buyer's reusable delivery address, so reorder/checkout can
 prefill the destination.
 """
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from decimal import Decimal
+
+from sqlalchemy import Boolean, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -34,3 +36,7 @@ class SavedAddress(Base, TimestampMixin):
     mandal_id: Mapped[int] = mapped_column(ForeignKey("mandals.id"))
     address_line: Mapped[str | None] = mapped_column(Text)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Captured from the device (browser geolocation) at save time, so checkout /
+    # routing can use the exact drop point rather than just the mandal centroid.
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)

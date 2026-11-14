@@ -22,6 +22,8 @@ os.environ["DATA_GOV_IN_API_KEY"] = ""
 os.environ["PRICES_FEED_STATES"] = ""
 os.environ["PRICES_FEED_COMMODITIES"] = ""
 os.environ["SCHEDULER_INTERVAL_SECONDS"] = "0"
+# Keep uploaded registration evidence out of the real media dir.
+os.environ["MEDIA_DIR"] = tempfile.mkdtemp(prefix="agri-smoke-media-")
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -42,15 +44,28 @@ def check(label, cond):
     return cond
 
 
+DEMO_PW = "demo1234"
+
+
 def login(client, phone, role=None, name=None):
+    """Return an auth token for `phone`. With `role`, first self-registers a new
+    public account (verify phone -> register -> password login); without it,
+    logs an existing account in with its demo password."""
     r = client.post("/api/auth/otp/request", json={"phone": phone})
     code = r.json().get("dev_code", "123456")
-    body = {"phone": phone, "code": code}
     if role:
-        body["role"] = role
-    if name:
-        body["name"] = name
-    r = client.post("/api/auth/otp/verify", json=body)
+        vp = client.post("/api/auth/otp/verify-phone",
+                         json={"phone": phone, "code": code}).json()
+        first, _, last = (name or "Test User").partition(" ")
+        data = {"phone_token": vp["phone_token"], "password": DEMO_PW, "role": role,
+                "first_name": first, "last_name": last}
+        files = None
+        if role == "buyer_business":
+            data["biz_legal_name"] = name or "Demo Business"
+            files = [("evidence", ("pan.pdf", b"%PDF-1.4 demo evidence", "application/pdf"))]
+        reg = client.post("/api/auth/register", data=data, files=files)
+        assert reg.status_code == 201, f"register failed: {reg.status_code} {reg.text}"
+    r = client.post("/api/auth/login", json={"phone": phone, "password": DEMO_PW})
     return r.json()["token"]
 
 
@@ -73,6 +88,83 @@ def run():
     transport = login(client, "919000000005")
     check("farmer token issued", bool(farmer))
     check("buyer token issued", bool(buyer))
+
+    # --- Registration + password auth ---
+    # Full public sign-up: verify phone -> register (household buyer) -> login.
+    ph = "919000000071"
+    code = client.post("/api/auth/otp/request", json={"phone": ph}).json().get("dev_code", "123456")
+    vp = client.post("/api/auth/otp/verify-phone", json={"phone": ph, "code": code}).json()
+    check("verify-phone returns a phone_token for a new number",
+          bool(vp.get("phone_token")) and vp.get("exists") is False)
+    reg = client.post("/api/auth/register", data={
+        "phone_token": vp["phone_token"], "password": "s3cret!", "role": "buyer_household",
+        "first_name": "Sita", "last_name": "Devi", "email": "sita@example.com",
+    })
+    check("register creates a household buyer (no token returned)",
+          reg.status_code == 201 and reg.json().get("created") is True and "token" not in reg.json())
+    check("short password is rejected",
+          client.post("/api/auth/register", data={
+              "phone_token": client.post("/api/auth/otp/verify-phone",
+                  json={"phone": "919000000072",
+                        "code": client.post("/api/auth/otp/request", json={"phone": "919000000072"}).json()["dev_code"]}
+                  ).json()["phone_token"],
+              "password": "123", "role": "farmer", "first_name": "Short"}).status_code == 400)
+    login_ok = client.post("/api/auth/login", json={"phone": ph, "password": "s3cret!"})
+    check("new account logs in with phone + password", login_ok.status_code == 200 and "token" in login_ok.json())
+    new_tok = login_ok.json()["token"]
+    me_new = client.get("/api/auth/me", headers=hdr(new_tok)).json()
+    check("me exposes structured name + email", me_new.get("first_name") == "Sita" and me_new.get("email") == "sita@example.com")
+    check("wrong password is rejected",
+          client.post("/api/auth/login", json={"phone": ph, "password": "nope"}).status_code == 401)
+    # OTP verify no longer creates accounts.
+    code2 = client.post("/api/auth/otp/request", json={"phone": "919000000079"}).json()["dev_code"]
+    check("otp login for an unknown phone 404s (no silent create)",
+          client.post("/api/auth/otp/verify", json={"phone": "919000000079", "code": code2}).status_code == 404)
+    # OTP login still works for an existing (seeded, no self-signup) account.
+    code3 = client.post("/api/auth/otp/request", json={"phone": "919999999998"}).json()["dev_code"]
+    check("otp login still works for an existing account",
+          "token" in client.post("/api/auth/otp/verify", json={"phone": "919999999998", "code": code3}).json())
+    # Duplicate registration is blocked.
+    code4 = client.post("/api/auth/otp/request", json={"phone": ph}).json()["dev_code"]
+    dup_tok = client.post("/api/auth/otp/verify-phone", json={"phone": ph, "code": code4}).json()
+    check("verify-phone flags an existing account", dup_tok.get("exists") is True)
+    check("register is blocked for an existing phone",
+          client.post("/api/auth/register", data={
+              "phone_token": dup_tok["phone_token"], "password": "s3cret!",
+              "role": "buyer_household", "first_name": "Dup"}).status_code == 409)
+    # Business buyer must attach evidence.
+    bz = "919000000073"
+    bcode = client.post("/api/auth/otp/request", json={"phone": bz}).json()["dev_code"]
+    btok = client.post("/api/auth/otp/verify-phone", json={"phone": bz, "code": bcode}).json()["phone_token"]
+    check("business register without evidence is rejected",
+          client.post("/api/auth/register", data={
+              "phone_token": btok, "password": "s3cret!", "role": "buyer_business",
+              "first_name": "Raju", "biz_legal_name": "Raju Traders"}).status_code == 400)
+    bcode2 = client.post("/api/auth/otp/request", json={"phone": bz}).json()["dev_code"]
+    btok2 = client.post("/api/auth/otp/verify-phone", json={"phone": bz, "code": bcode2}).json()["phone_token"]
+    bz_reg = client.post("/api/auth/register",
+        data={"phone_token": btok2, "password": "s3cret!", "role": "buyer_business",
+              "first_name": "Raju", "biz_legal_name": "Raju Traders", "biz_gst": "36ABCDE1234F1Z5"},
+        files=[("evidence", ("regdoc.pdf", b"%PDF-1.4 reg", "application/pdf"))])
+    check("business register with evidence succeeds", bz_reg.status_code == 201)
+    bz_tok = client.post("/api/auth/login", json={"phone": bz, "password": "s3cret!"}).json()["token"]
+    bz_me = client.get("/api/auth/me", headers=hdr(bz_tok)).json()
+    check("business account carries its organisation + GST",
+          bz_me.get("organisation", {}).get("legal_name") == "Raju Traders"
+          and bz_me["organisation"].get("gst") == "36ABCDE1234F1Z5")
+    # Password reset via OTP.
+    rcode = client.post("/api/auth/otp/request", json={"phone": ph}).json()["dev_code"]
+    rtok = client.post("/api/auth/otp/verify-phone", json={"phone": ph, "code": rcode}).json()["phone_token"]
+    check("password reset succeeds",
+          client.post("/api/auth/password/reset", json={"phone_token": rtok, "new_password": "newpass9"}).status_code == 200)
+    check("login works with the new password after reset",
+          client.post("/api/auth/login", json={"phone": ph, "password": "newpass9"}).status_code == 200)
+    check("old password no longer works after reset",
+          client.post("/api/auth/login", json={"phone": ph, "password": "s3cret!"}).status_code == 401)
+    # GPS -> nearest mandal (powers "use my location" at sign-up/checkout).
+    near = client.get("/api/locations/nearest", params={"lat": 16.24, "lng": 80.64})
+    check("nearest-mandal resolves a GPS point to a mandal",
+          near.status_code == 200 and near.json().get("mandal_id"))
 
     print("\n== Catalog & listing ==")
     commodities = client.get("/api/catalog/commodities").json()

@@ -48,6 +48,11 @@ class Settings(BaseSettings):
 
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7
+    # Short-lived token proving phone ownership between OTP verify and the
+    # register / password-reset submit (so the single-use OTP isn't re-sent).
+    phone_token_ttl_seconds: int = 15 * 60
+    # Minimum length for a self-chosen account password.
+    password_min_length: int = 6
 
     # Market-price feed. "sample" uses the seeded demo rows (default, so dev and
     # tests need no network or key). Set to "data_gov_in" and provide a key from

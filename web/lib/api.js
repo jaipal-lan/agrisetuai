@@ -10,6 +10,12 @@ export function mediaUrl(objectKey) {
   return `${BASE}/media/file/${objectKey}`;
 }
 
+// Absolute URL for an API-relative path the server returns (e.g. avatar_url).
+export function absUrl(path) {
+  if (!path) return null;
+  return path.startsWith("http") ? path : `${BASE}${path}`;
+}
+
 export function getToken() {
   if (typeof window === "undefined") return null;
   try {
@@ -59,6 +65,28 @@ export async function uploadMedia(file) {
     throw new Error(typeof detail === "string" ? detail : "Upload failed");
   }
   return res.json();
+}
+
+// POST multipart/form-data (e.g. registration with evidence files). Sends the
+// auth token when present but works unauthenticated too (public sign-up).
+export async function apiForm(path, formData) {
+  const token = getToken();
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const detail = (data && data.detail) || res.statusText;
+    const err = new Error(typeof detail === "string" ? detail : "Request failed");
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
 }
 
 // Fetch an authenticated endpoint and save the response as a file download

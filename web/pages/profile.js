@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, getUser, logout } from "../lib/api";
+import { absUrl, api, getUser, logout, setSession, uploadMedia } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { ROLE_LABEL, roleGate } from "../lib/roles";
 
@@ -62,12 +62,18 @@ export default function Profile() {
       {err && <div className="error">{err}</div>}
 
       <div className="card">
-        <div className="between">
-          <h3 style={{ margin: 0 }}>{detail?.name || me?.name || "—"}</h3>
-          <span className="badge">{ROLE_LABEL[me?.role] || me?.role}</span>
+        <div className="row" style={{ gap: 14, alignItems: "center" }}>
+          <ProfilePhoto detail={detail} onSaved={(d) => { setDetail(d); const u = getUser(); if (u) setSession(null, { ...u, avatar_url: d.avatar_url }); }} />
+          <div style={{ flex: 1 }}>
+            <div className="between">
+              <h3 style={{ margin: 0 }}>{detail?.name || me?.name || "—"}</h3>
+              <span className="badge">{ROLE_LABEL[me?.role] || me?.role}</span>
+            </div>
+          </div>
         </div>
         <div style={{ marginTop: 12 }}>
           <Row label="Phone">{detail?.phone || "—"}</Row>
+          {detail?.email && <Row label="Email">{detail.email}</Row>}
           <Row label="Account status">
             <span className="badge grey">{detail?.status || "active"}</span>
           </Row>
@@ -131,9 +137,108 @@ export default function Profile() {
       <h2>Account</h2>
       <div className="row">
         <Link href="/onboarding" className="btn ghost">Edit profile</Link>
+        <Link href="/reset-password" className="btn ghost">Change password</Link>
         <Link href="/dashboard" className="btn ghost">My dashboard</Link>
         <button className="danger" onClick={doLogout}>{t("logout")}</button>
       </div>
+    </div>
+  );
+}
+
+// Profile photo: upload a file or capture one with the device camera.
+function ProfilePhoto({ detail, onSaved }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [cam, setCam] = useState(false);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const src = detail?.avatar_url ? absUrl(detail.avatar_url) : null;
+
+  async function saveKey(objectKey) {
+    const d = await api("/auth/me", { method: "PATCH", body: { avatar_object_key: objectKey } });
+    onSaved?.(d);
+  }
+
+  async function onFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr(null); setBusy(true);
+    try {
+      const up = await uploadMedia(file);
+      await saveKey(up.object_key);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  async function startCam() {
+    setErr(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      streamRef.current = stream;
+      setCam(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 50);
+    } catch { setErr("Camera not available. Try uploading a photo instead."); }
+  }
+
+  function stopCam() {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCam(false);
+  }
+
+  async function capture() {
+    const v = videoRef.current;
+    if (!v) return;
+    const canvas = document.createElement("canvas");
+    const size = Math.min(v.videoWidth, v.videoHeight) || 480;
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const sx = (v.videoWidth - size) / 2, sy = (v.videoHeight - size) / 2;
+    ctx.drawImage(v, sx, sy, size, size, 0, 0, size, size);
+    stopCam();
+    setBusy(true); setErr(null);
+    canvas.toBlob(async (blob) => {
+      try {
+        const file = new File([blob], "selfie.jpg", { type: "image/jpeg" });
+        const up = await uploadMedia(file);
+        await saveKey(up.object_key);
+      } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    }, "image/jpeg", 0.9);
+  }
+
+  useEffect(() => () => stopCam(), []);
+
+  return (
+    <div style={{ textAlign: "center" }}>
+      {cam ? (
+        <div>
+          <video ref={videoRef} playsInline muted
+                 style={{ width: 120, height: 120, objectFit: "cover", borderRadius: "50%", background: "#000" }} />
+          <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6 }}>
+            <button onClick={capture} disabled={busy}>Capture</button>
+            <button className="ghost" onClick={stopCam}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            width: 72, height: 72, borderRadius: "50%", overflow: "hidden",
+            background: "var(--line, #e5e7eb)", display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: 28, margin: "0 auto",
+          }}>
+            {src ? <img src={src} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🧑‍🌾"}
+          </div>
+          <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6, flexWrap: "wrap" }}>
+            <label className="btn ghost" style={{ cursor: "pointer", fontSize: 12, padding: "4px 8px" }}>
+              {busy ? "…" : "Upload"}
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} disabled={busy} />
+            </label>
+            <button className="ghost" style={{ fontSize: 12, padding: "4px 8px" }} onClick={startCam} disabled={busy}>
+              Take photo
+            </button>
+          </div>
+        </>
+      )}
+      {err && <div className="error" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}
     </div>
   );
 }

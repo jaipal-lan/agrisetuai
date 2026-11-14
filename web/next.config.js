@@ -12,7 +12,8 @@ try {
 //  - self for scripts/styles/pages; 'unsafe-inline' is required because the app
 //    uses inline style={{…}} attributes and Next's inline bootstrap (no nonce).
 //  - images from self + data:/blob: (agent photos) + the API origin (media).
-//  - XHR/fetch to self + the API origin.
+//  - XHR/fetch to self + the API origin + OpenStreetMap Nominatim (reverse
+//    geocoding at sign-up, to turn the device's GPS fix into a street address).
 //  - the live courier map is an openstreetmap.org iframe (frame-src).
 // No external scripts, fonts or CDNs are used, so everything else is denied.
 const csp = [
@@ -24,7 +25,7 @@ const csp = [
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${API_ORIGIN}`,
-  `connect-src 'self' ${API_ORIGIN}`,
+  `connect-src 'self' ${API_ORIGIN} https://nominatim.openstreetmap.org`,
   "frame-src 'self' https://www.openstreetmap.org",
   "font-src 'self' data:",
 ].join("; ");
