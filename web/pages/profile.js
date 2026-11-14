@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { absUrl, api, getUser, logout, setSession, uploadMedia } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -142,7 +142,18 @@ export default function Profile() {
 function ProfilePhoto({ detail, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [cam, setCam] = useState(false);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const fallbackRef = useRef(null);
   const src = detail?.avatar_url ? absUrl(detail.avatar_url) : null;
+
+  // Live webcam needs a secure context (HTTPS, or localhost). Over plain HTTP on
+  // a LAN IP the browser hides mediaDevices, so we fall back to a capture-enabled
+  // file input (opens the camera on phones, the file picker on desktop).
+  const webcamOk = typeof window !== "undefined" && window.isSecureContext
+    && !!navigator.mediaDevices?.getUserMedia;
+  const isMobile = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
 
   async function saveKey(objectKey) {
     const d = await api("/auth/me", { method: "PATCH", body: { avatar_object_key: objectKey } });
@@ -160,29 +171,89 @@ function ProfilePhoto({ detail, onSaved }) {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
 
-  // "Take photo" uses a capture-enabled file input: on a phone/tablet it opens
-  // the camera directly (works over plain HTTP, unlike getUserMedia which needs
-  // HTTPS); on desktop it falls back to the file picker.
+  function takePhoto() {
+    setErr(null);
+    if (webcamOk) startCam();
+    else fallbackRef.current?.click(); // mobile: opens camera; desktop: file picker
+  }
+
+  async function startCam() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      streamRef.current = stream;
+      setCam(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 50);
+    } catch { setErr("Couldn't open the camera. Upload a photo instead."); }
+  }
+
+  function stopCam() {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCam(false);
+  }
+
+  function capture() {
+    const v = videoRef.current;
+    if (!v) return;
+    const canvas = document.createElement("canvas");
+    const size = Math.min(v.videoWidth, v.videoHeight) || 480;
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const sx = (v.videoWidth - size) / 2, sy = (v.videoHeight - size) / 2;
+    ctx.drawImage(v, sx, sy, size, size, 0, 0, size, size);
+    stopCam();
+    setBusy(true); setErr(null);
+    canvas.toBlob(async (blob) => {
+      try {
+        const up = await uploadMedia(new File([blob], "photo.jpg", { type: "image/jpeg" }));
+        await saveKey(up.object_key);
+      } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    }, "image/jpeg", 0.9);
+  }
+
+  useEffect(() => () => stopCam(), []);
+
   return (
     <div style={{ textAlign: "center" }}>
-      <div style={{
-        width: 72, height: 72, borderRadius: "50%", overflow: "hidden",
-        background: "var(--line, #e5e7eb)", display: "flex", alignItems: "center",
-        justifyContent: "center", fontSize: 28, margin: "0 auto",
-      }}>
-        {src ? <img src={src} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🧑‍🌾"}
-      </div>
-      <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6, flexWrap: "wrap" }}>
-        <label className="btn ghost" style={{ cursor: "pointer", fontSize: 12, padding: "4px 8px" }}>
-          {busy ? "…" : "Upload"}
-          <input type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} disabled={busy} />
-        </label>
-        <label className="btn ghost" style={{ cursor: "pointer", fontSize: 12, padding: "4px 8px" }}>
-          Take photo
-          <input type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={onFile} disabled={busy} />
-        </label>
-      </div>
-      {err && <div className="error" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}
+      {cam ? (
+        <div>
+          <video ref={videoRef} playsInline muted
+                 style={{ width: 120, height: 120, objectFit: "cover", borderRadius: "50%", background: "#000" }} />
+          <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6 }}>
+            <button onClick={capture} disabled={busy}>Capture</button>
+            <button className="ghost" onClick={stopCam}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            width: 72, height: 72, borderRadius: "50%", overflow: "hidden",
+            background: "var(--line, #e5e7eb)", display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: 28, margin: "0 auto",
+          }}>
+            {src ? <img src={src} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🧑‍🌾"}
+          </div>
+          <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6, flexWrap: "wrap" }}>
+            <label className="btn ghost" style={{ cursor: "pointer", fontSize: 12, padding: "4px 8px" }}>
+              {busy ? "…" : "Upload"}
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} disabled={busy} />
+            </label>
+            <button type="button" className="ghost" style={{ fontSize: 12, padding: "4px 8px" }}
+                    onClick={takePhoto} disabled={busy}>
+              Take photo
+            </button>
+            {/* Fallback input used when the live webcam isn't available */}
+            <input ref={fallbackRef} type="file" accept="image/*" capture="user"
+                   style={{ display: "none" }} onChange={onFile} disabled={busy} />
+          </div>
+          {!webcamOk && !isMobile && (
+            <div className="muted" style={{ fontSize: 11, marginTop: 4, maxWidth: 180, marginInline: "auto" }}>
+              Live camera needs HTTPS or localhost — on the LAN link it opens file upload.
+            </div>
+          )}
+          {err && <div className="error" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}
+        </>
+      )}
     </div>
   );
 }
