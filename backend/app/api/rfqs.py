@@ -91,6 +91,7 @@ class RFQCreate(BaseModel):
     price_min: float | None = None
     price_max: float | None = None
     source_mandal_ids: list[int] | None = None
+    needed_by: str | None = None  # ISO date "YYYY-MM-DD" from the calendar picker
     destination_mandal_id: int | None = None
     delivery_window: str | None = None
     packaging: str | None = None
@@ -125,6 +126,7 @@ def _rfq_json(r: RFQ, db: Session | None = None) -> dict:
         "price_min": None if r.price_min is None else str(r.price_min),
         "price_max": None if r.price_max is None else str(r.price_max),
         "source_mandal_ids": r.source_mandal_ids or [],
+        "needed_by": r.needed_by,
         "destination_mandal_id": r.destination_mandal_id,
         "delivery_window": r.delivery_window,
         "packaging": r.packaging,
@@ -158,6 +160,7 @@ def create_rfq(body: RFQCreate, user: User = Depends(_buyer), db: Session = Depe
         price_min=body.price_min,
         price_max=body.price_max,
         source_mandal_ids=[int(i) for i in (body.source_mandal_ids or [])] or None,
+        needed_by=(body.needed_by or "").strip() or None,
         destination_mandal_id=body.destination_mandal_id,
         delivery_window=body.delivery_window,
         packaging=body.packaging,
@@ -171,7 +174,8 @@ def create_rfq(body: RFQCreate, user: User = Depends(_buyer), db: Session = Depe
     band = ""
     if body.price_min is not None or body.price_max is not None:
         band = f" at ₹{body.price_min or '?'}–{body.price_max or '?'}/{rfq.unit}"
-    _system_comment(db, rfq.id, f"Request raised for {qty(rfq.requested_qty)} {rfq.unit}{band}.")
+    by = f" Needed by {rfq.needed_by}." if rfq.needed_by else ""
+    _system_comment(db, rfq.id, f"Request raised for {qty(rfq.requested_qty)} {rfq.unit}{band}.{by}")
     if body.note and body.note.strip():
         db.add(RfqComment(rfq_id=rfq.id, author_id=user.id, body=body.note.strip()))
     _route_rfq(db, rfq)

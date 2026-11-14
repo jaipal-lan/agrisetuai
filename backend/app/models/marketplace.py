@@ -92,6 +92,8 @@ class RFQ(Base, TimestampMixin):
     # Areas (mandal ids) the buyer wants to source from (multi-select). Routing
     # notifies farmers/agents in these areas.
     source_mandal_ids: Mapped[list | None] = mapped_column(JSON)
+    # Date the buyer needs delivery by (ISO "YYYY-MM-DD"), from the calendar picker.
+    needed_by: Mapped[str | None] = mapped_column(String(10))
     delivery_window: Mapped[str | None] = mapped_column(String(80))
     packaging: Mapped[str | None] = mapped_column(String(80))
     acceptable_variation: Mapped[dict | None] = mapped_column(JSON)

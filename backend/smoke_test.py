@@ -702,10 +702,11 @@ def run():
     er = client.post("/api/rfqs", headers=hdr(buyer), json={
         "commodity_id": paddy["id"], "requested_qty": 100,
         "price_min": 20, "price_max": 26, "source_mandal_ids": [mandal_id],
-        "note": "Need clean, dry paddy."})
-    check("RFQ accepts a price range + source areas",
+        "needed_by": "2027-01-15", "note": "Need clean, dry paddy."})
+    check("RFQ accepts a price range + source areas + needed-by date",
           er.status_code == 201 and er.json()["price_min"] == "20.00"
-          and er.json()["price_max"] == "26.00" and er.json()["source_mandal_ids"] == [mandal_id])
+          and er.json()["price_max"] == "26.00" and er.json()["source_mandal_ids"] == [mandal_id]
+          and er.json()["needed_by"] == "2027-01-15")
     erid = er.json()["id"]
     thread = client.get(f"/api/rfqs/{erid}/comments", headers=hdr(buyer)).json()
     check("request thread has a system entry + the buyer's note",

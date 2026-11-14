@@ -117,7 +117,7 @@ export default function Requests() {
   const [msg, setMsg] = useState(null);
   const [form, setForm] = useState({
     commodity_id: "", requested_qty: "", unit: "kg",
-    price_min: "", price_max: "", note: "", source_mandal_ids: [],
+    price_min: "", price_max: "", needed_by: "", note: "", source_mandal_ids: [],
   });
   const [areaFilter, setAreaFilter] = useState("");
 
@@ -182,11 +182,12 @@ export default function Requests() {
         unit: form.unit || "kg",
         price_min: form.price_min ? Number(form.price_min) : undefined,
         price_max: form.price_max ? Number(form.price_max) : undefined,
+        needed_by: form.needed_by || undefined,
         source_mandal_ids: form.source_mandal_ids.length ? form.source_mandal_ids : undefined,
         note: form.note || undefined,
       } });
       setMsg("Request posted. Nearby farmers and agents have been alerted.");
-      setForm({ commodity_id: "", requested_qty: "", unit: "kg", price_min: "", price_max: "", note: "", source_mandal_ids: [] });
+      setForm({ commodity_id: "", requested_qty: "", unit: "kg", price_min: "", price_max: "", needed_by: "", note: "", source_mandal_ids: [] });
       load(me.role);
     } catch (e) { setErr(e.message); }
   }
@@ -258,6 +259,10 @@ export default function Requests() {
             <label>Target price max (₹/{form.unit})
               <input value={form.price_max} onChange={(e) => set("price_max", e.target.value)} inputMode="decimal" />
             </label>
+            <label>Needed by
+              <input type="date" value={form.needed_by} min={new Date().toISOString().slice(0, 10)}
+                     onChange={(e) => set("needed_by", e.target.value)} />
+            </label>
           </div>
 
           <label style={{ display: "block", marginTop: 10 }}>Which areas do you want it from? (optional)</label>
@@ -317,6 +322,7 @@ export default function Requests() {
                   {band ? <> · target {band}</> : null}
                 </div>
                 {areas && <div className="muted" style={{ fontSize: 13 }}>From: {areas}</div>}
+                {r.needed_by && <div className="muted" style={{ fontSize: 13 }}>📅 Needed by: {r.needed_by}</div>}
                 {canOffer && r.status === "open" && <SellerOffer rfq={r} />}
                 <RfqThread rfqId={r.id} />
               </div>
