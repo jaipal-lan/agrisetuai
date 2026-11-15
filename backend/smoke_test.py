@@ -743,6 +743,58 @@ def run():
     check("the escalated request is flagged",
           client.get(f"/api/rfqs/{esc['id']}").json()["escalated"] is True)
 
+    # --- Barcode bag tracking: generate, scan through stages, validate, track ---
+    bags = client.post(f"/api/orders/{rfq_order_id}/bags", headers=hdr(agent),
+                       json={"count": 3, "weights": [50, 50, 100]})
+    check("agent generates bags for an order", bags.status_code == 201 and len(bags.json()) == 3)
+    blist = bags.json()
+    bc0 = blist[0]["bag_code"]
+    check("bag code is AGRI-{order}-BAG-NN", bc0 == f"AGRI-{rfq_order_id}-BAG-01")
+    check("bag generation is idempotent",
+          len(client.post(f"/api/orders/{rfq_order_id}/bags", headers=hdr(agent),
+                          json={"count": 9}).json()) == 3)
+    check("out-of-sequence scan is blocked (deliver before pickup)",
+          client.post("/api/bags/scan", headers=hdr(transport),
+                      json={"bag_code": bc0, "stage": "delivery"}).status_code == 409)
+    check("invalid barcode rejected",
+          client.post("/api/bags/scan", headers=hdr(agent),
+                      json={"bag_code": "AGRI-999999-BAG-99", "stage": "pickup"}).status_code == 404)
+    check("wrong role for a stage is blocked (transporter can't do pickup)",
+          client.post("/api/bags/scan", headers=hdr(transport),
+                      json={"bag_code": bc0, "stage": "pickup"}).status_code == 403)
+    sp = client.post("/api/bags/scan", headers=hdr(agent),
+                     json={"bag_code": bc0, "stage": "pickup", "lat": 16.2, "lng": 80.6})
+    check("agent scans pickup -> picked_up", sp.status_code == 200 and sp.json()["bag"]["status"] == "picked_up")
+    check("duplicate scan is blocked",
+          client.post("/api/bags/scan", headers=hdr(agent),
+                      json={"bag_code": bc0, "stage": "pickup"}).status_code == 409)
+    check("leader scans collection -> at_collection",
+          client.post("/api/bags/scan", headers=hdr(manager),
+                      json={"bag_code": bc0, "stage": "collection"}).json()["bag"]["status"] == "at_collection")
+    check("transporter scans loading -> in_transit",
+          client.post("/api/bags/scan", headers=hdr(transport),
+                      json={"bag_code": bc0, "stage": "loading"}).json()["bag"]["status"] == "in_transit")
+    check("transporter scans delivery -> delivered",
+          client.post("/api/bags/scan", headers=hdr(transport),
+                      json={"bag_code": bc0, "stage": "delivery"}).json()["bag"]["status"] == "delivered")
+    det = client.get(f"/api/bags/{bc0}", headers=hdr(agent)).json()
+    check("bag detail shows the full scan history", len(det["scans"]) >= 4)
+    pub = client.get(f"/api/track/{bc0}")
+    check("public track works without auth and hides farmer PII",
+          pub.status_code == 200 and len(pub.json()["ladder"]) == 5
+          and "farmer_name" not in pub.json() and pub.json()["status"] == "delivered")
+    check("superadmin can audit bags",
+          any(b["bag_code"] == bc0 for b in client.get("/api/bags", headers=hdr(superadmin)).json()))
+    check("bag stats expose a delivered count",
+          client.get("/api/bags/stats", headers=hdr(superadmin)).json()["delivered"] >= 1)
+    corr = client.post(f"/api/bags/{blist[1]['bag_code']}/correct", headers=hdr(superadmin),
+                       json={"to_status": "delivered", "reason": "scan failed at gate"})
+    check("superadmin can manually correct a bag status",
+          corr.status_code == 200 and corr.json()["status"] == "delivered")
+    check("non-superadmin cannot correct a bag",
+          client.post(f"/api/bags/{blist[2]['bag_code']}/correct", headers=hdr(manager),
+                      json={"to_status": "delivered", "reason": "x"}).status_code == 403)
+
     # The RFQ-based order (no listing) still runs the full lifecycle & prices.
     client.post(f"/api/orders/{rfq_order_id}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
     client.post(f"/api/agent/orders/{rfq_order_id}/inspection", headers=hdr(agent),

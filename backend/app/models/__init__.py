@@ -1,5 +1,6 @@
 """Import all models so they register on Base.metadata."""
 from app.models.audit import AuditLog
+from app.models.barcode import Bag, BagScan
 from app.models.carrier import Carrier
 from app.models.catalog import Commodity, GradeSpec, Variety
 from app.models.finance import LedgerEntry, Payment, Payout, Refund
@@ -45,6 +46,8 @@ from app.models.user import (
 
 __all__ = [
     "AuditLog",
+    "Bag",
+    "BagScan",
     "Carrier",
     "Commodity",
     "GradeSpec",
