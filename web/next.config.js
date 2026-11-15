@@ -22,7 +22,8 @@ const csp = [
   "object-src 'none'",
   "frame-ancestors 'self'",
   "form-action 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  // cdnjs serves the barcode/QR scanner (html5-qrcode) + QR label generator.
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${API_ORIGIN}`,
   `connect-src 'self' ${API_ORIGIN} https://nominatim.openstreetmap.org`,

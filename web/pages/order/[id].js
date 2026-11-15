@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
@@ -600,6 +601,10 @@ export default function OrderDetail() {
         "delivered_pending_acceptance", "completed", "settled"].includes(s) && (
         <TrackingTimeline orderId={id} isBuyer={isBuyer} />
       )}
+
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <Link href={`/bags/${id}`} className="btn ghost">🏷️ Bags &amp; labels</Link>
+      </div>
 
       {/* Buyer: choose the courier (buyer-paid logistics) */}
       {isBuyer && !order.shipment?.courier_name &&

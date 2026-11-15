@@ -826,6 +826,8 @@ export default function Admin() {
         </div>
       </div>
 
+      {["field_manager", "superadmin"].includes(me?.role) && <BarcodeTracking me={me} />}
+
       <CatalogManager me={me} />
 
       <h2>Product minimum order quantities</h2>
@@ -867,6 +869,118 @@ function MoqRow({ c, onSave }) {
         <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>Save</button>
       </td>
     </tr>
+  );
+}
+
+// SuperAdmin / manager barcode tracking: live counts, search by code with full
+// scan timeline, and manual status correction (superadmin only).
+const BAG_STATUSES = ["created", "picked_up", "at_collection", "in_transit", "delivered"];
+
+function BarcodeTracking({ me }) {
+  const [stats, setStats] = useState(null);
+  const [q, setQ] = useState("");
+  const [bag, setBag] = useState(null);
+  const [recent, setRecent] = useState([]);
+  const [err, setErr] = useState(null);
+  const isSuper = me?.role === "superadmin";
+
+  function loadStats() { api("/bags/stats").then(setStats).catch(() => {}); }
+  function loadRecent() { api("/bags?limit=25").then(setRecent).catch(() => {}); }
+  useEffect(() => { loadStats(); loadRecent(); }, []);
+
+  async function search(code) {
+    setErr(null); setBag(null);
+    const c = (code || "").trim();
+    if (!c) return;
+    try { setBag(await api(`/bags/${encodeURIComponent(c)}`)); }
+    catch (e) { setErr(e.message); }
+  }
+  async function correct(code, to_status) {
+    const reason = window.prompt(`Reason for correcting ${code} to "${to_status}"?`);
+    if (!reason || !reason.trim()) return;
+    try {
+      await api(`/bags/${encodeURIComponent(code)}/correct`, { method: "POST", body: { to_status, reason: reason.trim() } });
+      search(code); loadStats(); loadRecent();
+    } catch (e) { setErr(e.message); }
+  }
+
+  const TILE = ({ label, val }) => (
+    <div className="card" style={{ minWidth: 120 }}>
+      <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+      <div className="price" style={{ fontSize: 22 }}>{val ?? "—"}</div>
+    </div>
+  );
+
+  return (
+    <>
+      <h2>Barcode / live tracking</h2>
+      {err && <div className="error">{err}</div>}
+      <div className="grid">
+        <TILE label="Scanned today" val={stats?.scanned_today} />
+        <TILE label="In transit" val={stats?.in_transit} />
+        <TILE label="At collection" val={stats?.at_collection} />
+        <TILE label="Delivered" val={stats?.delivered} />
+        <TILE label="Total bags" val={stats?.total} />
+      </div>
+
+      <div className="card">
+        <label>Find a bag (by barcode)</label>
+        <div className="row" style={{ gap: 6 }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="AGRI-1023-BAG-01"
+                 style={{ flex: 1 }} onKeyDown={(e) => e.key === "Enter" && search(q)} />
+          <button onClick={() => search(q)}>Search</button>
+        </div>
+        {bag && (
+          <div style={{ marginTop: 12 }}>
+            <div className="between">
+              <b>{bag.bag_code}</b>
+              <span className="badge">{bag.status_label}</span>
+            </div>
+            <div className="muted" style={{ fontSize: 13 }}>Order {bag.order_public_id} · bag {bag.bag_no}{bag.weight ? ` · ${bag.weight} kg` : ""}</div>
+            <table style={{ marginTop: 8 }}>
+              <thead><tr><th>Stage</th><th>Status</th><th>By</th><th>When</th><th>GPS</th></tr></thead>
+              <tbody>
+                {bag.scans.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.stage}{s.corrected ? " ✏️" : ""}</td>
+                    <td>{s.status_label}</td>
+                    <td className="muted">{s.scanned_by_name || "—"}{s.role ? ` (${s.role.replace(/_/g, " ")})` : ""}</td>
+                    <td className="muted">{s.created_at ? new Date(s.created_at).toLocaleString("en-IN") : "—"}</td>
+                    <td className="muted">{s.lat != null ? `${s.lat.toFixed(3)}, ${s.lng?.toFixed(3)}` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {isSuper && (
+              <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                <span className="muted" style={{ alignSelf: "center", fontSize: 13 }}>Correct to:</span>
+                {BAG_STATUSES.map((st) => (
+                  <button key={st} className="ghost" style={{ fontSize: 12 }}
+                          disabled={st === bag.status} onClick={() => correct(bag.bag_code, st)}>{st}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {recent.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Bag</th><th>Status</th><th>Last scan</th></tr></thead>
+            <tbody>
+              {recent.map((b) => (
+                <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => { setQ(b.bag_code); search(b.bag_code); }}>
+                  <td style={{ fontFamily: "monospace" }}>{b.bag_code}</td>
+                  <td><span className={`badge ${b.status === "delivered" ? "green" : b.status === "in_transit" ? "amber" : "grey"}`}>{b.status_label}</span></td>
+                  <td className="muted">{b.last_scan_at ? new Date(b.last_scan_at).toLocaleString("en-IN") : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 

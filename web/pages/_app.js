@@ -122,6 +122,8 @@ function Nav() {
       {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
       {lead && <Link href="/team">{t("team")}</Link>}
       {carrier && <Link href="/transport">{t("transport")}</Link>}
+      {(agent || carrier) && <Link href="/scan">Scan</Link>}
+      <Link href="/track">Track</Link>
       <Link href="/prices">{t("market_prices")}</Link>
       {staff && <Link href="/admin">{t("admin")}</Link>}
       {user && <Link href="/inbox">{t("inbox")}</Link>}

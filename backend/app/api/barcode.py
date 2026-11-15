@@ -139,13 +139,34 @@ def generate_bags(order_id: int, body: BagGenBody, user: User = Depends(_manage)
 @router.get("/orders/{order_id}/bags")
 def list_order_bags(order_id: int, user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
+    """Bags for an order, enriched for the printable label (farmer, village, crop,
+    destination). Visible to the order's parties and to field staff/transport."""
+    from app.models.location import Mandal
+
     order = db.get(Order, order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
     bags = list(db.scalars(select(Bag).where(Bag.order_id == order_id).order_by(Bag.bag_no)))
-    if bags and not _can_view(user, order, bags[0]):
+    # Build a dummy bag for the view check even when there are no bags yet.
+    probe = bags[0] if bags else Bag(order_id=order_id, agent_id=order.assigned_agent_id,
+                                     farmer_id=order.seller_id)
+    if not _can_view(user, order, probe):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
-    return [_bag_json(b) for b in bags]
+    terms = order.accepted_terms or {}
+    farmer = db.get(User, order.seller_id)
+    fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == order.seller_id))
+    commodity = db.get(Commodity, terms.get("commodity_id")) if terms.get("commodity_id") else None
+    dest_id = terms.get("destination_mandal_id") or terms.get("mandal_id")
+    dest = db.get(Mandal, dest_id).name if dest_id and db.get(Mandal, dest_id) else terms.get("delivery_label")
+    meta = {
+        "order_public_id": order.public_id,
+        "farmer_name": (farmer.name if farmer else None),
+        "farmer_village": (fp.village if fp else None),
+        "commodity": (commodity.name if commodity else None),
+        "variety": terms.get("variety"),
+        "destination": dest,
+    }
+    return {"meta": meta, "bags": [_bag_json(b) for b in bags]}
 
 
 @router.post("/bags/scan")
