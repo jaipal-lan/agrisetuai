@@ -291,12 +291,18 @@ def seed_users(db: Session, mandals: dict) -> dict:
         users[role] = u
     # Attach minimal profiles.
     farmer = users[Role.FARMER]
-    if not db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == farmer.id)):
-        db.add(FarmerProfile(user_id=farmer.id, mandal_id=tenali.id if tenali else None,
-                             village="Kolakaluru", verification_status="verified",
-                             farm_size=4.5, crops_grown=["Paddy", "Red Chilli", "Turmeric"],
-                             soil_type="Black cotton", irrigation_type="Canal",
-                             experience_years=12))
+    fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == farmer.id))
+    if not fp:
+        fp = FarmerProfile(user_id=farmer.id, mandal_id=tenali.id if tenali else None,
+                           village="Kolakaluru", verification_status="verified")
+        db.add(fp)
+    # Backfill demo farm details (also for a profile created before these fields).
+    if fp.farm_size is None:
+        fp.farm_size = 4.5
+        fp.crops_grown = ["Paddy", "Red Chilli", "Turmeric"]
+        fp.soil_type = "Black cotton"
+        fp.irrigation_type = "Canal"
+        fp.experience_years = 12
     # Demo address + KYC so the profile screen shows complete data.
     farmer.district = farmer.district or "Guntur"
     farmer.state = farmer.state or "Andhra Pradesh"

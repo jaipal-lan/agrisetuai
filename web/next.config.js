@@ -24,8 +24,10 @@ const csp = [
   "form-action 'self'",
   // cdnjs serves the barcode/QR scanner (html5-qrcode) + QR label generator.
   "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${API_ORIGIN}`,
+  // cdnjs also serves the Leaflet stylesheet (map pin picker).
+  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+  // OpenStreetMap raster tiles + Leaflet marker images for the map pin.
+  `img-src 'self' data: blob: ${API_ORIGIN} https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com`,
   `connect-src 'self' ${API_ORIGIN} https://nominatim.openstreetmap.org`,
   "frame-src 'self' https://www.openstreetmap.org",
   "font-src 'self' data:",

@@ -118,6 +118,8 @@ export default function Team() {
       <p className="tagline">Monitor your field agents, pass orders, set targets and run meetings.</p>
       {err && <div className="error">{err}</div>}
 
+      <CollectionCentre />
+
       <div className="stat-strip">
         <div><b>{data.agents.length}</b> field agents</div>
         <div><b>{data.unassigned}</b> unassigned</div>
@@ -367,5 +369,38 @@ export default function Team() {
         ))}
       </div>
     </div>
+  );
+}
+
+// Collection-centre reconciliation: expected vs arrived bags per order/agent.
+function CollectionCentre() {
+  const [rows, setRows] = useState([]);
+  function load() { api("/bags/collection-summary").then(setRows).catch(() => {}); }
+  usePoll(() => load(), 15000, []);
+  if (!rows.length) return null;
+  const mism = rows.filter((r) => r.mismatch).length;
+  return (
+    <>
+      <h2>Collection centre {mism > 0 && <span className="badge amber">{mism} mismatch</span>}</h2>
+      <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>Expected vs arrived bags. Scan bags as they reach the centre.</p>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Order</th><th>Agent</th><th>Expected</th><th>Arrived</th><th>Pending</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.order_id} style={r.mismatch ? { background: "rgba(220,38,38,0.08)" } : undefined}>
+                <td>{r.order_public_id || r.order_id}</td>
+                <td className="muted">{r.agent_name || "—"}</td>
+                <td>{r.expected}</td>
+                <td>{r.arrived}</td>
+                <td>{r.pending > 0 ? <b style={{ color: "var(--red-600, #dc2626)" }}>{r.pending}</b> : 0}</td>
+                <td>{r.mismatch ? <span className="badge amber">mismatch</span> : <span className="badge green">ok</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ margin: "8px 0 4px" }}><Link href="/scan" className="btn ghost">Open scanner</Link></div>
+    </>
   );
 }

@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import MapPicker from "../components/MapPicker";
 import { api, getToken, getUser, mediaUrl } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
+
+const UNITS = [["kg", "per kg"], ["quintal", "per quintal"], ["piece", "per piece"], ["dozen", "per dozen"], ["litre", "per litre"]];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
 
@@ -28,6 +31,7 @@ export default function Sell() {
   const [form, setForm] = useState({
     commodity_id: "",
     grade_spec_id: "",
+    unit: "kg",
     total_qty: "",
     min_order_qty: "",
     asking_price: "",
@@ -37,6 +41,8 @@ export default function Sell() {
     quality_grade: "A",
     defect_pct: "",
     defect_notes: "",
+    latitude: null,
+    longitude: null,
   });
   const [newProduct, setNewProduct] = useState("");
   const [err, setErr] = useState(null);
@@ -92,10 +98,13 @@ export default function Sell() {
       const body = {
         commodity_id: Number(form.commodity_id),
         grade_spec_id: form.grade_spec_id ? Number(form.grade_spec_id) : undefined,
+        unit: form.unit || "kg",
         total_qty: Number(form.total_qty),
         min_order_qty: Number(form.min_order_qty || 0),
         asking_price: Number(form.asking_price),
         harvest_year: Number(form.harvest_year),
+        latitude: form.latitude ?? undefined,
+        longitude: form.longitude ?? undefined,
         claim_status: form.claim_status,
         specifications: form.specifications || undefined,
         quality_grade: form.quality_grade || undefined,
@@ -185,16 +194,22 @@ export default function Sell() {
           </div>
         </div>
         <div className="row">
+          <div style={{ flex: "0 1 160px" }}>
+            <label>Sell by (unit)</label>
+            <select value={form.unit} onChange={(e) => set("unit", e.target.value)}>
+              {UNITS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          </div>
           <div style={{ flex: 1 }}>
-            <label>Total {t("quantity")} (kg)</label>
+            <label>Total {t("quantity")} ({form.unit})</label>
             <input value={form.total_qty} onChange={(e) => set("total_qty", e.target.value)} inputMode="decimal" />
           </div>
           <div style={{ flex: 1 }}>
-            <label>Min order (kg)</label>
+            <label>Min order ({form.unit})</label>
             <input value={form.min_order_qty} onChange={(e) => set("min_order_qty", e.target.value)} inputMode="decimal" />
           </div>
           <div style={{ flex: 1 }}>
-            <label>{t("asking_price")} (₹/kg)</label>
+            <label>{t("asking_price")} (₹/{form.unit})</label>
             <input value={form.asking_price} onChange={(e) => set("asking_price", e.target.value)} inputMode="decimal" />
           </div>
         </div>
@@ -235,6 +250,13 @@ export default function Sell() {
         <label>Product specifications (moisture, drying, cleaning, packing, variety notes…)</label>
         <textarea rows={2} value={form.specifications} onChange={(e) => set("specifications", e.target.value)}
           placeholder="e.g. Moisture 7%, hand-cleaned, single filling, 50 kg bags" />
+        <details style={{ marginTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>📍 Pin farm / pickup location (optional)</summary>
+          <div style={{ marginTop: 8 }}>
+            <MapPicker value={form.latitude ? { lat: form.latitude, lng: form.longitude } : null}
+                       onChange={(ll) => setForm((f) => ({ ...f, latitude: ll.lat, longitude: ll.lng }))} />
+          </div>
+        </details>
         <div style={{ marginTop: 16 }}>
           <button onClick={create} disabled={busy || !form.commodity_id || form.commodity_id === "__other" || !form.total_qty || !form.asking_price}>
             {t("create_listing")}

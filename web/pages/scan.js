@@ -36,6 +36,7 @@ export default function Scan() {
   const [camOn, setCamOn] = useState(false);
   const [camErr, setCamErr] = useState(null);
   const [geo, setGeo] = useState(null);
+  const [pending, setPending] = useState(0);
   const scannerRef = useRef(null);
 
   useEffect(() => {
@@ -55,6 +56,35 @@ export default function Scan() {
 
   useEffect(() => () => stopCam(), []); // cleanup on unmount
 
+  // Offline queue: scans saved on this device sync when connectivity returns.
+  const QKEY = "agri_scan_queue";
+  const readQ = () => { try { return JSON.parse(window.localStorage.getItem(QKEY) || "[]"); } catch { return []; } };
+  const writeQ = (q) => { try { window.localStorage.setItem(QKEY, JSON.stringify(q)); } catch {} setPending(q.length); };
+
+  useEffect(() => {
+    setPending(readQ().length);
+    const onOnline = () => syncQueue();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function syncQueue() {
+    const q = readQ();
+    if (!q.length) return;
+    const keep = [];
+    for (const it of q) {
+      try {
+        await api("/bags/scan", { method: "POST", body: it });
+        addResult(true, `${it.bag_code}: synced (${it.stage})`);
+      } catch (e) {
+        if (e.status) addResult(false, `${it.bag_code}: ${e.message}`); // server rejected -> drop
+        else keep.push(it); // still offline -> keep
+      }
+    }
+    writeQ(keep);
+  }
+
   const webcamOk = typeof window !== "undefined" && window.isSecureContext
     && !!navigator.mediaDevices?.getUserMedia;
 
@@ -62,12 +92,17 @@ export default function Scan() {
     const c = (bagCode || "").trim();
     if (!c || !stage) return;
     setBusy(true);
+    const item = { bag_code: c, stage, lat: geo?.lat, lng: geo?.lng };
     try {
-      const r = await api("/bags/scan", { method: "POST",
-        body: { bag_code: c, stage, lat: geo?.lat, lng: geo?.lng } });
+      const r = await api("/bags/scan", { method: "POST", body: item });
       addResult(true, r.message || `${c}: scanned`);
     } catch (e) {
-      addResult(false, `${c}: ${e.message}`);
+      if (e.status === undefined) {
+        const q = readQ(); q.push(item); writeQ(q);
+        addResult(true, `${c}: saved offline — will sync when online`);
+      } else {
+        addResult(false, `${c}: ${e.message}`);
+      }
     } finally { setBusy(false); setCode(""); }
   }
 
@@ -118,6 +153,15 @@ export default function Scan() {
     <div style={{ maxWidth: 520, margin: "0 auto" }}>
       <h1>Scan bags</h1>
       <p className="tagline">Scan each bag's barcode/QR to update its status.</p>
+
+      {pending > 0 && (
+        <div className="card" style={{ borderLeft: "4px solid var(--amber-600)" }}>
+          <div className="between">
+            <span><b>{pending}</b> scan(s) saved offline, waiting to sync.</span>
+            <button className="ghost" onClick={syncQueue}>Sync now</button>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <label>Stage</label>

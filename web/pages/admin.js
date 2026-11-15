@@ -460,14 +460,17 @@ export default function Admin() {
               <div className="card" key={title}>
                 <h3 style={{ fontSize: 15 }}>{title}</h3>
                 {rows.length === 0 ? <p className="muted">No data.</p> : (
-                  <table>
-                    <thead><tr><th></th><th>GMV</th><th>Orders</th></tr></thead>
-                    <tbody>
-                      {rows.map((r) => (
-                        <tr key={r.key}><td>{r.key}</td><td>₹{r.gmv}</td><td>{r.orders}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <>
+                    <BarChart unit="₹" data={rows.slice(0, 8).map((r) => ({ label: r.key, value: Number(r.gmv) }))} />
+                    <table style={{ marginTop: 8 }}>
+                      <thead><tr><th></th><th>GMV</th><th>Orders</th></tr></thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.key}><td>{r.key}</td><td>₹{r.gmv}</td><td>{r.orders}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
                 )}
               </div>
             ))}
@@ -874,6 +877,24 @@ function MoqRow({ c, onSave }) {
   );
 }
 
+// Lightweight inline horizontal bar chart (no chart library).
+function BarChart({ data, unit = "" }) {
+  const max = Math.max(1, ...data.map((d) => d.value || 0));
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      {data.map((d) => (
+        <div key={d.label} className="row" style={{ gap: 8, alignItems: "center" }}>
+          <span className="muted" style={{ width: 110, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
+          <div style={{ flex: 1, background: "var(--line, #e5e7eb)", borderRadius: 4, height: 14, minWidth: 40 }}>
+            <div style={{ width: `${Math.round((d.value / max) * 100)}%`, background: "var(--green-600, #16a34a)", height: "100%", borderRadius: 4 }} />
+          </div>
+          <span style={{ width: 72, textAlign: "right", fontSize: 12 }}>{unit}{d.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Finance: farmer withdrawal requests — approve (disburses their accrued payouts)
 // or reject.
 function WithdrawalsAdmin() {
@@ -974,6 +995,16 @@ function BarcodeTracking({ me }) {
         <TILE label="Delivered" val={stats?.delivered} />
         <TILE label="Total bags" val={stats?.total} />
       </div>
+      {stats && stats.total > 0 && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Bags by status</h3>
+          <BarChart data={[
+            { label: "Created", value: stats.created }, { label: "Picked up", value: stats.picked_up },
+            { label: "At collection", value: stats.at_collection }, { label: "In transit", value: stats.in_transit },
+            { label: "Delivered", value: stats.delivered },
+          ]} />
+        </div>
+      )}
 
       <div className="card">
         <label>Find a bag (by barcode)</label>

@@ -165,7 +165,7 @@ export default function ProductOfferings() {
                 <div className="ok" style={{ fontSize: 12, marginTop: 6 }}>✓ {o.verification_note}</div>
               )}
               {o.specifications && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{o.specifications}</div>}
-              <div className="price" style={{ marginTop: 8 }}>₹{o.asking_price}<small> {t("per_kg")}</small></div>
+              <div className="price" style={{ marginTop: 8 }}>₹{o.asking_price}<small> /{o.unit || "kg"}</small></div>
               {o.out_of_stock ? (
                 <div className="badge grey" style={{ marginTop: 10 }}>Out of stock</div>
               ) : (

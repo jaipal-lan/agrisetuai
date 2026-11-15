@@ -76,6 +76,18 @@ export default function Profile() {
             <span className="badge grey">{detail?.status || "active"}</span>
           </Row>
           {detail?.farmer?.village && <Row label="Village">{detail.farmer.village}</Row>}
+          {(detail?.district || detail?.state || detail?.pincode) && (
+            <Row label="Area">{[detail.district, detail.state, detail.pincode].filter(Boolean).join(", ")}</Row>
+          )}
+          {detail?.farmer?.farm_size && <Row label="Farm size">{detail.farmer.farm_size} acres</Row>}
+          {detail?.farmer?.crops_grown?.length > 0 && <Row label="Crops">{detail.farmer.crops_grown.join(", ")}</Row>}
+          {detail?.farmer?.soil_type && <Row label="Soil">{detail.farmer.soil_type}</Row>}
+          {detail?.farmer?.irrigation_type && <Row label="Irrigation">{detail.farmer.irrigation_type}</Row>}
+          {detail?.farmer?.experience_years != null && detail?.farmer?.experience_years !== "" && (
+            <Row label="Experience">{detail.farmer.experience_years} yrs</Row>
+          )}
+          {detail?.aadhaar_masked && <Row label="Aadhaar">{detail.aadhaar_masked}</Row>}
+          {detail?.pan_masked && <Row label="PAN">{detail.pan_masked}</Row>}
           {detail?.buyer?.buyer_type && <Row label="Buyer type">{detail.buyer.buyer_type}</Row>}
           {detail?.agent?.skill_level && <Row label="Role level">{detail.agent.skill_level}</Row>}
           <Row label="Language">{langLabel}</Row>

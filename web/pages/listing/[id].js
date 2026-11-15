@@ -90,7 +90,7 @@ export default function ListingDetail() {
 
       <div className="card">
         <div className="between">
-          <div className="price">₹{listing.asking_price}<small> {t("per_kg")}</small></div>
+          <div className="price">₹{listing.asking_price}<small> /{listing.unit || "kg"}</small></div>
           <div className="muted">{t("available")}: <b>{listing.available_qty}</b> {listing.unit}</div>
         </div>
         <div className="muted" style={{ fontSize: 14, marginTop: 8 }}>
@@ -164,7 +164,7 @@ export default function ListingDetail() {
           <h3>{t("make_offer")}</h3>
           <div className="row">
             <div style={{ flex: 1 }}>
-              <label>{t("price")} ({t("per_kg")})</label>
+              <label>{t("price")} (₹/{listing.unit || "kg"})</label>
               <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
             </div>
             <div style={{ flex: 1 }}>
