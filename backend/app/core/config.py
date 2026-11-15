@@ -35,11 +35,16 @@ class Settings(BaseSettings):
     road_distance_factor: float = 1.3
     default_route_km: float = 40.0
 
-    # SMS provider: "console" logs the OTP (dev/sandbox); swap for a real gateway
-    # (Twilio/MSG91/Gupshup) by setting the provider + keys in production.
+    # SMS provider: "console" logs the OTP (dev/sandbox). Real gateways plug in by
+    # setting SMS_PROVIDER + the keys below: "fast2sms" (India, uses sms_api_key),
+    # "msg91" (sms_api_key=authkey + msg91_template_id + sms_sender_id),
+    # "twilio" (twilio_account_sid + twilio_auth_token + sms_sender_id as From).
     sms_provider: str = "console"
     sms_api_key: str = ""
     sms_sender_id: str = "AGRSTU"
+    msg91_template_id: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
 
     # Payment provider: "mock" (in-app capture) or "sandbox" (intent + signed
     # webhook flow, same shape as a real marketplace provider). Real keys plug in.

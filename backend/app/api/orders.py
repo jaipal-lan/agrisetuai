@@ -457,9 +457,10 @@ def confirm_quote(
         "delivery_address_line": delivery_address_line,
     }
 
+    from app.services.pricing_engine import billable_kg_for
     quote = compute(rule, QuoteInput(
-        product_value=product_value, billable_kg=D(terms["quantity"]), route_km=route.route_km,
-        commission_discount_pct=D(0),
+        product_value=product_value, billable_kg=billable_kg_for(terms.get("unit"), terms["quantity"]),
+        route_km=route.route_km, commission_discount_pct=D(0),
     ))
     qjson = quote.to_json()
     qjson["route_km_source"] = route.source

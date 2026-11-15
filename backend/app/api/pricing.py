@@ -214,7 +214,8 @@ def quote_for_order(
 
     terms = order.accepted_terms
     product_value = D(terms["price_per_unit"]) * D(terms["quantity"])
-    billable_kg = D(terms["quantity"]) if terms["unit"] == "kg" else D(terms["quantity"])
+    from app.services.pricing_engine import billable_kg_for
+    billable_kg = billable_kg_for(terms.get("unit"), terms["quantity"])
 
     mandal_id, handling_class = order_pricing_context(db, order)
     rule = active_rule_for(db, mandal_id=mandal_id, handling_class=handling_class)

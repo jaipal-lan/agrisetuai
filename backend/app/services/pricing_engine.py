@@ -7,8 +7,20 @@ preview and live order quoting, so previews match real charges exactly.
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 
-from app.core.money import money
+from app.core.money import money, qty
 from app.models.pricing import PricingRule
+
+# Convert a sale quantity to chargeable transport weight (kg). Weight units are
+# exact; non-weight units (piece/dozen) have no reliable weight in the pilot, so
+# they fall back to the quantity (documented limitation — real logistics pricing
+# would carry a weight-per-unit).
+_UNIT_TO_KG = {"kg": Decimal("1"), "quintal": Decimal("100"), "litre": Decimal("1"),
+               "ton": Decimal("1000"), "tonne": Decimal("1000")}
+
+
+def billable_kg_for(unit: str | None, quantity) -> Decimal:
+    factor = _UNIT_TO_KG.get((unit or "kg").lower(), Decimal("1"))
+    return qty(Decimal(str(quantity)) * factor)
 
 
 @dataclass

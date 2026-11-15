@@ -195,6 +195,9 @@ def run():
         "unit": "piece", "latitude": 16.24, "longitude": 80.64})
     check("listing honours a per-listing unit + geo pin",
           pl.status_code == 201 and pl.json()["unit"] == "piece" and pl.json()["latitude"] == 16.24)
+    from app.services.pricing_engine import billable_kg_for as _bkg
+    check("transport billable-kg converts quintal to 100kg",
+          str(_bkg("quintal", 2)) == "200.000" and str(_bkg("kg", 5)) == "5.000")
     # Seller "Other": add a product that isn't in the catalog yet.
     nc = client.post("/api/catalog/commodities", headers=hdr(farmer),
                      json={"name": "Dragon Fruit"})
