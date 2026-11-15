@@ -229,6 +229,44 @@ def bag_stats(user: User = Depends(_super), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/bags/collection-summary")
+def collection_summary(
+    user: User = Depends(require_roles(Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Collection-centre reconciliation: per order (and its agent), expected bags
+    vs how many have arrived at the centre — flags a mismatch when some are still
+    missing. Only in-flight orders (bags picked up or partly arrived) are shown."""
+    arrived_statuses = {"at_collection", "in_transit", "delivered"}
+    bags = list(db.scalars(select(Bag).order_by(Bag.order_id)))
+    by_order: dict[int, list[Bag]] = {}
+    for b in bags:
+        by_order.setdefault(b.order_id, []).append(b)
+    names = {u.id: (u.name or u.phone) for u in db.scalars(select(User))}
+    out = []
+    for oid, obags in by_order.items():
+        expected = len(obags)
+        arrived = sum(1 for b in obags if b.status in arrived_statuses)
+        picked = sum(1 for b in obags if b.status == "picked_up")
+        pending = expected - arrived
+        # Actionable only while bags are moving toward / through the centre.
+        if not any(b.status in ("picked_up", "at_collection") for b in obags):
+            continue
+        order = db.get(Order, oid)
+        agent_id = obags[0].agent_id
+        out.append({
+            "order_id": oid,
+            "order_public_id": order.public_id if order else None,
+            "agent_id": agent_id,
+            "agent_name": names.get(agent_id),
+            "farmer_name": names.get(obags[0].farmer_id),
+            "expected": expected, "arrived": arrived, "picked_up": picked, "pending": pending,
+            "mismatch": arrived > 0 and pending > 0,
+        })
+    out.sort(key=lambda r: (not r["mismatch"], r["order_id"]))
+    return out
+
+
 @router.get("/bags")
 def audit_bags(status_filter: str | None = Query(None, alias="status"),
                order_id: int | None = None, q: str | None = None, limit: int = 200,

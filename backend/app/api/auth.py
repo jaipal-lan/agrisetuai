@@ -75,9 +75,19 @@ class MePatch(BaseModel):
     email: str | None = None
     avatar_object_key: str | None = None
     preferred_language: str | None = None
+    district: str | None = None
+    state: str | None = None
+    pincode: str | None = None
+    aadhaar: str | None = None
+    pan: str | None = None
     village: str | None = None
     pickup_point: str | None = None
     mandal_id: int | None = None
+    farm_size: float | None = None
+    crops_grown: list[str] | None = None
+    soil_type: str | None = None
+    irrigation_type: str | None = None
+    experience_years: int | None = None
     skill_level: str | None = None
     languages: str | None = None
     service_mandals: list[int] | None = None
@@ -397,6 +407,11 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
             "pickup_point": fp.pickup_point,
             "mandal_id": fp.mandal_id,
             "verification_status": fp.verification_status,
+            "farm_size": None if fp.farm_size is None else str(fp.farm_size),
+            "crops_grown": fp.crops_grown or [],
+            "soil_type": fp.soil_type,
+            "irrigation_type": fp.irrigation_type,
+            "experience_years": fp.experience_years,
         }
     if user.buyer_profile:
         out["buyer"] = {
@@ -443,6 +458,10 @@ def patch_me(body: MePatch, user: User = Depends(get_current_user), db: Session 
         user.name = " ".join(p for p in (user.first_name, user.last_name) if p) or user.name
     if body.preferred_language is not None:
         user.preferred_language = body.preferred_language
+    for attr in ("district", "state", "pincode", "aadhaar", "pan"):
+        val = getattr(body, attr)
+        if val is not None:
+            setattr(user, attr, (val.strip() or None))
     fp = user.farmer_profile
     if fp:
         if body.village is not None:
@@ -451,6 +470,16 @@ def patch_me(body: MePatch, user: User = Depends(get_current_user), db: Session 
             fp.pickup_point = body.pickup_point
         if body.mandal_id is not None:
             fp.mandal_id = body.mandal_id
+        if body.farm_size is not None:
+            fp.farm_size = body.farm_size
+        if body.crops_grown is not None:
+            fp.crops_grown = [c.strip() for c in body.crops_grown if c and c.strip()]
+        if body.soil_type is not None:
+            fp.soil_type = body.soil_type.strip() or None
+        if body.irrigation_type is not None:
+            fp.irrigation_type = body.irrigation_type.strip() or None
+        if body.experience_years is not None:
+            fp.experience_years = body.experience_years
         if body.submit_kyc:
             fp.verification_status = "pending"
     bp = user.buyer_profile

@@ -1,4 +1,6 @@
-from sqlalchemy import JSON, Boolean, ForeignKey, String
+from decimal import Decimal
+
+from sqlalchemy import JSON, Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -23,6 +25,12 @@ class User(Base, TimestampMixin):
     avatar_object_key: Mapped[str | None] = mapped_column(String(300))
     role: Mapped[str] = mapped_column(String(32), index=True)
     preferred_language: Mapped[str] = mapped_column(String(8), default="te")  # te | en
+    # Address + KYC document numbers (PII — returned masked by serializers only).
+    district: Mapped[str | None] = mapped_column(String(80))
+    state: Mapped[str | None] = mapped_column(String(80))
+    pincode: Mapped[str | None] = mapped_column(String(10))
+    aadhaar: Mapped[str | None] = mapped_column(String(20))
+    pan: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(16), default="active")  # active|suspended
     consent_at: Mapped[str | None] = mapped_column(String(40))
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -76,6 +84,12 @@ class FarmerProfile(Base, TimestampMixin):
     mandal_id: Mapped[int | None] = mapped_column(ForeignKey("mandals.id"), index=True)
     village: Mapped[str | None] = mapped_column(String(120))
     pickup_point: Mapped[str | None] = mapped_column(String(200))
+    # Farm profile details.
+    farm_size: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # acres
+    crops_grown: Mapped[list | None] = mapped_column(JSON)
+    soil_type: Mapped[str | None] = mapped_column(String(40))
+    irrigation_type: Mapped[str | None] = mapped_column(String(40))
+    experience_years: Mapped[int | None] = mapped_column()
     # Payout beneficiary is referenced, never stored raw/returned by the API.
     payout_beneficiary_ref: Mapped[str | None] = mapped_column(String(80))
     verification_status: Mapped[str] = mapped_column(String(16), default="unverified")

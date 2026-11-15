@@ -293,7 +293,16 @@ def seed_users(db: Session, mandals: dict) -> dict:
     farmer = users[Role.FARMER]
     if not db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == farmer.id)):
         db.add(FarmerProfile(user_id=farmer.id, mandal_id=tenali.id if tenali else None,
-                             village="Kolakaluru", verification_status="verified"))
+                             village="Kolakaluru", verification_status="verified",
+                             farm_size=4.5, crops_grown=["Paddy", "Red Chilli", "Turmeric"],
+                             soil_type="Black cotton", irrigation_type="Canal",
+                             experience_years=12))
+    # Demo address + KYC so the profile screen shows complete data.
+    farmer.district = farmer.district or "Guntur"
+    farmer.state = farmer.state or "Andhra Pradesh"
+    farmer.pincode = farmer.pincode or "522201"
+    farmer.aadhaar = farmer.aadhaar or "123412341234"
+    farmer.pan = farmer.pan or "ABCDE1234F"
     buyer = users[Role.BUYER_BUSINESS]
     if not db.scalar(select(BuyerProfile).where(BuyerProfile.user_id == buyer.id)):
         db.add(BuyerProfile(user_id=buyer.id, buyer_type="business",
@@ -570,24 +579,82 @@ def seed_prices(db: Session) -> int:
     return n
 
 
+def seed_demo_barcodes(db: Session, users: dict) -> int:
+    """Demo orders + barcoded bags in a spread of statuses (incl. a collection-
+    centre mismatch), so the barcode-tracking screens have data on a fresh seed.
+    Idempotent: skips entirely once any bag exists."""
+    from app.core.ids import public_id
+    from app.models.barcode import Bag, BagScan
+    from app.models.common import utcnow
+    from app.models.order import Order
+
+    if db.scalar(select(Bag.id).limit(1)) is not None:
+        return 0
+    farmer = users.get(Role.FARMER)
+    buyer = users.get(Role.BUYER_BUSINESS)
+    agent = users.get(Role.FIELD_AGENT)
+    leader = users.get(Role.FIELD_LEADER)
+    transport = users.get(Role.TRANSPORT)
+    if not (farmer and buyer and agent):
+        return 0
+    paddy = db.scalar(select(Commodity).where(Commodity.name == "Paddy"))
+    commodity_id = paddy.id if paddy else None
+
+    STAGE_PREV_BY = {"picked_up": ["pickup"], "at_collection": ["pickup", "collection"],
+                     "in_transit": ["pickup", "collection", "loading"],
+                     "delivered": ["pickup", "collection", "loading", "delivery"]}
+    STAGE_STATUS = {"pickup": "picked_up", "collection": "at_collection",
+                    "loading": "in_transit", "delivery": "delivered"}
+    STAGE_ACTOR = {"pickup": agent, "collection": (leader or agent),
+                   "loading": (transport or agent), "delivery": (transport or agent)}
+    now = utcnow()
+
+    def make_order(bag_statuses):
+        o = Order(public_id=public_id("ORD", 8), buyer_id=buyer.id, seller_id=farmer.id,
+                  assigned_agent_id=agent.id, status="ready_for_pickup",
+                  accepted_terms={"commodity_id": commodity_id, "quantity": 50,
+                                  "price_per_unit": 25, "unit": "kg"})
+        db.add(o)
+        db.flush()
+        for i, st in enumerate(bag_statuses, start=1):
+            bag = Bag(bag_code=f"AGRI-{o.id}-BAG-{i:02d}", order_id=o.id, farmer_id=farmer.id,
+                      agent_id=agent.id, commodity_id=commodity_id, bag_no=i, weight=50,
+                      status=st, last_scan_at=now.isoformat())
+            db.add(bag)
+            db.flush()
+            for stage in STAGE_PREV_BY.get(st, []):
+                actor = STAGE_ACTOR[stage]
+                db.add(BagScan(bag_id=bag.id, stage=stage, to_status=STAGE_STATUS[stage],
+                               scanned_by=actor.id if actor else None,
+                               role=actor.role if actor else None))
+
+    # Order A: all delivered (8). Order B: mismatch (6 at collection, 2 picked up, 2 created = 10).
+    # Order C: in transit (7).
+    make_order(["delivered"] * 8)
+    make_order(["at_collection"] * 6 + ["picked_up"] * 2 + ["created"] * 2)
+    make_order(["in_transit"] * 7)
+    return 25
+
+
 def main() -> None:
     run_migrations()
     db = SessionLocal()
     try:
         mandals = seed_locations(db)
         catalog = seed_catalog(db)
-        seed_users(db, mandals)
+        users = seed_users(db, mandals)
         n_listings = seed_listings(db, catalog, mandals)
         seed_pricing(db)
         n_carriers = seed_carriers(db)
         n_prices = seed_prices(db)
         n_activity = seed_demo_activity(db, catalog, mandals)
         n_reviews = seed_demo_reviews(db, catalog)
+        n_bags = seed_demo_barcodes(db, users)
         db.commit()
         print(f"Seeded locations, catalog ({len(catalog) - 4} commodities), demo users, "
               f"{n_listings} listings, pricing, {n_carriers} couriers, "
               f"{n_prices} market prices, {n_activity} demo offers/RFQs, "
-              f"{n_reviews} demo reviews.")
+              f"{n_reviews} demo reviews, {n_bags} demo bags.")
         print(f"Superadmin phone: {settings.superadmin_phone} (dev OTP: {settings.master_otp})")
     finally:
         db.close()

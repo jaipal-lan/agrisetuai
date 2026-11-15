@@ -188,6 +188,13 @@ def run():
     check("listing records quality grade + defects",
           listing["quality_grade"] == "A" and listing["defect_pct"] == "2.50"
           and listing["defect_notes"] == "Minor broken grains")
+    # Per-listing selling unit + farm geo pin.
+    pl = client.post("/api/listings", headers=hdr(farmer), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id, "total_qty": 100,
+        "min_order_qty": 2, "asking_price": 30, "mandal_id": mandal_id, "harvest_year": 2026,
+        "unit": "piece", "latitude": 16.24, "longitude": 80.64})
+    check("listing honours a per-listing unit + geo pin",
+          pl.status_code == 201 and pl.json()["unit"] == "piece" and pl.json()["latitude"] == 16.24)
     # Seller "Other": add a product that isn't in the catalog yet.
     nc = client.post("/api/catalog/commodities", headers=hdr(farmer),
                      json={"name": "Dragon Fruit"})
@@ -794,6 +801,19 @@ def run():
     check("non-superadmin cannot correct a bag",
           client.post(f"/api/bags/{blist[2]['bag_code']}/correct", headers=hdr(manager),
                       json={"to_status": "delivered", "reason": "x"}).status_code == 403)
+    cs = client.get("/api/bags/collection-summary", headers=hdr(manager)).json()
+    check("collection summary flags a mismatch (expected vs arrived)",
+          isinstance(cs, list) and any(r["mismatch"] for r in cs))
+    # Profile: address + farm fields + masked KYC.
+    pm = client.patch("/api/auth/me", headers=hdr(farmer), json={
+        "district": "Guntur", "pincode": "522201", "farm_size": 5, "crops_grown": ["Paddy"],
+        "soil_type": "Black", "irrigation_type": "Canal", "experience_years": 10,
+        "aadhaar": "999988887777"})
+    check("patch_me saves address + farm fields", pm.status_code == 200)
+    me2 = client.get("/api/auth/me", headers=hdr(farmer)).json()
+    check("me exposes farm fields + masked aadhaar + district",
+          me2["farmer"]["farm_size"] == "5.00" and (me2.get("aadhaar_masked") or "").endswith("7777")
+          and me2["district"] == "Guntur")
 
     # The RFQ-based order (no listing) still runs the full lifecycle & prices.
     client.post(f"/api/orders/{rfq_order_id}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})

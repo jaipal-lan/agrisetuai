@@ -33,6 +33,9 @@ class Listing(Base, TimestampMixin):
     claim_evidence: Mapped[dict | None] = mapped_column(JSON)
 
     mandal_id: Mapped[int | None] = mapped_column(ForeignKey("mandals.id"), index=True)
+    # Exact farm/pickup location (draggable map pin); mandal is the coarse area.
+    latitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
     pickup_terms: Mapped[str | None] = mapped_column(Text)
     # Farmer-entered product specifications (moisture, cleanliness, drying, packing…).
     specifications: Mapped[str | None] = mapped_column(Text)

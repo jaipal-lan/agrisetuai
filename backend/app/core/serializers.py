@@ -11,6 +11,13 @@ def _avatar_url(user: User) -> str | None:
     return f"/media/file/{key}" if key else None
 
 
+def _mask(v: str | None) -> str | None:
+    if not v:
+        return None
+    v = v.strip()
+    return ("*" * max(0, len(v) - 4)) + v[-4:] if len(v) > 4 else v
+
+
 def public_user(user: User) -> dict:
     """Minimal seller/buyer card — safe for cross-party display."""
     return {
@@ -36,4 +43,11 @@ def self_user(user: User) -> dict:
         "status": user.status,
         "onboarding_complete": user.onboarding_complete,
         "organisation_id": user.organisation_id,
+        "district": user.district,
+        "state": user.state,
+        "pincode": user.pincode,
+        "aadhaar_masked": _mask(user.aadhaar),
+        "pan_masked": _mask(user.pan),
+        "has_aadhaar": bool(user.aadhaar),
+        "has_pan": bool(user.pan),
     }

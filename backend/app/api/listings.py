@@ -40,6 +40,8 @@ class ListingCreate(BaseModel):
     claim_status: ClaimStatus = ClaimStatus.CONVENTIONAL
     claim_evidence: dict | None = None
     mandal_id: int | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     pickup_terms: str | None = None
     specifications: str | None = None
     quality_grade: str | None = None   # A | B | C
@@ -123,6 +125,9 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         "claim_status": listing.claim_status,
         "is_organic": listing.claim_status == str(ClaimStatus.ORGANIC),
         "mandal_id": listing.mandal_id,
+        "latitude": float(listing.latitude) if listing.latitude is not None else None,
+        "longitude": float(listing.longitude) if listing.longitude is not None else None,
+        "unit": listing.unit,
         "pickup_terms": listing.pickup_terms,
         "specifications": listing.specifications,
         "quality_grade": listing.quality_grade,
@@ -143,7 +148,8 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         grade = db.get(GradeSpec, listing.grade_spec_id) if listing.grade_spec_id else None
         data["commodity"] = commodity.name if commodity else None
         data["commodity_te"] = commodity.name_te if commodity else None
-        data["unit"] = commodity.unit if commodity else listing.unit
+        # Per-listing unit wins (farmer's choice); fall back to the commodity default.
+        data["unit"] = listing.unit or (commodity.unit if commodity else "kg")
         data["variety"] = variety.name if variety else None
         data["grade"] = None if grade is None else {
             "code": grade.code, "label": grade.label, "attributes": grade.attributes,
@@ -186,6 +192,8 @@ def create_listing(
         claim_status=str(claim),
         claim_evidence=body.claim_evidence,
         mandal_id=body.mandal_id,
+        latitude=body.latitude,
+        longitude=body.longitude,
         pickup_terms=body.pickup_terms,
         specifications=body.specifications,
         quality_grade=body.quality_grade,
