@@ -826,6 +826,8 @@ export default function Admin() {
         </div>
       </div>
 
+      {["field_manager", "superadmin"].includes(me?.role) && <WithdrawalsAdmin />}
+
       {["field_manager", "superadmin"].includes(me?.role) && <BarcodeTracking me={me} />}
 
       <CatalogManager me={me} />
@@ -869,6 +871,56 @@ function MoqRow({ c, onSave }) {
         <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>Save</button>
       </td>
     </tr>
+  );
+}
+
+// Finance: farmer withdrawal requests — approve (disburses their accrued payouts)
+// or reject.
+function WithdrawalsAdmin() {
+  const [rows, setRows] = useState([]);
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  function load() { api("/admin/withdrawals?status=requested").then(setRows).catch(() => {}); }
+  useEffect(() => { load(); }, []);
+
+  async function decide(id, approve) {
+    setErr(null); setMsg(null);
+    let reason;
+    if (!approve) { reason = window.prompt("Reason for rejecting this withdrawal?") || ""; }
+    try {
+      const r = await api(`/admin/withdrawals/${id}/decision`, { method: "POST", body: { approve, reason } });
+      setMsg(approve ? `Paid out (batch ${r.batch}, ₹${r.amount}).` : "Withdrawal rejected.");
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+
+  return (
+    <>
+      <h2>Withdrawal requests {rows.length > 0 && <span className="badge amber">{rows.length}</span>}</h2>
+      {err && <div className="error">{err}</div>}
+      {msg && <div className="ok">{msg}</div>}
+      {rows.length === 0 ? (
+        <p className="muted">No pending withdrawal requests.</p>
+      ) : (
+        <div className="card">
+          {rows.map((w) => (
+            <div key={w.id} className="between" style={{ padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
+              <div>
+                <b>{w.farmer_name || `User ${w.farmer_id}`}</b> — ₹{w.amount}
+                <div className="muted" style={{ fontSize: 13 }}>
+                  {w.method || "—"} {w.account_masked || ""} · requested {w.created_at ? new Date(w.created_at).toLocaleDateString("en-IN") : ""}
+                </div>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                <button onClick={() => decide(w.id, true)}>Approve &amp; pay</button>
+                <button className="ghost" onClick={() => decide(w.id, false)}>Reject</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

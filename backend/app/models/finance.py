@@ -62,6 +62,27 @@ class Payout(Base, TimestampMixin):
     )
 
 
+class WithdrawalRequest(Base, TimestampMixin):
+    """A farmer-initiated cash-out of their accrued (pending) payout balance.
+    Finance approves (which disburses the farmer's pending payouts via the normal
+    ledger path) or rejects. The money itself always moves through Payout/ledger —
+    this is just the request + audit trail."""
+
+    __tablename__ = "withdrawal_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    farmer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    amount: Mapped[float] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(4), default="INR")
+    method: Mapped[str | None] = mapped_column(String(8))   # upi | bank (snapshot)
+    account_masked: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(16), default="requested", index=True)  # requested|paid|rejected
+    note: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    decided_at: Mapped[str | None] = mapped_column(String(40))
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("payout_batches.id"))
+
+
 class PayoutBatch(Base, TimestampMixin):
     """A scheduled disbursement run that sweeps accrued (pending) seller payouts."""
 

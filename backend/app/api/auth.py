@@ -598,6 +598,94 @@ def add_address(body: AddressBody, user: User = Depends(get_current_user), db: S
     return _addr_json(a, mandals)
 
 
+# --- Farmer withdrawals (cash out accrued payout balance) ------------------
+
+def _pending_payout_total(db: Session, user_id: int):
+    from app.core.money import money
+    from app.models.finance import Payout
+    rows = db.scalars(select(Payout).where(Payout.seller_id == user_id, Payout.status == "pending"))
+    return money(sum(float(p.amount) for p in rows))
+
+
+def _wd_json(w) -> dict:
+    return {
+        "id": w.id, "amount": str(w.amount), "currency": w.currency,
+        "method": w.method, "account_masked": w.account_masked, "status": w.status,
+        "note": w.note, "decided_at": w.decided_at,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+    }
+
+
+@router.get("/me/balance")
+def my_balance(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Withdrawable balance = accrued payouts awaiting disbursement."""
+    from app.core.money import money
+    from app.models.account import PayoutAccount
+    from app.models.finance import Payout, WithdrawalRequest
+
+    available = _pending_payout_total(db, user.id)
+    paid = money(sum(float(p.amount) for p in db.scalars(
+        select(Payout).where(Payout.seller_id == user.id, Payout.status == "processed"))))
+    req = db.scalar(select(WithdrawalRequest).where(
+        WithdrawalRequest.farmer_id == user.id, WithdrawalRequest.status == "requested"))
+    acct = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == user.id))
+    return {
+        "currency": "INR",
+        "available": str(available),
+        "paid_total": str(paid),
+        "pending_withdrawal": str(req.amount) if req else "0.00",
+        "has_account": acct is not None,
+        "account_verified": bool(acct and acct.verified),
+        "can_request": bool(acct and acct.verified) and available > money(0) and req is None,
+    }
+
+
+@router.get("/me/withdrawals")
+def my_withdrawals(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.finance import WithdrawalRequest
+    rows = db.scalars(select(WithdrawalRequest).where(WithdrawalRequest.farmer_id == user.id)
+                      .order_by(WithdrawalRequest.id.desc()))
+    return [_wd_json(w) for w in rows]
+
+
+@router.post("/me/withdrawals", status_code=status.HTTP_201_CREATED)
+def request_withdrawal(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Request a cash-out of the full accrued balance to the verified payout
+    account. Finance approves (disburses) or rejects."""
+    from app.core.money import money
+    from app.models.account import PayoutAccount
+    from app.models.finance import WithdrawalRequest
+
+    acct = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == user.id))
+    if acct is None or not acct.verified:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Add and get your payout account verified before withdrawing.")
+    if db.scalar(select(WithdrawalRequest).where(
+            WithdrawalRequest.farmer_id == user.id, WithdrawalRequest.status == "requested")):
+        raise HTTPException(status.HTTP_409_CONFLICT, "You already have a withdrawal request pending.")
+    available = _pending_payout_total(db, user.id)
+    if available <= money(0):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No balance available to withdraw yet.")
+    masked = acct.upi_id if acct.method == "upi" else (
+        f"****{acct.account_number[-4:]}" if acct.account_number and len(acct.account_number) >= 4
+        else acct.account_number)
+    w = WithdrawalRequest(farmer_id=user.id, amount=available, method=acct.method,
+                          account_masked=masked, status="requested")
+    db.add(w)
+    # Alert finance (managers + superadmins).
+    from app.services import notify
+    for f in db.scalars(select(User).where(
+            User.role.in_([str(Role.FIELD_MANAGER), str(Role.SUPERADMIN)]), User.status == "active")):
+        notify.send(db, user_id=f.id, title="Withdrawal requested",
+                    body=f"{user.name or 'A partner'} requested a withdrawal of Rs. {available}.",
+                    object_type="payout", object_id=user.id)
+    audit.record(db, actor_id=user.id, action="withdrawal.request", object_type="user",
+                 object_id=user.id, new_values={"amount": str(available)})
+    db.commit()
+    db.refresh(w)
+    return _wd_json(w)
+
+
 @router.delete("/addresses/{address_id}")
 def delete_address(address_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from app.models.account import SavedAddress

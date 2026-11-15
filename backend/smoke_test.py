@@ -1346,6 +1346,21 @@ def run():
     check("non-party cannot reorder someone else's order",
           client.post(f"/api/orders/{order_id}/reorder", headers=hdr(farmer)).status_code in (403, 404))
 
+    print("\n== Farmer withdrawals ==")
+    wf = login(client, "919000000061", role="farmer", name="Withdraw Farmer")
+    bal = client.get("/api/auth/me/balance", headers=hdr(wf)).json()
+    check("balance endpoint returns available + can_request",
+          "available" in bal and bal["can_request"] is False)
+    check("withdrawal blocked without a verified payout account",
+          client.post("/api/auth/me/withdrawals", headers=hdr(wf)).status_code == 400)
+    client.put("/api/auth/payout-account", headers=hdr(wf), json={"method": "upi", "upi_id": "wf@okaxis"})
+    wf_id = client.get("/api/auth/me", headers=hdr(wf)).json()["id"]
+    client.post(f"/api/admin/payout-accounts/{wf_id}/verify", headers=hdr(superadmin), json={"approve": True})
+    check("withdrawal blocked with a verified account but zero balance",
+          client.post("/api/auth/me/withdrawals", headers=hdr(wf)).status_code == 400)
+    check("finance withdrawals queue is accessible",
+          client.get("/api/admin/withdrawals", headers=hdr(superadmin)).status_code == 200)
+
     print("\n== Ledger edge cases ==")
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger globally balanced", acct["balanced"] is True)

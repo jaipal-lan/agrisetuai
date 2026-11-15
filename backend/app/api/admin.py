@@ -15,7 +15,7 @@ from app.models.audit import AuditLog
 from app.models.catalog import Commodity
 from app.models.common import LedgerDirection
 from app.models.common import OrderStatus as S
-from app.models.finance import LedgerEntry, Payout, PayoutBatch
+from app.models.finance import LedgerEntry, Payout, PayoutBatch, WithdrawalRequest
 from app.models.location import District, Mandal, State
 from app.models.marketplace import Listing, Offer, RFQ
 from app.models.order import Inspection, Order
@@ -499,6 +499,49 @@ class PayoutRun(BaseModel):
     note: str | None = None
 
 
+def _disburse_payouts(db, payouts, *, created_by, note=None):
+    """Move a set of accrued (pending) payouts into one disbursement batch:
+    clearing -> cash_clearing per payout (ledger stays balanced), mark processed,
+    link the batch, notify each payee. Shared by the admin batch run and
+    farmer-initiated withdrawals. Caller commits."""
+    batch = PayoutBatch(
+        public_id=public_id("PB", 8), status="processed", payout_count=len(payouts),
+        currency=payouts[0].currency, created_by=created_by, note=note,
+        provider_ref=f"mock-{public_id('REF', 8).lower()}",
+    )
+    db.add(batch)
+    db.flush()
+    total = money(0)
+    for p in payouts:
+        amt = money(p.amount)
+        is_transport = getattr(p, "payee_type", "seller") == "transport"
+        clearing = "transport_clearing" if is_transport else "seller_clearing"
+        who = "transport partner" if is_transport else "seller"
+        ledger.post(
+            db,
+            txn_group=f"payout_batch:{batch.public_id}:{p.order_id}",
+            order_id=p.order_id,
+            currency=p.currency,
+            legs=[
+                Leg(clearing, LedgerDirection.DEBIT, amt, f"disburse to {who}"),
+                Leg("cash_clearing", LedgerDirection.CREDIT, amt, "payout sent"),
+            ],
+        )
+        p.status = "processed"
+        p.batch_id = batch.id
+        p.provider_ref = batch.provider_ref
+        total += amt
+        try:
+            notify.send(db, user_id=p.seller_id, title="Payout sent",
+                        body=f"Your {('delivery ' if is_transport else '')}payout of Rs. {amt} "
+                             f"has been disbursed (batch {batch.public_id}).",
+                        object_type="payout", object_id=batch.public_id)
+        except Exception:
+            pass
+    batch.total_amount = total
+    return batch
+
+
 @router.post("/payouts/run")
 def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depends(get_db)):
     """Sweep all pending payouts into one disbursement batch.
@@ -525,49 +568,85 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
             "payee has no verified payout account. Verify accounts under Payout accounts first.",
         )
 
-    batch = PayoutBatch(
-        public_id=public_id("PB", 8), status="processed", payout_count=len(pending),
-        currency=pending[0].currency, created_by=user.id, note=body.note,
-        provider_ref=f"mock-{public_id('REF', 8).lower()}",
-    )
-    db.add(batch)
-    db.flush()
-
-    total = money(0)
-    for p in pending:
-        amt = money(p.amount)
-        # Transport payouts clear the transport_clearing account; seller payouts
-        # clear seller_clearing. Both settle out to cash_clearing.
-        is_transport = getattr(p, "payee_type", "seller") == "transport"
-        clearing = "transport_clearing" if is_transport else "seller_clearing"
-        who = "transport partner" if is_transport else "seller"
-        ledger.post(
-            db,
-            txn_group=f"payout_batch:{batch.public_id}:{p.order_id}",
-            order_id=p.order_id,
-            currency=p.currency,
-            legs=[
-                Leg(clearing, LedgerDirection.DEBIT, amt, f"disburse to {who}"),
-                Leg("cash_clearing", LedgerDirection.CREDIT, amt, "payout sent"),
-            ],
-        )
-        p.status = "processed"
-        p.batch_id = batch.id
-        p.provider_ref = batch.provider_ref
-        total += amt
-        try:
-            notify.send(db, user_id=p.seller_id, title="Payout sent",
-                        body=f"Your {('delivery ' if is_transport else '')}payout of Rs. {amt} "
-                             f"has been disbursed (batch {batch.public_id}).",
-                        object_type="payout", object_id=batch.public_id)
-        except Exception:
-            pass
-    batch.total_amount = total
+    batch = _disburse_payouts(db, pending, created_by=user.id, note=body.note)
+    total = batch.total_amount
     audit.record(db, actor_id=user.id, action="payout.batch", object_type="payout_batch",
                  object_id=batch.public_id, new_values={"count": len(pending), "total": str(total)})
     db.commit()
     return {"batch": batch.public_id, "payout_count": len(pending),
             "total_amount": str(total), "held_unverified": held}
+
+
+# --- Farmer withdrawal requests (finance approves -> disburse) -------------
+
+class WithdrawalDecision(BaseModel):
+    approve: bool
+    reason: str | None = None
+
+
+@router.get("/withdrawals")
+def withdrawals_queue(status_filter: str = "requested", user=Depends(_finance),
+                      db: Session = Depends(get_db)):
+    """Farmer/partner withdrawal requests for finance. Defaults to the pending
+    ('requested') queue; pass status_filter=paid|rejected|all for others."""
+    rows = list(db.scalars(select(WithdrawalRequest).order_by(WithdrawalRequest.id.desc())))
+    if status_filter != "all":
+        rows = [w for w in rows if w.status == status_filter]
+    names = {u.id: (u.name or u.phone) for u in db.scalars(select(User))}
+    return [{
+        "id": w.id, "farmer_id": w.farmer_id, "farmer_name": names.get(w.farmer_id),
+        "amount": str(w.amount), "currency": w.currency, "method": w.method,
+        "account_masked": w.account_masked, "status": w.status, "note": w.note,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+        "decided_at": w.decided_at,
+    } for w in rows]
+
+
+@router.post("/withdrawals/{wid}/decision")
+def decide_withdrawal(wid: int, body: WithdrawalDecision, user=Depends(_finance),
+                      db: Session = Depends(get_db)):
+    """Approve a withdrawal (disburses the farmer's accrued payouts through the
+    normal ledger path) or reject it (balance stays, paid in a later batch)."""
+    from app.models.account import PayoutAccount
+    from app.models.common import utcnow
+
+    w = db.get(WithdrawalRequest, wid)
+    if not w:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Withdrawal request not found")
+    if w.status != "requested":
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Already {w.status}")
+    w.decided_by = user.id
+    w.decided_at = utcnow().isoformat()
+    if not body.approve:
+        w.status = "rejected"
+        w.note = (body.reason or "").strip() or None
+        notify.send(db, user_id=w.farmer_id, title="Withdrawal declined",
+                    body=f"Your withdrawal request of Rs. {w.amount} was declined."
+                         + (f" Reason: {w.note}" if w.note else ""),
+                    object_type="payout", object_id=w.id)
+        audit.record(db, actor_id=user.id, action="withdrawal.reject", object_type="user",
+                     object_id=w.farmer_id, new_values={"id": w.id})
+        db.commit()
+        return {"id": w.id, "status": w.status}
+
+    acct = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == w.farmer_id))
+    if not acct or not acct.verified:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Payee's payout account is not verified.")
+    pending = list(db.scalars(select(Payout).where(
+        Payout.seller_id == w.farmer_id, Payout.status == "pending").order_by(Payout.id)))
+    if not pending:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No accrued payouts to disburse for this payee.")
+    batch = _disburse_payouts(db, pending, created_by=user.id, note=f"withdrawal #{w.id}")
+    w.status = "paid"
+    w.amount = batch.total_amount
+    w.batch_id = batch.id
+    notify.send(db, user_id=w.farmer_id, title="Withdrawal paid",
+                body=f"Your withdrawal of Rs. {batch.total_amount} has been paid out (batch {batch.public_id}).",
+                object_type="payout", object_id=batch.public_id)
+    audit.record(db, actor_id=user.id, action="withdrawal.approve", object_type="payout_batch",
+                 object_id=batch.public_id, new_values={"id": w.id, "amount": str(batch.total_amount)})
+    db.commit()
+    return {"id": w.id, "status": w.status, "batch": batch.public_id, "amount": str(batch.total_amount)}
 
 
 # --- Payout-account verification ------------------------------------------
