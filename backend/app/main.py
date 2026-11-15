@@ -37,12 +37,12 @@ app = FastAPI(
 # Allow the web app from localhost and any private-LAN IP (so a phone/tablet on
 # the same Wi-Fi can reach the dev server) on ports 3000-3002.
 _origin_regex = (
-    r"^http://("
+    r"^https?://("
     r"localhost|127\.0\.0\.1|"
     r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
     r"192\.168\.\d{1,3}\.\d{1,3}|"
     r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
-    r"):(3000|3001|3002)$"
+    r"):(3000|3001|3002|3443)$"
 )
 # Exact extra origins (the deployed web app, e.g. https://agrisetuai.vercel.app),
 # configured via CORS_ORIGINS. The LAN regex above still covers local dev.

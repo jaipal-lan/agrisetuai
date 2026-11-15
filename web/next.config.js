@@ -16,8 +16,14 @@ try {
 //    geocoding at sign-up, to turn the device's GPS fix into a street address).
 //  - the live courier map is an openstreetmap.org iframe (frame-src).
 // No external scripts, fonts or CDNs are used, so everything else is denied.
+// When the app is served over HTTPS (staging/prod), force all subresources to
+// HTTPS and send HSTS. On plain-HTTP localhost/LAN dev these are omitted so the
+// HTTP API keeps working.
+const IS_HTTPS = API_ORIGIN.startsWith("https:");
+
 const csp = [
   "default-src 'self'",
+  ...(IS_HTTPS ? ["upgrade-insecure-requests"] : []),
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'self'",
@@ -64,6 +70,10 @@ const nextConfig = {
             key: "Permissions-Policy",
             value: "camera=(self), microphone=(), geolocation=(self), interest-cohort=()",
           },
+          // Force HTTPS for a year (incl. subdomains) once served over TLS. Only
+          // sent when the deployment is HTTPS, so http localhost dev is untouched.
+          ...(IS_HTTPS ? [{ key: "Strict-Transport-Security",
+                            value: "max-age=31536000; includeSubDomains" }] : []),
         ],
       },
     ];

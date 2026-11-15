@@ -247,3 +247,43 @@ These must clear before real trades/payments:
 `cd backend && python smoke_test.py` runs 300+ end-to-end checks against a
 throwaway SQLite DB (covering the ledger, payouts, orders, tracking, team tools
 and the price feed). Run it in CI on every change; it must stay green.
+
+## HTTPS
+
+HTTPS matters because browsers only allow the **camera** (profile photo capture,
+barcode scanning) and **geolocation** on a *secure context* — HTTPS, or `localhost`.
+Over a plain-HTTP LAN IP those features fall back to manual entry.
+
+### Staging / production — automatic (recommended)
+- **Vercel** (frontend) and **Render** (backend) terminate TLS and serve HTTPS by
+  default. No cert work needed.
+- Set `NEXT_PUBLIC_API_BASE=https://<render-app>/api` (HTTPS) on Vercel. When the
+  API base is HTTPS, the app automatically adds **HSTS** and
+  **`upgrade-insecure-requests`** (see `web/next.config.js`); on HTTP dev these are
+  omitted so local dev keeps working.
+- This is the friction-free way to demo camera/scan on any device.
+
+### Local HTTPS (for testing camera/scan on your own LAN)
+Self-signed certs — browsers warn once per device/port; accept to proceed.
+```bash
+# 1. Generate a cert for localhost + your LAN IP
+scripts/gen-certs.sh 192.168.48.97            # -> certs/cert.pem, certs/key.pem
+
+# 2. Backend over HTTPS (:8443)
+cd backend
+DEV_MODE=true ./.venv/Scripts/python.exe -m uvicorn app.main:app \
+  --host 0.0.0.0 --port 8443 \
+  --ssl-keyfile ../certs/key.pem --ssl-certfile ../certs/cert.pem
+
+# 3. Frontend over HTTPS (:3443) — build pointed at the HTTPS API, then run the TLS server
+cd web
+NEXT_PUBLIC_API_BASE=https://192.168.48.97:8443/api npx next build
+node server.js            # serves https://0.0.0.0:3443
+```
+Open `https://192.168.48.97:3443`. On the device, also visit
+`https://192.168.48.97:8443/api/health` once and accept the warning so API calls
+(which use the same self-signed cert) are trusted. The backend CORS regex already
+allows `https://<LAN>:3443`.
+
+> Certs (`certs/`, `*.pem`) are gitignored — never commit private keys. These
+> self-signed certs are for local testing only; staging/prod use real certs.

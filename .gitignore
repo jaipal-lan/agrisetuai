@@ -18,6 +18,11 @@ backend/private_media/
 .env.local
 *.local
 
+# TLS certs (local HTTPS dev only — never commit keys)
+certs/
+*.pem
+web/.nextstart.log
+
 # Node / Next
 node_modules/
 web/.next/
