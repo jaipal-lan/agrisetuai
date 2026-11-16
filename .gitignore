@@ -38,3 +38,6 @@ backend/uvicorn.log
 web/next.log
 backend/var/
 web/next-build.log
+
+# Stray runtime logs
+*.log
