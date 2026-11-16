@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
+import LiveTrackMap from "../../components/LiveTrackMap";
 import MapPicker from "../../components/MapPicker";
 
 import { api, downloadFile, getUser, mediaUrl, uploadMedia } from "../../lib/api";
@@ -267,25 +268,17 @@ function TrackingTimeline({ orderId, isBuyer }) {
         </div>
       )}
 
-      {/* Live courier position on a free OpenStreetMap embed (no API key). */}
-      {!delivered && tr.courier_location && (
+      {/* Live delivery map: pickup, drop + courier's moving position (OSM, no key). */}
+      {!delivered && (tr.from_coord || tr.to_coord || tr.courier_location) && (
         <div style={{ marginTop: 12 }}>
           <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
-            📍 Courier is live{tr.courier_location.distance_km != null ? ` · ~${tr.courier_location.distance_km} km away` : ""}
-            {tr.courier_location.eta_minutes != null ? ` · ~${tr.courier_location.eta_minutes} min away` : ""}
-            {tr.courier_location.at ? ` · updated ${fmtAgo(tr.courier_location.at)}` : ""}
+            {tr.courier_location ? (
+              <>📍 Courier is live{tr.courier_location.distance_km != null ? ` · ~${tr.courier_location.distance_km} km away` : ""}
+                {tr.courier_location.eta_minutes != null ? ` · ~${tr.courier_location.eta_minutes} min away` : ""}
+                {tr.courier_location.at ? ` · updated ${fmtAgo(tr.courier_location.at)}` : ""}</>
+            ) : "Route preview — the courier's live position appears once they start sharing."}
           </div>
-          <iframe
-            title="Courier live location"
-            className="live-map"
-            src={osmEmbed(tr.courier_location.lat, tr.courier_location.lng)}
-          />
-          <div style={{ marginTop: 4 }}>
-            <a className="muted" style={{ fontSize: 12 }} target="_blank" rel="noreferrer"
-               href={`https://www.openstreetmap.org/?mlat=${tr.courier_location.lat}&mlon=${tr.courier_location.lng}#map=14/${tr.courier_location.lat}/${tr.courier_location.lng}`}>
-              Open full map ↗
-            </a>
-          </div>
+          <LiveTrackMap from={tr.from_coord} to={tr.to_coord} courier={tr.courier_location} />
         </div>
       )}
 
