@@ -108,11 +108,15 @@ def send(phone: str, message: str) -> bool:
 
 def send_otp(phone: str, code: str) -> bool:
     provider = (settings.sms_provider or "console").lower()
-    # Fast2SMS has a purpose-built, DLT-exempt OTP route — prefer it for codes.
+    msg = f"Your AgriSetuAI verification code is {code}. Valid for 5 minutes."
+    # Fast2SMS: the dedicated OTP route needs website verification; the Quick ("q")
+    # route works immediately. FAST2SMS_ROUTE selects which to use.
     if provider == "fast2sms":
         try:
-            return _fast2sms_otp(phone, code)
+            if (settings.fast2sms_route or "otp").lower() == "otp":
+                return _fast2sms_otp(phone, code)
+            return _fast2sms(phone, msg)  # Quick route (no verification needed)
         except Exception:  # noqa: BLE001 - never let SMS delivery break the OTP flow
             log.exception("fast2sms OTP send failed")
             return False
-    return send(phone, f"Your AgriSetuAI verification code is {code}. Valid for 5 minutes.")
+    return send(phone, msg)

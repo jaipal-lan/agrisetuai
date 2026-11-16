@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     sms_provider: str = "console"
     sms_api_key: str = ""
     sms_sender_id: str = "AGRSTU"
+    # Fast2SMS route for OTP: "otp" (dedicated OTP API — needs Fast2SMS website
+    # verification) or "q" (Quick SMS — works immediately, no verification/DLT).
+    fast2sms_route: str = "otp"
     msg91_template_id: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
