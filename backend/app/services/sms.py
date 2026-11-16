@@ -40,6 +40,22 @@ def _fast2sms(phone: str, message: str) -> bool:
     return ok
 
 
+def _fast2sms_otp(phone: str, code: str) -> bool:
+    # Fast2SMS dedicated OTP route: DLT-exempt, no template approval needed.
+    # Sends a standard "<code> is your verification code" message.
+    num = _digits(phone)[-10:]
+    r = httpx.get(
+        "https://www.fast2sms.com/dev/bulkV2",
+        params={"authorization": settings.sms_api_key, "route": "otp",
+                "variables_values": code, "numbers": num},
+        timeout=_TIMEOUT,
+    )
+    ok = r.status_code == 200 and r.json().get("return") is True
+    if not ok:
+        log.warning("fast2sms OTP send failed: %s %s", r.status_code, r.text[:200])
+    return ok
+
+
 def _msg91(phone: str, message: str) -> bool:
     num = _digits(phone)
     r = httpx.post(
@@ -91,4 +107,12 @@ def send(phone: str, message: str) -> bool:
 
 
 def send_otp(phone: str, code: str) -> bool:
+    provider = (settings.sms_provider or "console").lower()
+    # Fast2SMS has a purpose-built, DLT-exempt OTP route — prefer it for codes.
+    if provider == "fast2sms":
+        try:
+            return _fast2sms_otp(phone, code)
+        except Exception:  # noqa: BLE001 - never let SMS delivery break the OTP flow
+            log.exception("fast2sms OTP send failed")
+            return False
     return send(phone, f"Your AgriSetuAI verification code is {code}. Valid for 5 minutes.")
