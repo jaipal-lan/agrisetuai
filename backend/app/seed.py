@@ -622,10 +622,17 @@ def seed_demo_barcodes(db: Session, users: dict) -> int:
                                   "price_per_unit": 25, "unit": "kg"})
         db.add(o)
         db.flush()
+        import random
         for i, st in enumerate(bag_statuses, start=1):
+            # Scatter in-flight bags around the AP/TG region so the admin live map
+            # has points to show (delivered/created have no live position).
+            lat = lng = None
+            if st in ("picked_up", "at_collection", "in_transit"):
+                lat = round(16.4 + random.uniform(-0.4, 0.4), 6)
+                lng = round(80.5 + random.uniform(-0.4, 0.4), 6)
             bag = Bag(bag_code=f"AGRI-{o.id}-BAG-{i:02d}", order_id=o.id, farmer_id=farmer.id,
                       agent_id=agent.id, commodity_id=commodity_id, bag_no=i, weight=50,
-                      status=st, last_scan_at=now.isoformat())
+                      status=st, last_scan_at=now.isoformat(), last_lat=lat, last_lng=lng)
             db.add(bag)
             db.flush()
             for stage in STAGE_PREV_BY.get(st, []):

@@ -588,12 +588,16 @@ class AddressBody(BaseModel):
     label: str = "Home"
     mandal_id: int
     address_line: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     is_default: bool = False
 
 
 def _addr_json(a, mandals: dict) -> dict:
     return {"id": a.id, "label": a.label, "mandal_id": a.mandal_id,
             "mandal": mandals.get(a.mandal_id), "address_line": a.address_line,
+            "latitude": float(a.latitude) if a.latitude is not None else None,
+            "longitude": float(a.longitude) if a.longitude is not None else None,
             "is_default": a.is_default}
 
 
@@ -615,6 +619,7 @@ def add_address(body: AddressBody, user: User = Depends(get_current_user), db: S
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mandal not found")
     a = SavedAddress(user_id=user.id, label=body.label.strip() or "Home",
                      mandal_id=body.mandal_id, address_line=body.address_line,
+                     latitude=body.latitude, longitude=body.longitude,
                      is_default=body.is_default)
     db.add(a)
     db.flush()

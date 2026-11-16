@@ -229,6 +229,28 @@ def bag_stats(user: User = Depends(_super), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/bags/live")
+def live_bags(user: User = Depends(_super), db: Session = Depends(get_db)):
+    """In-flight bags with a last-known GPS point, for the admin live map."""
+    rows = db.scalars(select(Bag).where(
+        Bag.status.in_(["picked_up", "at_collection", "in_transit"]),
+        Bag.last_lat.isnot(None), Bag.last_lng.isnot(None),
+    ))
+    orders = {}
+    out = []
+    for b in rows:
+        if b.order_id not in orders:
+            o = db.get(Order, b.order_id)
+            orders[b.order_id] = o.public_id if o else None
+        out.append({
+            "bag_code": b.bag_code, "status": b.status,
+            "status_label": STATUS_LABEL.get(b.status, b.status),
+            "lat": float(b.last_lat), "lng": float(b.last_lng),
+            "order_public_id": orders[b.order_id], "last_scan_at": b.last_scan_at,
+        })
+    return out
+
+
 @router.get("/bags/collection-summary")
 def collection_summary(
     user: User = Depends(require_roles(Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN)),

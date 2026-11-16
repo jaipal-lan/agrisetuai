@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
 
+import MapPicker from "../components/MapPicker";
 import { absUrl, api, getUser, logout, setSession, uploadMedia } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { ROLE_LABEL, roleGate } from "../lib/roles";
@@ -343,7 +344,7 @@ function PayoutCard() {
 function AddressesCard() {
   const [list, setList] = useState([]);
   const [mandals, setMandals] = useState([]);
-  const [form, setForm] = useState({ label: "Home", mandal_id: "", address_line: "", is_default: false });
+  const [form, setForm] = useState({ label: "Home", mandal_id: "", address_line: "", latitude: null, longitude: null, is_default: false });
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -353,15 +354,26 @@ function AddressesCard() {
     api("/locations/mandals").then(setMandals).catch(() => {});
   }, []);
 
+  // Dropping a pin auto-selects the nearest mandal when none is chosen yet.
+  async function onPin(ll) {
+    setForm((f) => ({ ...f, latitude: ll.lat, longitude: ll.lng }));
+    try {
+      const n = await api(`/locations/nearest?lat=${ll.lat}&lng=${ll.lng}`);
+      if (n?.mandal_id) setForm((f) => ({ ...f, mandal_id: f.mandal_id || String(n.mandal_id) }));
+    } catch {}
+  }
+
   async function add(e) {
     e.preventDefault(); setErr(null);
-    if (!form.mandal_id) { setErr("Pick a mandal."); return; }
+    if (!form.mandal_id) { setErr("Pick a mandal (or drop a pin)."); return; }
     setBusy(true);
     try {
       await api("/auth/addresses", { method: "POST", body: {
         label: form.label || "Home", mandal_id: Number(form.mandal_id),
-        address_line: form.address_line || null, is_default: form.is_default } });
-      setForm({ label: "Home", mandal_id: "", address_line: "", is_default: false });
+        address_line: form.address_line || null,
+        latitude: form.latitude ?? undefined, longitude: form.longitude ?? undefined,
+        is_default: form.is_default } });
+      setForm({ label: "Home", mandal_id: "", address_line: "", latitude: null, longitude: null, is_default: false });
       load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
@@ -402,6 +414,12 @@ function AddressesCard() {
             <input value={form.address_line} onChange={(e) => setForm((f) => ({ ...f, address_line: e.target.value }))} />
           </label>
         </div>
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ cursor: "pointer", fontSize: 14 }}>📍 Pin delivery location on map (optional)</summary>
+          <div style={{ marginTop: 8 }}>
+            <MapPicker value={form.latitude ? { lat: form.latitude, lng: form.longitude } : null} onChange={onPin} />
+          </div>
+        </details>
         <label className="chk" style={{ marginTop: 8 }}>
           <input type="checkbox" checked={form.is_default} onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))} /> Set as default
         </label>

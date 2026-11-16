@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import MapView from "../components/MapView";
 import { api, downloadCsv, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
@@ -954,12 +955,16 @@ function BarcodeTracking({ me }) {
   const [q, setQ] = useState("");
   const [bag, setBag] = useState(null);
   const [recent, setRecent] = useState([]);
+  const [live, setLive] = useState([]);
   const [err, setErr] = useState(null);
   const isSuper = me?.role === "superadmin";
 
   function loadStats() { api("/bags/stats").then(setStats).catch(() => {}); }
   function loadRecent() { api("/bags?limit=25").then(setRecent).catch(() => {}); }
-  useEffect(() => { loadStats(); loadRecent(); }, []);
+  function loadLive() { api("/bags/live").then(setLive).catch(() => {}); }
+  useEffect(() => { loadStats(); loadRecent(); loadLive(); }, []);
+
+  const LIVE_COLOR = { in_transit: "#16a34a", at_collection: "#2563eb", picked_up: "#f59e0b" };
 
   async function search(code) {
     setErr(null); setBag(null);
@@ -1003,6 +1008,15 @@ function BarcodeTracking({ me }) {
             { label: "At collection", value: stats.at_collection }, { label: "In transit", value: stats.in_transit },
             { label: "Delivered", value: stats.delivered },
           ]} />
+        </div>
+      )}
+      {live.length > 0 && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Live map — {live.length} bag(s) in transit</h3>
+          <MapView points={live.map((b) => ({
+            lat: b.lat, lng: b.lng, label: `${b.bag_code} — ${b.status_label}`,
+            color: LIVE_COLOR[b.status] || "#6b7280",
+          }))} />
         </div>
       )}
 

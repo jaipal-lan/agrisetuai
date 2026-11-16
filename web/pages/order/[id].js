@@ -2,6 +2,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
+import MapPicker from "../../components/MapPicker";
+
 import { api, downloadFile, getUser, mediaUrl, uploadMedia } from "../../lib/api";
 import { usePoll } from "../../lib/hooks";
 import { useI18n } from "../../lib/i18n";
@@ -341,6 +343,7 @@ export default function OrderDetail() {
   const [showDispute, setShowDispute] = useState(false);
   const [addresses, setAddresses] = useState([]);
   const [addrId, setAddrId] = useState("");
+  const [deliveryPin, setDeliveryPin] = useState(null);
 
   useEffect(() => {
     setMe(getUser());
@@ -556,6 +559,12 @@ export default function OrderDetail() {
             </p>
           )}
           <details style={{ marginTop: 10 }}>
+            <summary style={{ fontSize: 13, cursor: "pointer" }}>📍 Drop exact delivery point on map (optional)</summary>
+            <div style={{ marginTop: 8 }}>
+              <MapPicker value={deliveryPin} onChange={setDeliveryPin} />
+            </div>
+          </details>
+          <details style={{ marginTop: 10 }}>
             <summary className="muted" style={{ fontSize: 13, cursor: "pointer" }}>Advanced: override route distance</summary>
             <label style={{ marginTop: 6 }}>Route distance (km) — leave blank to compute from location</label>
             <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal"
@@ -567,6 +576,7 @@ export default function OrderDetail() {
               onClick={() =>
                 act(`/orders/${id}/confirm-quote`, {
                   ...(addrId ? { address_id: Number(addrId) } : {}),
+                  ...(deliveryPin ? { delivery_lat: deliveryPin.lat, delivery_lng: deliveryPin.lng } : {}),
                   ...(routeKm.trim() === "" ? {} : { route_km: Number(routeKm) }),
                 })
               }

@@ -395,6 +395,10 @@ class ConfirmBody(BaseModel):
     # is the lower-level fallback when the buyer has no saved address.
     address_id: int | None = None
     to_mandal_id: int | None = None
+    # Exact delivery point dropped on the map (optional). If given without a saved
+    # address/mandal, the nearest mandal is resolved from it.
+    delivery_lat: float | None = None
+    delivery_lng: float | None = None
 
 
 @router.post("/{order_id}/confirm-quote")
@@ -440,6 +444,17 @@ def confirm_quote(
         delivery_label = addr.label
         delivery_address_line = addr.address_line
 
+    # A dropped map pin (no saved address/mandal) resolves to the nearest mandal.
+    if chosen_mandal_id is None and body.delivery_lat is not None and body.delivery_lng is not None:
+        from app.api.locations import _haversine_km
+        from app.models.location import Mandal as _M
+        cand = [m for m in db.scalars(select(_M)) if m.latitude is not None and m.longitude is not None]
+        if cand:
+            cand.sort(key=lambda m: _haversine_km(body.delivery_lat, body.delivery_lng,
+                                                  float(m.latitude), float(m.longitude)))
+            serviceable = [m for m in cand if m.serviceable]
+            chosen_mandal_id = (serviceable or cand)[0].id
+
     # Resolve the billable distance server-side: origin = the produce's mandal,
     # destination = the buyer's delivery mandal (defaults to the order mandal).
     to_mandal_id = chosen_mandal_id or terms.get("destination_mandal_id") or mandal_id
@@ -455,6 +470,8 @@ def confirm_quote(
         "destination_mandal_id": to_mandal_id,
         "delivery_label": delivery_label,
         "delivery_address_line": delivery_address_line,
+        "delivery_lat": body.delivery_lat if body.delivery_lat is not None else terms.get("delivery_lat"),
+        "delivery_lng": body.delivery_lng if body.delivery_lng is not None else terms.get("delivery_lng"),
     }
 
     from app.services.pricing_engine import billable_kg_for

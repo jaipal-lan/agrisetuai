@@ -1,6 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 
+import MapPicker from "../components/MapPicker";
 import { api, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
@@ -284,6 +285,18 @@ export default function Requests() {
               Selected: {form.source_mandal_ids.map((id) => mmap[id]).filter(Boolean).join(", ")}
             </div>
           )}
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: "pointer", fontSize: 14 }}>📍 Add an area by tapping the map</summary>
+            <div style={{ marginTop: 8 }}>
+              <MapPicker onChange={async (ll) => {
+                try {
+                  const n = await api(`/locations/nearest?lat=${ll.lat}&lng=${ll.lng}`);
+                  if (n?.mandal_id) setForm((f) => f.source_mandal_ids.includes(n.mandal_id)
+                    ? f : { ...f, source_mandal_ids: [...f.source_mandal_ids, n.mandal_id] });
+                } catch {}
+              }} />
+            </div>
+          </details>
 
           <label style={{ display: "block", marginTop: 10 }}>Note (optional)
             <input value={form.note} onChange={(e) => set("note", e.target.value)}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
+import MapPicker from "../components/MapPicker";
 import { api, apiForm } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
@@ -301,6 +302,16 @@ export default function Register() {
                      onChange={(e) => setAddrLine(e.target.value)} />
             </label>
           </div>
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: "pointer", fontSize: 14 }}>📍 Pin exact location on map (optional)</summary>
+            <div style={{ marginTop: 8 }}>
+              <MapPicker value={lat ? { lat, lng } : null} onChange={async (ll) => {
+                setLat(ll.lat); setLng(ll.lng);
+                try { const n = await api(`/locations/nearest?lat=${ll.lat}&lng=${ll.lng}`);
+                  if (n?.mandal_id && !mandalId) setMandalId(String(n.mandal_id)); } catch {}
+              }} />
+            </div>
+          </details>
 
           <div className="row" style={{ marginTop: 14 }}>
             <button className="ghost" onClick={() => setStep(3)}>←</button>

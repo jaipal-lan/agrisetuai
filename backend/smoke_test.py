@@ -1350,8 +1350,12 @@ def run():
 
     print("\n== Buyer saved addresses ==")
     a1 = client.post("/api/auth/addresses", headers=hdr(buyer),
-                     json={"label": "Shop", "mandal_id": mandal_id, "address_line": "Main Rd", "is_default": True})
-    check("buyer adds a default address", a1.status_code == 201 and a1.json()["is_default"])
+                     json={"label": "Shop", "mandal_id": mandal_id, "address_line": "Main Rd",
+                           "latitude": 16.24, "longitude": 80.64, "is_default": True})
+    check("buyer adds a default address (with map pin)",
+          a1.status_code == 201 and a1.json()["is_default"] and a1.json()["latitude"] == 16.24)
+    check("admin live-bags map endpoint is accessible",
+          isinstance(client.get("/api/bags/live", headers=hdr(superadmin)).json(), list))
     a2 = client.post("/api/auth/addresses", headers=hdr(buyer),
                      json={"label": "Home", "mandal_id": mandal_id, "is_default": True})
     check("second default demotes the first",
