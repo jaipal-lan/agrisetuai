@@ -105,8 +105,8 @@ async def upload(
         actor_id=user.id,
         action="media.upload",
         object_type="media",
-        object_id=object_key,
-        new_values={"size": len(raw), "content_type": ctype},
+        object_id=None,  # object_key can be a long Cloudinary URL; keep it in new_values
+        new_values={"object_key": object_key, "size": len(raw), "content_type": ctype},
     )
     db.commit()
     return {
