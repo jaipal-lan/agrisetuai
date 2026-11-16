@@ -39,9 +39,21 @@ def _get_order(order_id: int, db: Session) -> Order:
     return order
 
 
-def _require_party(order: Order, user, *, buyer=False, seller=False):
+# Delivery states a transport partner may open (shared delivery pool: /transport/jobs
+# lists every active order to any courier, so any courier may view those orders).
+_TRANSPORT_VIEW_STATES = (
+    S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT, S.OUT_FOR_DELIVERY,
+    S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED,
+)
+
+
+def _require_party(order: Order, user, *, buyer=False, seller=False, transport=False):
     staff = user.role in (Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER)
     if staff:
+        return
+    # Transport partners get read access to orders they can work (never buyer/
+    # seller-only actions, which pass buyer=/seller= and skip this branch).
+    if transport and user.role == Role.TRANSPORT and order.status in _TRANSPORT_VIEW_STATES:
         return
     if buyer and user.id == order.buyer_id:
         return
@@ -129,7 +141,7 @@ def my_orders(user=Depends(get_current_user), db: Session = Depends(get_db)):
 @router.get("/{order_id}")
 def get_order(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
     order = _get_order(order_id, db)
-    _require_party(order, user)
+    _require_party(order, user, transport=True)
     return _order_json(order, db, user)
 
 
@@ -686,7 +698,7 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
     from app.models.location import Mandal
 
     order = _get_order(order_id, db)
-    _require_party(order, user)
+    _require_party(order, user, transport=True)
     shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
 
     ship_at: dict[str, object] = {}
@@ -742,8 +754,34 @@ def tracking(order_id: int, user=Depends(get_current_user), db: Session = Depend
             coord = {"lat": float(m.latitude), "lng": float(m.longitude)}
         return m.name, coord
 
-    from_place, from_coord = _place(terms.get("mandal_id"))
-    to_place, to_coord = _place(terms.get("destination_mandal_id") or terms.get("mandal_id"))
+    # Pickup/drop mandals, with fallbacks so the map works even for orders that
+    # didn't capture a destination at checkout (demo + barcode-scan orders):
+    #   pickup  = terms.mandal_id -> seller's farm mandal -> the listing's mandal
+    #   drop    = terms.destination_mandal_id -> buyer's saved-address mandal -> pickup
+    from app.models.account import SavedAddress
+    from app.models.user import FarmerProfile
+
+    from_mandal_id = terms.get("mandal_id")
+    if not from_mandal_id:
+        fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == order.seller_id))
+        from_mandal_id = fp.mandal_id if fp else None
+    if not from_mandal_id and order.lines:
+        line0 = order.lines[0]
+        listing0 = db.get(Listing, line0.listing_id) if line0.listing_id else None
+        from_mandal_id = listing0.mandal_id if listing0 else None
+
+    to_mandal_id = terms.get("destination_mandal_id")
+    if not to_mandal_id:
+        addr = db.scalar(
+            select(SavedAddress).where(SavedAddress.user_id == order.buyer_id)
+            .order_by(SavedAddress.is_default.desc(), SavedAddress.id)
+        )
+        to_mandal_id = addr.mandal_id if addr else None
+    if not to_mandal_id:
+        to_mandal_id = from_mandal_id
+
+    from_place, from_coord = _place(from_mandal_id)
+    to_place, to_coord = _place(to_mandal_id)
     nav_url = None
     if from_coord and to_coord:
         nav_url = ("https://www.google.com/maps/dir/?api=1"

@@ -504,6 +504,12 @@ def run():
           trk_live["courier_location"].get("distance_km") is not None)
     check("tracking gives a live ETA in minutes",
           trk_live["courier_location"].get("eta_minutes") is not None)
+    # The transport partner can open the order + its tracking (shared delivery
+    # pool) — they are neither buyer, seller, nor office staff.
+    check("transport partner can view the order detail",
+          client.get(f"/api/orders/{order_id}", headers=hdr(transport)).status_code == 200)
+    trk_t = client.get(f"/api/orders/{order_id}/tracking", headers=hdr(transport))
+    check("transport partner can view live tracking", trk_t.status_code == 200)
     # Drive the courier onto the delivery address -> buyer gets a 'nearby' ping.
     to_coord = trk_live.get("to_coord")
     if to_coord:
