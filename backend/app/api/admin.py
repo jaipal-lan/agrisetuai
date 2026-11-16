@@ -782,6 +782,37 @@ def prices_status(user=Depends(_staff), db: Session = Depends(get_db)):
     return prices_feed.status(db)
 
 
+@router.get("/prices/diagnose")
+def prices_diagnose(user=Depends(require_roles(Role.SUPERADMIN))):
+    """Diagnostic: show the key length (not the key) and exactly what data.gov.in
+    returns to THIS server for a 1-row probe — distinguishes a bad key from a
+    network/geo block without needing log access."""
+    import json as _json
+    import urllib.parse as _up
+    import urllib.request as _ur
+
+    from app.core.config import settings as _s
+    from app.services import prices_feed as _pf
+
+    out = {"provider": _s.prices_provider, "key_len": len(_s.data_gov_in_api_key or ""),
+           "configured": _pf.provider_configured()}
+    if not out["configured"]:
+        return out
+    params = {"api-key": _s.data_gov_in_api_key, "format": "json", "limit": "1"}
+    url = f"{_pf.DATA_GOV_URL}?{_up.urlencode(params)}"
+    try:
+        req = _ur.Request(url, headers={"User-Agent": "agrisetuai/diag"})
+        with _ur.urlopen(req, timeout=25) as r:  # noqa: S310 (fixed gov URL)
+            body = r.read().decode("utf-8")
+        d = _json.loads(body)
+        out.update({"http": 200, "api_status": d.get("status"), "message": d.get("message"),
+                    "total": d.get("total"), "count": d.get("count"),
+                    "records": len(d.get("records", [])), "body_head": body[:160]})
+    except Exception as e:  # noqa: BLE001
+        out.update({"error": repr(e)[:300]})
+    return out
+
+
 @router.post("/prices/refresh")
 def refresh_market_prices(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = Depends(get_db)):
     """Pull the latest government-declared mandi prices from the live feed
