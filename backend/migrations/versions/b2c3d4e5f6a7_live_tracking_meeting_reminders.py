@@ -24,7 +24,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column('last_location_at', sa.DateTime(timezone=True), nullable=True))
 
     with op.batch_alter_table('team_meetings', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('reminded', sa.Boolean(), nullable=False, server_default=sa.text('0')))
+        batch_op.add_column(sa.Column('reminded', sa.Boolean(), nullable=False, server_default=sa.false()))
 
 
 def downgrade() -> None:
