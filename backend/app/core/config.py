@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     # Run `alembic upgrade head` on startup. Keep true for dev; set false in
     # production and run migrations from the deploy pipeline instead.
     auto_migrate: bool = True
+    # One-time convenience for hosts without a shell (e.g. Render free tier): when
+    # true, seed reference + demo data on startup IF the catalogue is empty. Safe
+    # to leave on (it no-ops once seeded); turn on, let it boot once, then off.
+    auto_seed: bool = False
 
     # Extra exact CORS origins (comma-separated), e.g. the deployed web app:
     # CORS_ORIGINS=https://agrisetuai.vercel.app  (dev LAN origins stay allowed

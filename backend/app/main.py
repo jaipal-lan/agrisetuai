@@ -74,6 +74,30 @@ def _startup() -> None:
 
 
 @app.on_event("startup")
+def _auto_seed() -> None:
+    # Seed reference + demo data once on a shell-less host (Render free tier),
+    # only when the catalogue is empty. Gated by AUTO_SEED; never crashes startup.
+    if not settings.auto_seed:
+        return
+    import logging
+
+    from sqlalchemy import func, select
+
+    from app.core.database import SessionLocal
+    from app.models.catalog import Commodity
+
+    db = SessionLocal()
+    try:
+        if (db.scalar(select(func.count(Commodity.id))) or 0) == 0:
+            from app.seed import main as seed_main
+            seed_main()
+    except Exception:  # noqa: BLE001 - a seed failure must not break the service
+        logging.getLogger("agrisetu.seed").exception("auto-seed failed")
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
 async def _start_scheduler() -> None:
     # Sandboxed timer that compiles digests + raises due follow-up reminders.
     # No-op unless SCHEDULER_INTERVAL_SECONDS > 0, so tests/plain dev are unaffected.
