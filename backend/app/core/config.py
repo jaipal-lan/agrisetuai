@@ -30,7 +30,14 @@ class Settings(BaseSettings):
     otp_max_per_window: int = 8
     otp_window_seconds: int = 600
     media_dir: str = "./var/media"
-    media_max_bytes: int = 8 * 1024 * 1024
+    media_max_bytes: int = 8 * 1024 * 1024          # images / PDFs
+    media_video_max_bytes: int = 60 * 1024 * 1024   # packing / sample videos
+    # Cloudinary object storage (product photos, videos, KYC docs, profile pics).
+    # When all three are set, uploads go to Cloudinary's CDN (permanent URLs);
+    # otherwise they fall back to local disk (fine for dev, ephemeral on Render).
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
 
     # Logistics / routing. "haversine" computes straight-line distance between
     # mandal coordinates and scales it by road_distance_factor; swap in an

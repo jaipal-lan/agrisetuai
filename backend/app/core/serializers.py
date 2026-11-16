@@ -8,7 +8,10 @@ from app.models.user import User
 
 def _avatar_url(user: User) -> str | None:
     key = getattr(user, "avatar_object_key", None)
-    return f"/media/file/{key}" if key else None
+    if not key:
+        return None
+    # Cloudinary URLs are stored whole; local keys are served via /media/file.
+    return key if key.startswith("http") else f"/media/file/{key}"
 
 
 def _mask(v: str | None) -> str | None:

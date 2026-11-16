@@ -33,7 +33,9 @@ const csp = [
   // cdnjs also serves the Leaflet stylesheet (map pin picker).
   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
   // OpenStreetMap raster tiles + Leaflet marker images for the map pin.
-  `img-src 'self' data: blob: ${API_ORIGIN} https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com`,
+  `img-src 'self' data: blob: ${API_ORIGIN} https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com https://res.cloudinary.com`,
+  // Uploaded videos (product/packing clips) are served from the Cloudinary CDN.
+  "media-src 'self' blob: https://res.cloudinary.com",
   `connect-src 'self' ${API_ORIGIN} https://nominatim.openstreetmap.org`,
   "frame-src 'self' https://www.openstreetmap.org",
   "font-src 'self' data:",

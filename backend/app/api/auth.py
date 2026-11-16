@@ -201,14 +201,19 @@ async def _store_evidence(db: Session, owner_id: int, upload: UploadFile) -> str
     if len(raw) > settings.media_max_bytes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Evidence file is too large.")
     ext = _ALLOWED[ctype]
-    key = f"{owner_id}/{public_id('REG', 10).lower()}.{ext}"
-    root = os.path.abspath(settings.media_dir)
-    dest = os.path.join(root, key.replace("/", os.sep))
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "wb") as fh:
-        fh.write(raw)
+    fname = f"{public_id('REG', 10).lower()}.{ext}"
+    # Prefer Cloudinary (permanent); fall back to local disk for dev.
+    from app.services import storage
+    object_key = storage.save(raw, ctype, folder=f"agrisetu/kyc/{owner_id}", filename=fname)
+    if not object_key:
+        object_key = f"{owner_id}/{fname}"
+        root = os.path.abspath(settings.media_dir)
+        dest = os.path.join(root, object_key.replace("/", os.sep))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(raw)
     db.add(MediaObject(
-        object_key=key,
+        object_key=object_key,
         owner_id=owner_id,
         media_type="document" if ext == "pdf" else "image",
         content_type=ctype,
@@ -216,7 +221,7 @@ async def _store_evidence(db: Session, owner_id: int, upload: UploadFile) -> str
         checksum=hashlib.sha256(raw).hexdigest(),
         access_class="restricted",
     ))
-    return key
+    return object_key
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

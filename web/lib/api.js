@@ -4,9 +4,12 @@
 const BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
 
-// URL to display a listing/evidence image by its object_key.
+// URL to display a listing/evidence image by its object_key. Cloudinary uploads
+// are stored as full https URLs (served from their CDN); local keys go through
+// the backend's /media/file route.
 export function mediaUrl(objectKey) {
   if (!objectKey) return null;
+  if (objectKey.startsWith("http")) return objectKey;
   return `${BASE}/media/file/${objectKey}`;
 }
 
