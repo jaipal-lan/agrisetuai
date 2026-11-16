@@ -782,6 +782,26 @@ def prices_status(user=Depends(_staff), db: Session = Depends(get_db)):
     return prices_feed.status(db)
 
 
+class PricesImport(BaseModel):
+    records: list[dict]
+
+
+@router.post("/prices/import")
+def import_market_prices(body: PricesImport, user=Depends(require_roles(Role.SUPERADMIN)),
+                         db: Session = Depends(get_db)):
+    """Upsert mandi prices fetched elsewhere (e.g. from an India IP that can reach
+    data.gov.in — the server's own datacenter may be geo-blocked). Same upsert +
+    stale-sweep as the live refresh."""
+    from app.services import prices_feed
+    if not body.records:
+        return {"ok": False, "message": "no records provided"}
+    result = prices_feed.refresh_prices(db, records=body.records)
+    audit.record(db, actor_id=user.id, action="prices.import", object_type="system",
+                 object_id="market_prices", new_values={"count": result.get("upserted")})
+    db.commit()
+    return {"ok": True, **result}
+
+
 @router.get("/prices/diagnose")
 def prices_diagnose(user=Depends(require_roles(Role.SUPERADMIN))):
     """Diagnostic: show the key length (not the key) and exactly what data.gov.in
