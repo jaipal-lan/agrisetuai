@@ -3,6 +3,9 @@
 The pilot default is a "console" provider that logs the message. Real gateways
 plug in behind send() with no caller changes — set SMS_PROVIDER and the keys:
 
+  2factor   — India, RECOMMENDED; SMS_API_KEY = your 2Factor API key. Ships a
+              pre-approved DLT OTP template, so OTP works with no DLT registration.
+              Optional TWOFACTOR_TEMPLATE_NAME for a custom approved template.
   fast2sms  — India, cheap; SMS_API_KEY = your authorization key.
   msg91     — SMS_API_KEY = authkey, MSG91_TEMPLATE_ID, SMS_SENDER_ID.
   twilio    — TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, SMS_SENDER_ID = From number.
@@ -56,6 +59,52 @@ def _fast2sms_otp(phone: str, code: str) -> bool:
     return ok
 
 
+def _2factor_otp(phone: str, code: str) -> bool:
+    """2Factor.in transactional OTP: delivers OUR server-generated code via
+    2Factor's pre-approved DLT OTP template (no DLT registration on our side).
+
+    GET https://2factor.in/API/V1/{key}/SMS/{phone}/{otp}[/{template_name}]
+    -> {"Status":"Success","Details":"<session_id>"} on success.
+    """
+    num = _digits(phone)[-10:]
+    url = f"https://2factor.in/API/V1/{settings.sms_api_key}/SMS/{num}/{code}"
+    if settings.twofactor_template_name:
+        url += f"/{settings.twofactor_template_name}"
+    r = httpx.get(url, timeout=_TIMEOUT)
+    ok = False
+    try:
+        ok = r.status_code == 200 and r.json().get("Status") == "Success"
+    except Exception:  # noqa: BLE001 - non-JSON / network body
+        ok = False
+    if not ok:
+        log.warning("2factor OTP send failed: %s %s", r.status_code, r.text[:200])
+    return ok
+
+
+def _2factor(phone: str, message: str) -> bool:
+    """Generic transactional SMS via 2Factor (needs an approved DLT template name
+    in TWOFACTOR_TEMPLATE_NAME). OTP delivery uses _2factor_otp instead; this path
+    exists only if non-OTP SMS is ever wired."""
+    if not settings.twofactor_template_name:
+        log.warning("2factor generic SMS needs TWOFACTOR_TEMPLATE_NAME; not sent")
+        return False
+    num = _digits(phone)[-10:]
+    r = httpx.get(
+        f"https://2factor.in/API/V1/{settings.sms_api_key}/ADDON_SERVICES/SEND/TSMS",
+        params={"From": settings.sms_sender_id, "To": num,
+                "TemplateName": settings.twofactor_template_name, "VAR1": message},
+        timeout=_TIMEOUT,
+    )
+    ok = False
+    try:
+        ok = r.status_code == 200 and r.json().get("Status") == "Success"
+    except Exception:  # noqa: BLE001
+        ok = False
+    if not ok:
+        log.warning("2factor SMS send failed: %s %s", r.status_code, r.text[:200])
+    return ok
+
+
 def _msg91(phone: str, message: str) -> bool:
     num = _digits(phone)
     r = httpx.post(
@@ -86,7 +135,7 @@ def _twilio(phone: str, message: str) -> bool:
     return ok
 
 
-_PROVIDERS = {"fast2sms": _fast2sms, "msg91": _msg91, "twilio": _twilio}
+_PROVIDERS = {"2factor": _2factor, "fast2sms": _fast2sms, "msg91": _msg91, "twilio": _twilio}
 
 
 def send(phone: str, message: str) -> bool:
@@ -109,6 +158,14 @@ def send(phone: str, message: str) -> bool:
 def send_otp(phone: str, code: str) -> bool:
     provider = (settings.sms_provider or "console").lower()
     msg = f"Your AgriSetuAI verification code is {code}. Valid for 5 minutes."
+    # 2Factor.in: delivers our code through its pre-approved OTP template (no DLT
+    # work on our side) — the recommended India path.
+    if provider == "2factor":
+        try:
+            return _2factor_otp(phone, code)
+        except Exception:  # noqa: BLE001 - never let SMS delivery break the OTP flow
+            log.exception("2factor OTP send failed")
+            return False
     # Fast2SMS: the dedicated OTP route needs website verification; the Quick ("q")
     # route works immediately. FAST2SMS_ROUTE selects which to use.
     if provider == "fast2sms":

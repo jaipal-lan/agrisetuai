@@ -47,15 +47,20 @@ class Settings(BaseSettings):
     default_route_km: float = 40.0
 
     # SMS provider: "console" logs the OTP (dev/sandbox). Real gateways plug in by
-    # setting SMS_PROVIDER + the keys below: "fast2sms" (India, uses sms_api_key),
-    # "msg91" (sms_api_key=authkey + msg91_template_id + sms_sender_id),
-    # "twilio" (twilio_account_sid + twilio_auth_token + sms_sender_id as From).
+    # setting SMS_PROVIDER + the keys below: "2factor" (India, uses sms_api_key;
+    # ships a pre-approved DLT OTP template so no DLT registration is needed —
+    # recommended), "fast2sms" (India, uses sms_api_key), "msg91" (sms_api_key=
+    # authkey + msg91_template_id + sms_sender_id), "twilio" (twilio_account_sid +
+    # twilio_auth_token + sms_sender_id as From).
     sms_provider: str = "console"
     sms_api_key: str = ""
     sms_sender_id: str = "AGRSTU"
     # Fast2SMS route for OTP: "otp" (dedicated OTP API — needs Fast2SMS website
     # verification) or "q" (Quick SMS — works immediately, no verification/DLT).
     fast2sms_route: str = "otp"
+    # 2Factor.in: optional named OTP template (TWOFACTOR_TEMPLATE_NAME). Leave blank
+    # to use 2Factor's default pre-approved OTP template (works out of the box).
+    twofactor_template_name: str = ""
     msg91_template_id: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""

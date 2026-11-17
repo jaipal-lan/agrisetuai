@@ -621,6 +621,35 @@ def run():
     check("onboarding saved village + KYC pending",
           mej["farmer"]["village"] == "Peddapuram" and mej["farmer"]["verification_status"] == "pending")
 
+    # SMS OTP via 2Factor.in: delivers our code through 2Factor's pre-approved OTP
+    # template (no DLT on our side). Stub httpx so no real SMS is sent.
+    from app.services import sms as _sms
+    from app.core.config import settings as _st
+    _save = (_st.sms_provider, _st.sms_api_key, _st.twofactor_template_name, _sms.httpx.get)
+    try:
+        _st.sms_provider, _st.sms_api_key, _st.twofactor_template_name = "2factor", "KEYXYZ", ""
+        cap = {}
+
+        class _R:
+            status_code = 200; text = '{"Status":"Success"}'
+            def json(self):  # noqa: D401
+                return {"Status": "Success", "Details": "sid"}
+        _sms.httpx.get = lambda url, **kw: (cap.__setitem__("url", url), _R())[1]
+        ok = _sms.send_otp("+919876543210", "4321")
+        check("2factor OTP send returns ok", ok is True)
+        check("2factor OTP builds the correct URL (10-digit, code in path)",
+              cap.get("url") == "https://2factor.in/API/V1/KEYXYZ/SMS/9876543210/4321")
+
+        class _E:
+            status_code = 200; text = '{"Status":"Error"}'
+            def json(self):
+                return {"Status": "Error", "Details": "Invalid Key"}
+        _sms.httpx.get = lambda url, **kw: _E()
+        check("2factor failure fails safe (returns False, no raise)",
+              _sms.send_otp("919876543210", "1") is False)
+    finally:
+        _st.sms_provider, _st.sms_api_key, _st.twofactor_template_name, _sms.httpx.get = _save
+
     # Payment intent for an order.
     pi = client.get(f"/api/payments/intent/{order_id}", headers=hdr(buyer)).json()
     check("payment intent created", pi["reference"].startswith("intent_"))
