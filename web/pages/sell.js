@@ -2,7 +2,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import MapPicker from "../components/MapPicker";
-import { api, getToken, getUser, mediaUrl } from "../lib/api";
+import CameraCapture from "../components/CameraCapture";
+import MediaGallery from "../components/MediaGallery";
+import { api, getToken, getUser } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
@@ -45,6 +47,7 @@ export default function Sell() {
     longitude: null,
   });
   const [newProduct, setNewProduct] = useState("");
+  const [orgCert, setOrgCert] = useState(null); // organic certificate file
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -93,8 +96,19 @@ export default function Sell() {
   async function create() {
     setErr(null);
     setMsg(null);
+    // Organic needs a certificate (govt/agency). Upload it first -> claim_evidence.
+    if (form.claim_status === "organic" && !orgCert) {
+      setErr("Organic produce needs a certificate. Attach your organic certification (PDF or photo), or choose “In conversion”.");
+      return;
+    }
     setBusy(true);
     try {
+      let claim_evidence;
+      if (form.claim_status === "organic" && orgCert) {
+        const up = await uploadImage(orgCert);
+        claim_evidence = { certificate_object_key: up.object_key, checksum: up.checksum,
+                           type: "organic_certificate", uploaded_at: new Date().toISOString() };
+      }
       const body = {
         commodity_id: Number(form.commodity_id),
         grade_spec_id: form.grade_spec_id ? Number(form.grade_spec_id) : undefined,
@@ -106,12 +120,14 @@ export default function Sell() {
         latitude: form.latitude ?? undefined,
         longitude: form.longitude ?? undefined,
         claim_status: form.claim_status,
+        claim_evidence,
         specifications: form.specifications || undefined,
         quality_grade: form.quality_grade || undefined,
         defect_pct: form.defect_pct ? Number(form.defect_pct) : undefined,
         defect_notes: form.defect_notes || undefined,
       };
       await api("/listings", { method: "POST", body });
+      setOrgCert(null);
       setMsg("Listing created as a draft — add images (and an optional video), then publish.");
       setForm((f) => ({ ...f, total_qty: "", asking_price: "" }));
       loadMine();
@@ -227,6 +243,22 @@ export default function Sell() {
             </select>
           </div>
         </div>
+        {form.claim_status === "organic" && (
+          <div className="card" style={{ background: "rgba(22,163,74,.06)", borderColor: "rgba(22,163,74,.3)", marginTop: 8 }}>
+            <label style={{ fontWeight: 600 }}>🌿 Organic certificate (required)</label>
+            <p className="muted" style={{ fontSize: 12, margin: "2px 0 8px" }}>
+              Attach your organic certification (e.g. NPOP / PGS-India / agency certificate) as a PDF or photo.
+              Buyers only see an “organic” tag when valid evidence is on file.
+            </p>
+            <label className="btn ghost" style={{ cursor: "pointer" }}>
+              {orgCert ? `✓ ${orgCert.name}` : "Attach certificate (PDF / image)"}
+              <input type="file" accept="image/*,application/pdf" style={{ display: "none" }}
+                     onChange={(e) => setOrgCert(e.target.files?.[0] || null)} />
+            </label>
+            {orgCert && <button type="button" className="ghost" style={{ marginLeft: 8, fontSize: 12 }}
+                                onClick={() => setOrgCert(null)}>Remove</button>}
+          </div>
+        )}
         <label>Quality grade</label>
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
           {GRADES.map(([g, label]) => (
@@ -288,14 +320,7 @@ export default function Sell() {
                   {l.is_organic ? " · organic" : ""}
                   {l.agent_verified ? " · ✓ verified" : ""}
                 </div>
-                {imgs.length > 0 && (
-                  <div className="row" style={{ gap: 6, margin: "10px 0", flexWrap: "nowrap", overflowX: "auto" }}>
-                    {imgs.map((m, i) => (
-                      <img key={i} src={mediaUrl(m.object_key)} alt="" loading="lazy"
-                           style={{ width: 64, height: 50, objectFit: "cover", borderRadius: 6, flex: "0 0 auto" }} />
-                    ))}
-                  </div>
-                )}
+                <MediaGallery items={imgs} video={l.video} />
                 <div className="muted" style={{ fontSize: 12 }}>
                   {imgs.length}/3 images {enough ? "✓" : "— add more to publish"}
                   {l.quality_grade ? ` · Grade ${l.quality_grade}` : ""}
@@ -303,11 +328,7 @@ export default function Sell() {
                   {l.video ? " · 🎥 video" : ""}
                 </div>
                 <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                  <label className="btn ghost" style={{ cursor: "pointer" }}>
-                    📷 Take photo
-                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }}
-                           onChange={(e) => addMedia(l.id, Array.from(e.target.files), "image")} />
-                  </label>
+                  <CameraCapture onCapture={(file) => addMedia(l.id, [file], "image")} label="📷 Take photo" />
                   <label className="btn ghost" style={{ cursor: "pointer" }}>
                     + Images
                     <input type="file" accept="image/*" multiple style={{ display: "none" }}

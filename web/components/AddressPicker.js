@@ -52,6 +52,7 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
   showServiceability = true }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
+  const roRef = useRef(null);
   const moveTimer = useRef(null);
   const searchTimer = useRef(null);
   const editedArea = useRef(false); // don't overwrite a line the user typed
@@ -138,12 +139,20 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
           resolvePoint(+c.lat.toFixed(6), +c.lng.toFixed(6));
         }, 600);
       });
-      setTimeout(() => map.invalidateSize(), 120);
+      [60, 250, 600].forEach((d) => setTimeout(() => { try { map.invalidateSize(); } catch {} }, d));
+      if (typeof ResizeObserver !== "undefined") {
+        roRef.current = new ResizeObserver(() => { try { map.invalidateSize(); } catch {} });
+        roRef.current.observe(divRef.current);
+      }
       setReady(true);
       if (value?.lat) resolvePoint(value.lat, value.lng);
       else if (autoLocate) useMyLocation();
     }).catch((e) => setErr(e.message));
-    return () => { alive = false; if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+    return () => {
+      alive = false;
+      if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

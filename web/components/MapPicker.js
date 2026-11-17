@@ -31,6 +31,7 @@ export default function MapPicker({ value, onChange, height = 240 }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+  const roRef = useRef(null);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
@@ -48,9 +49,20 @@ export default function MapPicker({ value, onChange, height = 240 }) {
       const emit = (ll) => onChange?.({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) });
       marker.on("dragend", () => emit(marker.getLatLng()));
       map.on("click", (e) => { marker.setLatLng(e.latlng); emit(e.latlng); });
-      setTimeout(() => map.invalidateSize(), 100);
+      // Re-measure when the container becomes visible/resizes (e.g. opened inside
+      // a <details>), plus a couple of early nudges — without this the map tiles
+      // render grey and clicks map to the wrong point until the next resize.
+      [60, 250, 600].forEach((d) => setTimeout(() => { try { map.invalidateSize(); } catch {} }, d));
+      if (typeof ResizeObserver !== "undefined") {
+        roRef.current = new ResizeObserver(() => { try { map.invalidateSize(); } catch {} });
+        roRef.current.observe(divRef.current);
+      }
     }).catch((e) => setErr(e.message));
-    return () => { alive = false; if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+    return () => {
+      alive = false;
+      if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
