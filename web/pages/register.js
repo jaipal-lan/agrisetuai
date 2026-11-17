@@ -283,6 +283,7 @@ export default function Register() {
           <h3 style={{ marginBottom: 4 }}>Your address</h3>
           <AddressPicker
             autoLocate
+            showServiceability={false}
             onChange={(a) => {
               if (a.lat != null) { setLat(a.lat); setLng(a.lng); }
               if (a.mandal_id) setMandalId(String(a.mandal_id));

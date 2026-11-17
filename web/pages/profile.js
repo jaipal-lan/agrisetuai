@@ -394,7 +394,7 @@ function AddressesCard() {
         <button className="ghost" onClick={() => setAdding(true)}>➕ Add a new address</button>
       ) : (
         <form className="card" onSubmit={add}>
-          <AddressPicker autoLocate onChange={setAddr} />
+          <AddressPicker autoLocate showServiceability={false} onChange={setAddr} />
           <label className="chk" style={{ marginTop: 10 }}>
             <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> Set as default
           </label>

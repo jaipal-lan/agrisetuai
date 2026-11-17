@@ -48,7 +48,8 @@ function shortAddress(j) {
 
 const LABELS = ["Home", "Work", "Other"];
 
-export default function AddressPicker({ value, onChange, autoLocate = false, height = 240 }) {
+export default function AddressPicker({ value, onChange, autoLocate = false, height = 240,
+  showServiceability = true }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const moveTimer = useRef(null);
@@ -233,9 +234,10 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
         Move the map to place the pin on your exact door.
       </div>
 
-      {/* serviceability banner */}
-      {resolving && <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>Finding your area…</div>}
-      {!resolving && status && (
+      {/* serviceability banner — only where delivery availability matters
+          (checkout). At sign-up/profile we just capture the address. */}
+      {showServiceability && resolving && <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>Finding your area…</div>}
+      {showServiceability && !resolving && status && (
         status.within ? (
           <div style={{
             marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 13,
