@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import MapPicker from "../components/MapPicker";
 import { api, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
@@ -162,8 +163,10 @@ export default function Requests() {
     api("/catalog/commodities").then(setCommodities).catch(() => {});
     api("/locations/mandals").then(setMandals).catch(() => {});
     api("/market-prices/commodities").then(setPrices).catch(() => {});
-    if (u) load(u.role);
   }, []);
+
+  // Auto-refresh the RFQ list (new requests, status, comments) in the background.
+  usePoll(() => { const u = getUser(); if (u) load(u.role); }, 20000, []);
 
   function toggleArea(id) {
     setForm((f) => {

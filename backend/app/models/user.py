@@ -31,6 +31,9 @@ class User(Base, TimestampMixin):
     pincode: Mapped[str | None] = mapped_column(String(10))
     aadhaar: Mapped[str | None] = mapped_column(String(20))
     pan: Mapped[str | None] = mapped_column(String(20))
+    # Government photo-ID proofs uploaded for identity verification:
+    # [{object_key, doc_type, uploaded_at}]. Restricted media; owner + staff only.
+    id_documents: Mapped[list | None] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active|suspended
     consent_at: Mapped[str | None] = mapped_column(String(40))
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False)

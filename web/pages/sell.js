@@ -5,6 +5,7 @@ import MapPicker from "../components/MapPicker";
 import CameraCapture from "../components/CameraCapture";
 import MediaGallery from "../components/MediaGallery";
 import { api, getToken, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
@@ -85,8 +86,11 @@ export default function Sell() {
   useEffect(() => {
     setUser(getUser());
     api("/catalog/commodities").then(setCommodities).catch(() => {});
-    loadMine();
   }, []);
+
+  // Auto-refresh my listings (status, verification, image counts) in the
+  // background; pauses when the tab is hidden.
+  usePoll(loadMine, 20000, []);
 
   useEffect(() => {
     if (!form.commodity_id) return setGrades([]);
@@ -142,6 +146,16 @@ export default function Sell() {
     setErr(null);
     try {
       await api(`/listings/${id}/${action}`, { method: "POST" });
+      loadMine();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function removeMedia(listingId, mediaId) {
+    setErr(null);
+    try {
+      await api(`/listings/${listingId}/media/${mediaId}`, { method: "DELETE" });
       loadMine();
     } catch (e) {
       setErr(e.message);
@@ -320,7 +334,8 @@ export default function Sell() {
                   {l.is_organic ? " · organic" : ""}
                   {l.agent_verified ? " · ✓ verified" : ""}
                 </div>
-                <MediaGallery items={imgs} video={l.video} />
+                <MediaGallery items={imgs} video={l.video} videoId={l.video_id}
+                              onRemove={(m) => removeMedia(l.id, m.id)} />
                 <div className="muted" style={{ fontSize: 12 }}>
                   {imgs.length}/3 images {enough ? "✓" : "— add more to publish"}
                   {l.quality_grade ? ` · Grade ${l.quality_grade}` : ""}

@@ -14,6 +14,27 @@ def _avatar_url(user: User) -> str | None:
     return key if key.startswith("http") else f"/media/file/{key}"
 
 
+def _media_url(key: str | None) -> str | None:
+    if not key:
+        return None
+    return key if key.startswith("http") else f"/media/file/{key}"
+
+
+def _id_documents(user: User) -> list:
+    docs = getattr(user, "id_documents", None) or []
+    out = []
+    for d in docs:
+        if not isinstance(d, dict):
+            continue
+        out.append({
+            "object_key": d.get("object_key"),
+            "url": _media_url(d.get("object_key")),
+            "doc_type": d.get("doc_type"),
+            "uploaded_at": d.get("uploaded_at"),
+        })
+    return out
+
+
 def _mask(v: str | None) -> str | None:
     if not v:
         return None
@@ -53,4 +74,5 @@ def self_user(user: User) -> dict:
         "pan_masked": _mask(user.pan),
         "has_aadhaar": bool(user.aadhaar),
         "has_pan": bool(user.pan),
+        "id_documents": _id_documents(user),
     }

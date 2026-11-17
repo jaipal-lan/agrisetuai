@@ -101,10 +101,12 @@ def _place(db: Session, listing: Listing, seller: User | None) -> dict:
 
 def _serialize(listing: Listing, seller: User | None = None, db: Session | None = None) -> dict:
     images = [
-        {"object_key": m.object_key, "media_type": m.media_type}
+        {"id": m.id, "object_key": m.object_key, "media_type": m.media_type}
         for m in listing.media if m.media_type == "image"
     ]
-    video = next((m.object_key for m in listing.media if m.media_type == "video"), None)
+    video_obj = next((m for m in listing.media if m.media_type == "video"), None)
+    video = video_obj.object_key if video_obj else None
+    video_id = video_obj.id if video_obj else None
     avail = qty(listing.available_qty)
     out_of_stock = listing.status == ListingStatus.SOLD_OUT or avail <= qty(0)
     data = {
@@ -136,6 +138,7 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         "status": listing.status,
         "out_of_stock": out_of_stock,
         "video": video,
+        "video_id": video_id,
         "agent_verified": listing.agent_verified,
         "verified_at": listing.verified_at.isoformat() if listing.verified_at else None,
         "verification_note": listing.verification_note,
@@ -576,6 +579,25 @@ def attach_media(
             access_class="public",
         )
     )
+    db.commit()
+    db.refresh(listing)
+    return _serialize(listing, user, db)
+
+
+@router.delete("/{listing_id}/media/{media_id}")
+def delete_media(
+    listing_id: int,
+    media_id: int,
+    user: User = Depends(_seller),
+    db: Session = Depends(get_db),
+):
+    """Remove one photo/video from the seller's own listing (replace = delete +
+    re-attach). Owner only."""
+    listing = _owned(listing_id, user, db)
+    m = next((x for x in listing.media if x.id == media_id), None)
+    if m is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Media not found on this listing")
+    db.delete(m)
     db.commit()
     db.refresh(listing)
     return _serialize(listing, user, db)

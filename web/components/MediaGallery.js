@@ -4,14 +4,15 @@ import { mediaUrl } from "../lib/api";
 // Thumbnail strip + full-screen lightbox. Click a thumb to open; arrow keys /
 // on-screen buttons move prev/next; click an image to zoom; videos play inline.
 // `items`: [{ object_key, media_type }]. `video`: optional single video object_key.
-export default function MediaGallery({ items = [], video = null, thumb = 64 }) {
-  // Build a flat list of {type:'image'|'video', src}.
+export default function MediaGallery({ items = [], video = null, videoId = null, thumb = 64, onRemove = null }) {
+  // Build a flat list of {id, type:'image'|'video', src}.
   const media = [
     ...items.map((m) => ({
+      id: m.id ?? null,
       type: (m.media_type === "video" || /\.(mp4|webm|mov)(\?|$)/i.test(m.object_key || "")) ? "video" : "image",
       src: mediaUrl(m.object_key),
     })),
-    ...(video ? [{ type: "video", src: mediaUrl(video) }] : []),
+    ...(video ? [{ id: videoId, type: "video", src: mediaUrl(video) }] : []),
   ].filter((m) => m.src);
 
   const [open, setOpen] = useState(-1);
@@ -38,16 +39,26 @@ export default function MediaGallery({ items = [], video = null, thumb = 64 }) {
     <>
       <div className="row" style={{ gap: 6, margin: "10px 0", flexWrap: "nowrap", overflowX: "auto" }}>
         {media.map((m, i) => (
-          <div key={i} onClick={() => setOpen(i)} title="Click to view"
-               style={{ position: "relative", flex: "0 0 auto", cursor: "pointer" }}>
-            {m.type === "video" ? (
-              <div style={{
-                width: thumb, height: thumb * 0.78, borderRadius: 6, background: "#111",
-                display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 20,
-              }}>▶</div>
-            ) : (
-              <img src={m.src} alt="" loading="lazy"
-                   style={{ width: thumb, height: thumb * 0.78, objectFit: "cover", borderRadius: 6, display: "block" }} />
+          <div key={i} style={{ position: "relative", flex: "0 0 auto" }}>
+            <div onClick={() => setOpen(i)} title="Click to view" style={{ cursor: "pointer" }}>
+              {m.type === "video" ? (
+                <div style={{
+                  width: thumb, height: thumb * 0.78, borderRadius: 6, background: "#111",
+                  display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 20,
+                }}>▶</div>
+              ) : (
+                <img src={m.src} alt="" loading="lazy"
+                     style={{ width: thumb, height: thumb * 0.78, objectFit: "cover", borderRadius: 6, display: "block" }} />
+              )}
+            </div>
+            {onRemove && m.id != null && (
+              <button type="button" title="Remove"
+                onClick={(e) => { e.stopPropagation(); if (confirm("Remove this file?")) onRemove(m); }}
+                style={{
+                  position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
+                  border: "none", background: "#dc2626", color: "#fff", fontSize: 12, lineHeight: "20px",
+                  padding: 0, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.4)",
+                }}>✕</button>
             )}
           </div>
         ))}

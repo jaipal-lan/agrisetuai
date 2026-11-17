@@ -273,6 +273,20 @@ def run():
     r = client.post(f"/api/listings/{listing['id']}/publish", headers=hdr(farmer))
     check("listing published after images", r.json()["status"] == "open")
 
+    # Remove one photo (seller can delete/replace individual media).
+    lj = client.get(f"/api/listings/{listing['id']}").json()
+    mid = lj["media"][0]["id"]
+    check("listing media exposes an id", isinstance(mid, int))
+    dr = client.delete(f"/api/listings/{listing['id']}/media/{mid}", headers=hdr(farmer))
+    check("seller removes one listing photo",
+          dr.status_code == 200 and len(dr.json()["media"]) == len(lj["media"]) - 1)
+    check("a non-owner cannot delete someone's listing media",
+          client.delete(f"/api/listings/{listing['id']}/media/{lj['media'][1]['id']}",
+                        headers=hdr(buyer)).status_code in (403, 404))
+    # Re-add so the listing still has its 3 images for later steps.
+    client.post(f"/api/listings/{listing['id']}/media", headers=hdr(farmer),
+                json={"object_key": "sample/paddy-test-readd.svg", "media_type": "image"})
+
     # Agent verifies the listing at the farm gate, leaving a comment.
     r = client.post(f"/api/listings/{listing['id']}/verify", headers=hdr(agent),
                     json={"note": "Weight sampled; grade consistent."})
@@ -627,6 +641,23 @@ def run():
     mej = client.get("/api/auth/me", headers=hdr(newf)).json()
     check("onboarding saved village + KYC pending",
           mej["farmer"]["village"] == "Peddapuram" and mej["farmer"]["verification_status"] == "pending")
+
+    # Government photo-ID proof for identity verification (add -> list -> remove).
+    ip = client.post("/api/auth/me/id-proof", headers=hdr(newf),
+                     json={"object_key": "sample/aadhaar-front.jpg", "doc_type": "aadhaar"})
+    check("id-proof upload recorded", ip.status_code == 200 and len(ip.json()["id_documents"]) == 1)
+    check("id-proof exposes a viewable url + type",
+          ip.json()["id_documents"][0]["doc_type"] == "aadhaar"
+          and ip.json()["id_documents"][0]["url"])
+    rp = client.request("DELETE", "/api/auth/me/id-proof", headers=hdr(newf),
+                        json={"object_key": "sample/aadhaar-front.jpg"})
+    check("id-proof removal clears the document",
+          rp.status_code == 200 and len(rp.json()["id_documents"]) == 0)
+
+    # Profile photo can be cleared by sending an empty avatar key.
+    client.patch("/api/auth/me", headers=hdr(newf), json={"avatar_object_key": "sample/x.jpg"})
+    cleared = client.patch("/api/auth/me", headers=hdr(newf), json={"avatar_object_key": ""}).json()
+    check("avatar can be removed", cleared.get("avatar_url") is None)
 
     # SMS OTP via 2Factor.in: delivers our code through 2Factor's pre-approved OTP
     # template (no DLT on our side). Stub httpx so no real SMS is sent.

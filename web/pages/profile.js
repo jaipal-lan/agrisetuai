@@ -130,6 +130,7 @@ export default function Profile() {
 
       {["farmer", "transport"].includes(me?.role) && <PayoutCard />}
       {["farmer", "buyer_household", "buyer_business"].includes(me?.role) && <AddressesCard />}
+      {detail && <IdProofCard detail={detail} onChange={setDetail} />}
 
       <h2>Language</h2>
       <div className="row">
@@ -171,6 +172,14 @@ function ProfilePhoto({ detail, onSaved }) {
   async function saveKey(objectKey) {
     const d = await api("/auth/me", { method: "PATCH", body: { avatar_object_key: objectKey } });
     onSaved?.(d);
+  }
+
+  async function removePhoto() {
+    setErr(null); setBusy(true);
+    try {
+      const d = await api("/auth/me", { method: "PATCH", body: { avatar_object_key: "" } });
+      onSaved?.(d);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
 
   async function onFile(e) {
@@ -255,6 +264,12 @@ function ProfilePhoto({ detail, onSaved }) {
                     onClick={takePhoto} disabled={busy}>
               Take photo
             </button>
+            {src && (
+              <button type="button" className="ghost" style={{ fontSize: 12, padding: "4px 8px", color: "#dc2626" }}
+                      onClick={removePhoto} disabled={busy}>
+                Remove
+              </button>
+            )}
             {/* Fallback input used when the live webcam isn't available */}
             <input ref={fallbackRef} type="file" accept="image/*" capture="user"
                    style={{ display: "none" }} onChange={onFile} disabled={busy} />
@@ -405,6 +420,92 @@ function AddressesCard() {
           </div>
         </form>
       )}
+    </>
+  );
+}
+
+// Government photo-ID proof for identity verification: upload / view / remove.
+const ID_TYPES = [
+  ["aadhaar", "Aadhaar card"], ["pan", "PAN card"], ["voter_id", "Voter ID"],
+  ["driving_licence", "Driving licence"], ["passport", "Passport"], ["other", "Other govt ID"],
+];
+
+function IdProofCard({ detail, onChange }) {
+  const [docType, setDocType] = useState("aadhaar");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const docs = detail?.id_documents || [];
+  const typeLabel = (k) => (ID_TYPES.find((t) => t[0] === k)?.[1] || "Govt ID");
+
+  async function onFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setErr(null); setBusy(true);
+    try {
+      const up = await uploadMedia(file);
+      const d = await api("/auth/me/id-proof", { method: "POST",
+        body: { object_key: up.object_key, doc_type: docType } });
+      onChange?.(d);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  async function remove(object_key) {
+    if (!confirm("Remove this ID proof?")) return;
+    setErr(null); setBusy(true);
+    try {
+      const d = await api("/auth/me/id-proof", { method: "DELETE", body: { object_key } });
+      onChange?.(d);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <>
+      <h2>Identity verification</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
+        Submit a government photo ID (Aadhaar, PAN, Voter ID, etc.) so our team can verify you.
+        Your documents are private — visible only to you and the verification team.
+      </p>
+      <div className="card">
+        {docs.length > 0 ? (
+          <div style={{ marginBottom: 10 }}>
+            {docs.map((d, i) => (
+              <div key={i} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 8 }}>
+                <div className="row" style={{ gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 22 }}>🪪</span>
+                  <div>
+                    <b>{typeLabel(d.doc_type)}</b>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {d.uploaded_at ? `Uploaded ${new Date(d.uploaded_at).toLocaleDateString()}` : "Uploaded"}
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  {d.url && <a className="btn ghost" href={absUrl(d.url)} target="_blank" rel="noreferrer"
+                               style={{ fontSize: 12, padding: "4px 10px" }}>View</a>}
+                  <button className="ghost" style={{ fontSize: 12, padding: "4px 10px", color: "#dc2626" }}
+                          onClick={() => remove(d.object_key)} disabled={busy}>Remove</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted" style={{ fontSize: 13 }}>No ID submitted yet.</p>
+        )}
+        <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <label style={{ flex: "0 1 200px" }}>ID type
+            <select value={docType} onChange={(e) => setDocType(e.target.value)}>
+              {ID_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="btn ghost" style={{ cursor: "pointer" }}>
+            {busy ? "Uploading…" : "📎 Upload ID photo / PDF"}
+            <input type="file" accept="image/*,application/pdf" style={{ display: "none" }}
+                   onChange={onFile} disabled={busy} />
+          </label>
+        </div>
+        {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+      </div>
     </>
   );
 }

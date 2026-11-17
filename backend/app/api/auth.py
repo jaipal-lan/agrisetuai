@@ -509,6 +509,53 @@ def patch_me(body: MePatch, user: User = Depends(get_current_user), db: Session 
     return self_user(user)
 
 
+class IdProofBody(BaseModel):
+    object_key: str          # from /media/upload
+    doc_type: str = "aadhaar"  # aadhaar | pan | voter_id | driving_licence | passport | other
+
+
+@router.post("/me/id-proof")
+def add_id_proof(body: IdProofBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Attach a government photo-ID proof for identity verification. The file is
+    uploaded first via /media/upload; this records its key and marks the user's
+    profile verification pending for staff review."""
+    from app.models.common import utcnow
+
+    key = (body.object_key or "").strip()
+    if not key:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No document uploaded.")
+    docs = list(user.id_documents or [])
+    docs.append({"object_key": key, "doc_type": (body.doc_type or "other").strip(),
+                 "uploaded_at": utcnow().isoformat()})
+    user.id_documents = docs
+    # Submitting an ID moves the relevant profile into the review queue.
+    for prof in (user.farmer_profile, user.buyer_profile):
+        if prof and prof.verification_status in (None, "unverified", "rejected"):
+            prof.verification_status = "pending"
+    audit.record(db, actor_id=user.id, action="user.id_proof.add", object_type="user",
+                 object_id=user.id, new_values={"doc_type": body.doc_type})
+    db.commit()
+    db.refresh(user)
+    return self_user(user)
+
+
+class IdProofDelete(BaseModel):
+    object_key: str
+
+
+@router.delete("/me/id-proof")
+def remove_id_proof(body: IdProofDelete, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Remove one of the caller's uploaded ID proofs (by object_key)."""
+    key = (body.object_key or "").strip()
+    docs = [d for d in (user.id_documents or []) if (d or {}).get("object_key") != key]
+    user.id_documents = docs
+    audit.record(db, actor_id=user.id, action="user.id_proof.remove", object_type="user",
+                 object_id=user.id)
+    db.commit()
+    db.refresh(user)
+    return self_user(user)
+
+
 @router.post("/consents")
 def consents(body: ConsentBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     rec = ConsentRecord(

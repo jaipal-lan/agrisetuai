@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import MapView from "../components/MapView";
 import { api, downloadCsv, getUser } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
@@ -258,11 +259,13 @@ export default function Admin() {
 
   useEffect(() => {
     setMe(getUser());
-    load();
-    loadPayouts();
     loadUsers();
     loadPriceStatus();
   }, []);
+
+  // Auto-refresh the live queues (KPIs, KYC, carriers, payouts) in the
+  // background; pauses when the tab is hidden.
+  usePoll(() => { load(); loadPayouts(); }, 20000, []);
 
   // Refetch both report surfaces whenever the date range changes.
   useEffect(() => {

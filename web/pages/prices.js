@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../lib/api";
+import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 
 // Is this a per-quintal unit (so it can be shown per-kg)? AGMARKNET is mostly
@@ -51,9 +52,11 @@ export default function Prices() {
     return list;
   }, [commodities, cat, q, sortBy]);
 
-  useEffect(() => {
+  // Market prices refresh daily; re-fetch the list every 2 min so a new import
+  // shows up without a manual reload (pauses when the tab is hidden).
+  usePoll(() => {
     api("/market-prices/commodities").then(setCommodities).catch((e) => setErr(e.message));
-  }, []);
+  }, 120000, []);
 
   useEffect(() => {
     if (!selected) { setDetail(null); return; }
