@@ -61,6 +61,8 @@ def nearest(
     """Nearest mandal to a GPS point (device geolocation at sign-up/checkout),
     by straight-line distance to mandal centroids. Prefers serviceable mandals;
     falls back to the nearest of any if none serviceable is close."""
+    from app.core.config import settings
+
     rows = [
         m for m in db.scalars(select(Mandal))
         if m.latitude is not None and m.longitude is not None
@@ -73,12 +75,23 @@ def nearest(
     )
     serviceable = [t for t in scored if t[1].serviceable]
     dist, m = (serviceable or scored)[0]
+    # Is the point actually inside our delivery footprint? (nearest serviceable
+    # mandal within the service radius). Lets the UI say "we deliver here" vs.
+    # "not serviced yet" instead of silently snapping to a far-away mandal.
+    radius = float(settings.serviceable_radius_km)
+    s_dist, s_m = serviceable[0] if serviceable else (None, None)
+    within = bool(serviceable and s_dist is not None and s_dist <= radius)
     return {
         "mandal_id": m.id,
         "name": m.name,
         "district_id": m.district_id,
         "serviceable": bool(m.serviceable),
         "distance_km": round(dist, 1),
+        "within_service_area": within,
+        "service_radius_km": radius,
+        "nearest_serviceable": None if s_m is None else {
+            "mandal_id": s_m.id, "name": s_m.name, "distance_km": round(s_dist, 1),
+        },
     }
 
 

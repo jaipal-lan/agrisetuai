@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
 import LiveTrackMap from "../../components/LiveTrackMap";
-import MapPicker from "../../components/MapPicker";
+import AddressPicker from "../../components/AddressPicker";
 
 import { api, downloadFile, getUser, mediaUrl, uploadMedia } from "../../lib/api";
 import { usePoll } from "../../lib/hooks";
@@ -336,7 +336,8 @@ export default function OrderDetail() {
   const [showDispute, setShowDispute] = useState(false);
   const [addresses, setAddresses] = useState([]);
   const [addrId, setAddrId] = useState("");
-  const [deliveryPin, setDeliveryPin] = useState(null);
+  const [newAddr, setNewAddr] = useState(null);     // from AddressPicker ("deliver elsewhere")
+  const [addingAddr, setAddingAddr] = useState(false);
 
   useEffect(() => {
     setMe(getUser());
@@ -532,49 +533,89 @@ export default function OrderDetail() {
         </Action>
       )}
 
-      {/* Buyer: choose delivery address + lock quote */}
+      {/* Buyer: choose delivery address + lock quote (Zepto/Rapido-style) */}
       {isBuyer && s === "confirmed" && (
         <Action>
-          <h3>Confirm quote</h3>
-          <label>Deliver to</label>
-          {addresses.length > 0 ? (
-            <select value={addrId} onChange={(e) => setAddrId(e.target.value)}>
-              {addresses.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}{a.is_default ? " (default)" : ""} — {a.address_line ? `${a.address_line}, ` : ""}{a.mandal}
-                </option>
-              ))}
-            </select>
+          <h3>Deliver to</h3>
+          {/* Saved addresses as selectable cards */}
+          {!addingAddr && addresses.length > 0 && (
+            <div style={{ display: "grid", gap: 8 }}>
+              {addresses.map((a) => {
+                const sel = String(a.id) === String(addrId);
+                return (
+                  <label key={a.id} className="card" style={{
+                    display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", margin: 0,
+                    borderColor: sel ? "var(--green-600)" : "var(--line)",
+                    borderWidth: sel ? 2 : 1, padding: "10px 12px",
+                  }}>
+                    <input type="radio" name="addr" checked={sel} onChange={() => setAddrId(String(a.id))}
+                           style={{ marginTop: 3 }} />
+                    <div>
+                      <b>{a.label === "Home" ? "🏠" : a.label === "Work" ? "💼" : "📍"} {a.label}</b>
+                      {a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>default</span>}
+                      <div className="muted" style={{ fontSize: 13 }}>
+                        {a.address_line ? `${a.address_line} · ` : ""}{a.mandal}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Add / deliver elsewhere */}
+          {!addingAddr ? (
+            <button className="ghost" style={{ marginTop: 10 }} onClick={() => setAddingAddr(true)}>
+              ➕ Deliver to a different address
+            </button>
           ) : (
+            <div style={{ marginTop: 6 }}>
+              <AddressPicker autoLocate onChange={setNewAddr} />
+              <button className="ghost" style={{ marginTop: 8 }}
+                      onClick={() => { setAddingAddr(false); setNewAddr(null); }}>
+                ← Use a saved address instead
+              </button>
+            </div>
+          )}
+
+          {addresses.length === 0 && !addingAddr && (
             <p className="muted" style={{ fontSize: 13 }}>
-              No saved address yet. The order will deliver to the default mandal — add an address in{" "}
-              <a href="/profile">your profile</a> for door-to-door delivery.
+              No saved address yet — tap “Deliver to a different address” to set your delivery point on the map.
             </p>
           )}
-          <details style={{ marginTop: 10 }}>
-            <summary style={{ fontSize: 13, cursor: "pointer" }}>📍 Drop exact delivery point on map (optional)</summary>
-            <div style={{ marginTop: 8 }}>
-              <MapPicker value={deliveryPin} onChange={setDeliveryPin} />
-            </div>
-          </details>
+
           <details style={{ marginTop: 10 }}>
             <summary className="muted" style={{ fontSize: 13, cursor: "pointer" }}>Advanced: override route distance</summary>
             <label style={{ marginTop: 6 }}>Route distance (km) — leave blank to compute from location</label>
             <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal"
                    placeholder="auto" />
           </details>
+
           <div style={{ marginTop: 12 }}>
             <button
-              disabled={busy}
-              onClick={() =>
+              disabled={busy || (addingAddr && !newAddr?.lat) || (!addingAddr && addresses.length === 0)}
+              onClick={async () => {
+                let useAddrId = addrId;
+                // "Deliver elsewhere": save the picked address first, then use it.
+                if (addingAddr && newAddr?.lat) {
+                  try {
+                    const saved = await api("/auth/addresses", { method: "POST", body: {
+                      label: newAddr.label || "Home",
+                      mandal_id: newAddr.mandal_id ? Number(newAddr.mandal_id) : undefined,
+                      address_line: newAddr.address_line || null,
+                      latitude: newAddr.lat, longitude: newAddr.lng,
+                    } });
+                    useAddrId = String(saved.id);
+                  } catch { /* fall back to raw pin below */ }
+                }
                 act(`/orders/${id}/confirm-quote`, {
-                  ...(addrId ? { address_id: Number(addrId) } : {}),
-                  ...(deliveryPin ? { delivery_lat: deliveryPin.lat, delivery_lng: deliveryPin.lng } : {}),
+                  ...(useAddrId ? { address_id: Number(useAddrId) } : {}),
+                  ...(!useAddrId && newAddr?.lat ? { delivery_lat: newAddr.lat, delivery_lng: newAddr.lng } : {}),
                   ...(routeKm.trim() === "" ? {} : { route_km: Number(routeKm) }),
-                })
-              }
+                });
+              }}
             >
-              Lock quote
+              Confirm address &amp; lock quote
             </button>
           </div>
         </Action>

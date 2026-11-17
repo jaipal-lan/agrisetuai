@@ -165,6 +165,13 @@ def run():
     near = client.get("/api/locations/nearest", params={"lat": 16.24, "lng": 80.64})
     check("nearest-mandal resolves a GPS point to a mandal",
           near.status_code == 200 and near.json().get("mandal_id"))
+    nj = near.json()
+    check("nearest flags in-service-area for a nearby point",
+          nj.get("within_service_area") is True and "service_radius_km" in nj)
+    # A far-away point (Delhi-ish) is outside the AP/TG footprint.
+    far = client.get("/api/locations/nearest", params={"lat": 28.61, "lng": 77.21}).json()
+    check("nearest flags out-of-service-area for a far point",
+          far.get("within_service_area") is False)
 
     print("\n== Catalog & listing ==")
     commodities = client.get("/api/catalog/commodities").json()

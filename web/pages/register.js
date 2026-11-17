@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import MapPicker from "../components/MapPicker";
+import AddressPicker from "../components/AddressPicker";
 import { api, apiForm } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
@@ -281,37 +281,15 @@ export default function Register() {
           </div>
 
           <h3 style={{ marginBottom: 4 }}>Your address</h3>
-          <div style={{ marginBottom: 8 }}>
-            <button type="button" className="ghost" onClick={useMyLocation} disabled={locating}>
-              {locating ? "Locating…" : "📍 Use my current location"}
-            </button>
-            {geoMsg && <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>{geoMsg}</div>}
-          </div>
-          <div className="form-grid">
-            <label>Label
-              <input value={addrLabel} onChange={(e) => setAddrLabel(e.target.value)} />
-            </label>
-            <label>Area / Mandal
-              <select value={mandalId} onChange={(e) => setMandalId(e.target.value)}>
-                <option value="">Pick mandal…</option>
-                {mandals.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </label>
-            <label style={{ gridColumn: "1 / -1" }}>Address
-              <input value={addrLine} placeholder="House / street / village"
-                     onChange={(e) => setAddrLine(e.target.value)} />
-            </label>
-          </div>
-          <details style={{ marginTop: 8 }}>
-            <summary style={{ cursor: "pointer", fontSize: 14 }}>📍 Pin exact location on map (optional)</summary>
-            <div style={{ marginTop: 8 }}>
-              <MapPicker value={lat ? { lat, lng } : null} onChange={async (ll) => {
-                setLat(ll.lat); setLng(ll.lng);
-                try { const n = await api(`/locations/nearest?lat=${ll.lat}&lng=${ll.lng}`);
-                  if (n?.mandal_id && !mandalId) setMandalId(String(n.mandal_id)); } catch {}
-              }} />
-            </div>
-          </details>
+          <AddressPicker
+            autoLocate
+            onChange={(a) => {
+              if (a.lat != null) { setLat(a.lat); setLng(a.lng); }
+              if (a.mandal_id) setMandalId(String(a.mandal_id));
+              setAddrLine(a.address_line || "");
+              setAddrLabel(a.label || "Home");
+            }}
+          />
 
           <div className="row" style={{ marginTop: 14 }}>
             <button className="ghost" onClick={() => setStep(3)}>←</button>

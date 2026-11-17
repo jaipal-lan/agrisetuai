@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
 
-import MapPicker from "../components/MapPicker";
+import AddressPicker from "../components/AddressPicker";
 import { absUrl, api, getUser, logout, setSession, uploadMedia } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { ROLE_LABEL, roleGate } from "../lib/roles";
@@ -343,37 +343,26 @@ function PayoutCard() {
 
 function AddressesCard() {
   const [list, setList] = useState([]);
-  const [mandals, setMandals] = useState([]);
-  const [form, setForm] = useState({ label: "Home", mandal_id: "", address_line: "", latitude: null, longitude: null, is_default: false });
+  const [addr, setAddr] = useState(null);       // from AddressPicker
+  const [isDefault, setIsDefault] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
 
   function load() { api("/auth/addresses").then(setList).catch(() => {}); }
-  useEffect(() => {
-    load();
-    api("/locations/mandals").then(setMandals).catch(() => {});
-  }, []);
-
-  // Dropping a pin auto-selects the nearest mandal when none is chosen yet.
-  async function onPin(ll) {
-    setForm((f) => ({ ...f, latitude: ll.lat, longitude: ll.lng }));
-    try {
-      const n = await api(`/locations/nearest?lat=${ll.lat}&lng=${ll.lng}`);
-      if (n?.mandal_id) setForm((f) => ({ ...f, mandal_id: f.mandal_id || String(n.mandal_id) }));
-    } catch {}
-  }
+  useEffect(() => { load(); }, []);
 
   async function add(e) {
     e.preventDefault(); setErr(null);
-    if (!form.mandal_id) { setErr("Pick a mandal (or drop a pin)."); return; }
+    if (!addr?.mandal_id) { setErr("Move the map to your location so we can find your area."); return; }
     setBusy(true);
     try {
       await api("/auth/addresses", { method: "POST", body: {
-        label: form.label || "Home", mandal_id: Number(form.mandal_id),
-        address_line: form.address_line || null,
-        latitude: form.latitude ?? undefined, longitude: form.longitude ?? undefined,
-        is_default: form.is_default } });
-      setForm({ label: "Home", mandal_id: "", address_line: "", latitude: null, longitude: null, is_default: false });
+        label: addr.label || "Home", mandal_id: Number(addr.mandal_id),
+        address_line: addr.address_line || null,
+        latitude: addr.lat ?? undefined, longitude: addr.lng ?? undefined,
+        is_default: isDefault } });
+      setAddr(null); setIsDefault(false); setAdding(false);
       load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
@@ -381,6 +370,8 @@ function AddressesCard() {
   async function remove(id) {
     try { await api(`/auth/addresses/${id}`, { method: "DELETE" }); load(); } catch (e) { setErr(e.message); }
   }
+
+  const labelIcon = (l) => (l === "Home" ? "🏠" : l === "Work" ? "💼" : "📍");
 
   return (
     <>
@@ -391,41 +382,29 @@ function AddressesCard() {
           {list.map((a) => (
             <div key={a.id} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 8 }}>
               <div>
-                <b>{a.label}</b>{a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>default</span>}
-                <div className="muted" style={{ fontSize: 13 }}>{a.mandal}{a.address_line ? ` · ${a.address_line}` : ""}</div>
+                <b>{labelIcon(a.label)} {a.label}</b>{a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>default</span>}
+                <div className="muted" style={{ fontSize: 13 }}>{a.address_line ? `${a.address_line} · ` : ""}{a.mandal}</div>
               </div>
               <button className="ghost" onClick={() => remove(a.id)}>Remove</button>
             </div>
           ))}
         </div>
       )}
-      <form className="card" onSubmit={add}>
-        <div className="form-grid">
-          <label>Label
-            <input value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+      {!adding ? (
+        <button className="ghost" onClick={() => setAdding(true)}>➕ Add a new address</button>
+      ) : (
+        <form className="card" onSubmit={add}>
+          <AddressPicker autoLocate onChange={setAddr} />
+          <label className="chk" style={{ marginTop: 10 }}>
+            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> Set as default
           </label>
-          <label>Mandal
-            <select value={form.mandal_id} onChange={(e) => setForm((f) => ({ ...f, mandal_id: e.target.value }))}>
-              <option value="">Pick mandal…</option>
-              {mandals.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </label>
-          <label style={{ gridColumn: "1 / -1" }}>Address (optional)
-            <input value={form.address_line} onChange={(e) => setForm((f) => ({ ...f, address_line: e.target.value }))} />
-          </label>
-        </div>
-        <details style={{ marginTop: 8 }}>
-          <summary style={{ cursor: "pointer", fontSize: 14 }}>📍 Pin delivery location on map (optional)</summary>
-          <div style={{ marginTop: 8 }}>
-            <MapPicker value={form.latitude ? { lat: form.latitude, lng: form.longitude } : null} onChange={onPin} />
+          {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+          <div className="row" style={{ marginTop: 10, gap: 8 }}>
+            <button type="submit" disabled={busy}>Save address</button>
+            <button type="button" className="ghost" onClick={() => { setAdding(false); setAddr(null); }}>Cancel</button>
           </div>
-        </details>
-        <label className="chk" style={{ marginTop: 8 }}>
-          <input type="checkbox" checked={form.is_default} onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))} /> Set as default
-        </label>
-        {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
-        <div><button type="submit" disabled={busy} style={{ marginTop: 10 }}>Add address</button></div>
-      </form>
+        </form>
+      )}
     </>
   );
 }

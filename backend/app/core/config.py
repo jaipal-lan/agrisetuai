@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     payment_provider: str = "mock"
     payment_webhook_secret: str = "dev-sandbox-webhook-secret"
 
+    # A GPS point counts as "inside the delivery footprint" when the nearest
+    # serviceable mandal is within this many km (else the UI says "not serviced
+    # here yet" instead of snapping to a far-away mandal).
+    serviceable_radius_km: float = 30.0
+
     # Token lifetime
     token_ttl_seconds: int = 60 * 60 * 24 * 7
     # Short-lived token proving phone ownership between OTP verify and the
