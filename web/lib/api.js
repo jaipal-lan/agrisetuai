@@ -73,10 +73,13 @@ export function logout() {
 }
 
 // Upload a single file (image/pdf) as multipart; returns { object_key, ... }.
-export async function uploadMedia(file) {
+// Pass { private: true } for KYC / ID docs so the file is stored privately and
+// is only reachable through a signed view-link (never the public media route).
+export async function uploadMedia(file, { private: isPrivate = false } = {}) {
   const token = getToken();
   const fd = new FormData();
   fd.append("file", file);
+  if (isPrivate) fd.append("private", "true");
   const res = await fetch(`${BASE}/media/upload`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},

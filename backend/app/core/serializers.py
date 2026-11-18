@@ -20,6 +20,21 @@ def _media_url(key: str | None) -> str | None:
     return key if key.startswith("http") else f"/media/file/{key}"
 
 
+def _secure_media_url(key: str | None) -> str | None:
+    """A signed, expiring view-link for a PRIVATE file (KYC / ID doc). Cloudinary
+    private assets are already stored as a signed https URL; local keys are routed
+    through the token-gated /media/secure endpoint. Minted only inside auth-gated
+    responses (the owner's /auth/me, staff's /admin/kyc)."""
+    if not key:
+        return None
+    if key.startswith("http"):
+        return key  # Cloudinary authenticated asset — already a signed URL
+    from urllib.parse import quote
+
+    from app.core.security import issue_media_token
+    return f"/media/secure/{quote(key, safe='/')}?token={issue_media_token(key)}"
+
+
 def _id_documents(user: User) -> list:
     docs = getattr(user, "id_documents", None) or []
     out = []
@@ -28,7 +43,7 @@ def _id_documents(user: User) -> list:
             continue
         out.append({
             "object_key": d.get("object_key"),
-            "url": _media_url(d.get("object_key")),
+            "url": _secure_media_url(d.get("object_key")),
             "doc_type": d.get("doc_type"),
             "uploaded_at": d.get("uploaded_at"),
         })

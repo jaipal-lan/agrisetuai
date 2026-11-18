@@ -528,6 +528,12 @@ def add_id_proof(body: IdProofBody, user: User = Depends(get_current_user), db: 
     docs.append({"object_key": key, "doc_type": (body.doc_type or "other").strip(),
                  "uploaded_at": utcnow().isoformat()})
     user.id_documents = docs
+    # Belt-and-braces: mark the underlying media object private (the upload should
+    # already have, but never leave a KYC doc classed as public).
+    from app.models.support import MediaObject
+    mo = db.scalar(select(MediaObject).where(MediaObject.object_key == key))
+    if mo is not None:
+        mo.access_class = "private"
     # Submitting an ID moves the relevant profile into the review queue.
     for prof in (user.farmer_profile, user.buyer_profile):
         if prof and prof.verification_status in (None, "unverified", "rejected"):

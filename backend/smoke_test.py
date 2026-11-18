@@ -654,6 +654,32 @@ def run():
     check("id-proof removal clears the document",
           rp.status_code == 200 and len(rp.json()["id_documents"]) == 0)
 
+    # PRIVATE KYC media: an ID doc must not be reachable at a public URL — only
+    # through a signed, expiring /media/secure link bound to that exact file.
+    pm = client.post("/api/media/upload", headers=hdr(newf),
+                     files={"file": ("id.png", b"\x89PNG\r\n\x1a\n" + b"0" * 48, "image/png")},
+                     data={"private": "true"})
+    check("private upload accepted", pm.status_code == 200)
+    pkey = pm.json()["object_key"]
+    if pkey.startswith("priv/"):  # local-disk pilot path (Cloudinary returns an https url)
+        check("private file refused by the public media route",
+              client.get(f"/api/media/file/{pkey}").status_code == 403)
+        ipp = client.post("/api/auth/me/id-proof", headers=hdr(newf),
+                          json={"object_key": pkey, "doc_type": "pan"})
+        doc = next(d for d in ipp.json()["id_documents"] if d["object_key"] == pkey)
+        check("ID doc exposes a signed /media/secure link", "/media/secure/" in (doc["url"] or ""))
+        from urllib.parse import parse_qs, urlparse
+        tok = parse_qs(urlparse(doc["url"]).query).get("token", [""])[0]
+        check("signed link serves the private file",
+              client.get(f"/api/media/secure/{pkey}", params={"token": tok}).status_code == 200)
+        check("secure route rejects a bad token",
+              client.get(f"/api/media/secure/{pkey}", params={"token": "nope"}).status_code == 403)
+        check("secure route rejects a missing token",
+              client.get(f"/api/media/secure/{pkey}").status_code == 403)
+        # Clean up so it doesn't affect later id_documents assertions.
+        client.request("DELETE", "/api/auth/me/id-proof", headers=hdr(newf),
+                       json={"object_key": pkey})
+
     # Profile photo can be cleared by sending an empty avatar key.
     client.patch("/api/auth/me", headers=hdr(newf), json={"avatar_object_key": "sample/x.jpg"})
     cleared = client.patch("/api/auth/me", headers=hdr(newf), json={"avatar_object_key": ""}).json()

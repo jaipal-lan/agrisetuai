@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     media_dir: str = "./var/media"
     media_max_bytes: int = 8 * 1024 * 1024          # images / PDFs
     media_video_max_bytes: int = 60 * 1024 * 1024   # packing / sample videos
+    # How long a signed view-link for a PRIVATE file (KYC/ID docs) stays valid.
+    # The link is only ever handed to the owner (/auth/me) or verification staff
+    # (/admin/kyc); both re-fetch often, so a short window is plenty.
+    media_token_ttl_seconds: int = 3600
     # Cloudinary object storage (product photos, videos, KYC docs, profile pics).
     # When all three are set, uploads go to Cloudinary's CDN (permanent URLs);
     # otherwise they fall back to local disk (fine for dev, ephemeral on Render).

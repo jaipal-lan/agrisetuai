@@ -443,7 +443,7 @@ function IdProofCard({ detail, onChange }) {
     if (!file) return;
     setErr(null); setBusy(true);
     try {
-      const up = await uploadMedia(file);
+      const up = await uploadMedia(file, { private: true });
       const d = await api("/auth/me/id-proof", { method: "POST",
         body: { object_key: up.object_key, doc_type: docType } });
       onChange?.(d);

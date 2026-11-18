@@ -1,16 +1,22 @@
 import hashlib
 import os
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.ids import public_id
+from app.core.security import verify_media_token
 from app.models.support import MediaObject
 from app.services import audit, storage
+
+# Local on-disk prefix for PRIVATE files (KYC / ID docs). The public /media/file
+# route refuses this prefix, so private files are only reachable via /media/secure
+# with a valid signed token.
+PRIVATE_PREFIX = "priv/"
 
 router = APIRouter(prefix="/media", tags=["media"])
 
@@ -65,9 +71,14 @@ def _media_type(ctype: str) -> str:
 @router.post("/upload")
 async def upload(
     file: UploadFile = File(...),
+    private: bool = Form(False),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Store an uploaded file. private=True (KYC / ID docs) keeps the file out of
+    the public /media/file route: on Cloudinary it uploads as an authenticated
+    asset (signed delivery URL); on local disk it lands under a `priv/` prefix
+    that only the signed /media/secure route will serve."""
     ctype = (file.content_type or "").split(";")[0].strip().lower()
     if ctype not in _ALLOWED:
         raise HTTPException(
@@ -81,9 +92,10 @@ async def upload(
     ext = _ALLOWED[ctype]
     fname = f"{public_id('MED', 10).lower()}.{ext}"
     # Prefer Cloudinary (permanent CDN URL); fall back to local disk for dev.
-    object_key = storage.save(raw, ctype, folder=f"agrisetu/{user.id}", filename=fname)
+    object_key = storage.save(raw, ctype, folder=f"agrisetu/{user.id}",
+                              filename=fname, private=private)
     if not object_key:
-        key = f"{user.id}/{fname}"
+        key = f"{PRIVATE_PREFIX if private else ''}{user.id}/{fname}"
         root = os.path.abspath(settings.media_dir)
         dest = os.path.join(root, key.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -97,7 +109,7 @@ async def upload(
         content_type=ctype,
         size_bytes=len(raw),
         checksum=hashlib.sha256(raw).hexdigest(),
-        access_class="restricted",
+        access_class="private" if private else "restricted",
     )
     db.add(obj)
     audit.record(
@@ -118,18 +130,39 @@ async def upload(
     }
 
 
-@router.get("/file/{object_key:path}")
-def serve_file(object_key: str):
-    """Serve a stored media file (public listing images, dev). Demo listings use
-    `sample/...` keys that render as a generated placeholder image, so the UI shows
-    produce photos without bundled binaries.
-
-    NOTE: pilot-only. Production must gate restricted evidence behind signed URLs.
-    """
-    if object_key.startswith("sample/"):
-        return Response(content=_placeholder_svg(object_key), media_type="image/svg+xml")
+def _serve_local(object_key: str):
     root = os.path.abspath(settings.media_dir)
     dest = os.path.abspath(os.path.join(root, object_key.replace("/", os.sep)))
     if not dest.startswith(root) or not os.path.isfile(dest):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     return FileResponse(dest)
+
+
+@router.get("/file/{object_key:path}")
+def serve_file(object_key: str):
+    """Serve a PUBLIC stored media file (listing images, avatars, dev). Demo
+    listings use `sample/...` keys that render as a generated placeholder image,
+    so the UI shows produce photos without bundled binaries.
+
+    Private files (KYC / ID docs, stored under the `priv/` prefix) are refused
+    here — they are only reachable via /media/secure with a valid signed token.
+    """
+    if object_key.startswith("sample/"):
+        return Response(content=_placeholder_svg(object_key), media_type="image/svg+xml")
+    if object_key.startswith(PRIVATE_PREFIX):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This file is private.")
+    return _serve_local(object_key)
+
+
+@router.get("/secure/{object_key:path}")
+def serve_secure(object_key: str, token: str = ""):
+    """Serve a PRIVATE file (KYC / ID doc) only when presented with a valid,
+    unexpired signed token bound to this exact object_key. The token is minted
+    solely inside auth-gated responses (the owner's /auth/me and staff's
+    /admin/kyc), so the file is never exposed at a guessable public URL."""
+    if not token or not verify_media_token(token, object_key):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid or expired link.")
+    # Cloudinary-hosted private assets are stored as a full signed https URL.
+    if object_key.startswith("http"):
+        return RedirectResponse(object_key)
+    return _serve_local(object_key)

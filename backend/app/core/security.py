@@ -108,6 +108,36 @@ def verify_phone_token(token: str) -> str | None:
     return payload.get("ph")
 
 
+# --- Short-lived signed view-link for PRIVATE media (KYC / ID docs) ---------
+# Private files are never served at a guessable public URL; they are reachable
+# only through /media/secure with one of these tokens. The token is bound to a
+# specific object_key (so it can't be reused for another file) and expires, and
+# it is only ever minted inside auth-gated responses (the owner's /auth/me and
+# staff's /admin/kyc). Purpose-scoped ("md") so it can't act as an auth token.
+def _key_digest(object_key: str) -> str:
+    return hashlib.sha256(
+        (settings.effective_secret + "|md|" + (object_key or "")).encode()
+    ).hexdigest()[:24]
+
+
+def issue_media_token(object_key: str, ttl_seconds: int | None = None) -> str:
+    ttl = settings.media_token_ttl_seconds if ttl_seconds is None else ttl_seconds
+    payload = {
+        "mk": _key_digest(object_key),
+        "pur": "md",
+        "exp": int(time.time()) + int(ttl),
+    }
+    payload_b64 = _b64e(json.dumps(payload, separators=(",", ":")).encode())
+    return f"{payload_b64}.{_sign(payload_b64)}"
+
+
+def verify_media_token(token: str, object_key: str) -> bool:
+    payload = decode_token(token)  # validates signature + expiry
+    if not payload or payload.get("pur") != "md":
+        return False
+    return hmac.compare_digest(str(payload.get("mk", "")), _key_digest(object_key))
+
+
 # --- OTP store ------------------------------------------------------------
 # phone -> (code, expires_at)
 _otp: dict[str, tuple[str, float]] = {}
