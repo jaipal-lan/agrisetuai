@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import MapView from "../components/MapView";
-import { api, downloadCsv, getUser } from "../lib/api";
+import { absUrl, api, downloadCsv, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
@@ -232,8 +232,13 @@ export default function Admin() {
 
   async function kycDecide(userId, approve) {
     setErr(null);
+    let reason;
+    if (!approve) {
+      reason = window.prompt("Reason for rejecting this identity verification? (shown to the user)") || "";
+      if (!reason.trim()) return; // cancelled / empty — don't reject silently
+    }
     try {
-      await api(`/admin/kyc/${userId}/decision`, { method: "POST", body: { approve } });
+      await api(`/admin/kyc/${userId}/decision`, { method: "POST", body: { approve, reason } });
       load();
     } catch (e) {
       setErr(e.message);
@@ -722,29 +727,74 @@ export default function Admin() {
         </button>
       </div>
 
-      <h2>KYC approval queue {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>
+      <h2>Identity verification queue {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>
+      <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
+        Review each person&apos;s submitted government photo-ID. Open each document, check
+        the name/photo matches, then approve or reject. Rejecting asks for a reason the
+        user will see so they can re-submit.
+      </p>
       {kyc.length === 0 ? (
         <p className="muted">No pending verifications.</p>
       ) : (
-        <table>
-          <thead>
-            <tr><th>Name</th><th>Phone</th><th>Role</th><th>Details</th><th></th></tr>
-          </thead>
-          <tbody>
-            {kyc.map((u) => (
-              <tr key={u.user_id}>
-                <td>{u.name || "—"}</td>
-                <td>{u.phone}</td>
-                <td>{u.kind}</td>
-                <td className="muted">{u.village || u.buyer_type || ""}</td>
-                <td>
-                  <button className="ghost" onClick={() => kycDecide(u.user_id, true)}>Approve</button>{" "}
-                  <button className="ghost" onClick={() => kycDecide(u.user_id, false)}>Reject</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="grid">
+          {kyc.map((u) => (
+            <div className="card" key={u.user_id}>
+              <div className="between" style={{ gap: 8, flexWrap: "wrap" }}>
+                <div>
+                  <b>{u.name || "—"}</b>{" "}
+                  <span className="badge grey">{(u.role || u.kind || "").replace(/_/g, " ")}</span>
+                  <div className="muted" style={{ fontSize: 13 }}>
+                    {u.phone}{u.village ? ` · ${u.village}` : ""}{u.buyer_type ? ` · ${u.buyer_type}` : ""}
+                  </div>
+                  {(u.aadhaar_masked || u.pan_masked) && (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                      {u.aadhaar_masked ? `Aadhaar ${u.aadhaar_masked}` : ""}
+                      {u.aadhaar_masked && u.pan_masked ? " · " : ""}
+                      {u.pan_masked ? `PAN ${u.pan_masked}` : ""}
+                    </div>
+                  )}
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="green" style={{ padding: "4px 12px", fontSize: 13 }}
+                          onClick={() => kycDecide(u.user_id, true)}>Approve</button>
+                  <button className="ghost" style={{ padding: "4px 12px", fontSize: 13 }}
+                          onClick={() => kycDecide(u.user_id, false)}>Reject</button>
+                </div>
+              </div>
+
+              {(u.id_documents && u.id_documents.length > 0) ? (
+                <div className="row" style={{ gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  {u.id_documents.map((d, i) => {
+                    const href = absUrl(d.url || d.object_key);
+                    const isImg = !/\.pdf($|\?)/i.test(d.url || d.object_key || "");
+                    return (
+                      <a key={i} href={href} target="_blank" rel="noopener noreferrer"
+                         title={`${(d.doc_type || "document").replace(/_/g, " ")} — open full size`}
+                         style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
+                        {isImg ? (
+                          <img src={href} alt={d.doc_type || "ID"}
+                               style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 8,
+                                        border: "1px solid var(--line, #e5e7eb)", background: "#f3f4f6" }} />
+                        ) : (
+                          <div style={{ width: 120, height: 90, borderRadius: 8, border: "1px solid var(--line, #e5e7eb)",
+                                        display: "flex", alignItems: "center", justifyContent: "center",
+                                        fontSize: 13, background: "#f3f4f6", color: "#374151" }}>📄 PDF</div>
+                        )}
+                        <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                          {(d.doc_type || "document").replace(/_/g, " ")}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>
+                  ⚠ No ID document uploaded yet — ask the user to submit one from their profile before approving.
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       <h2>Users</h2>

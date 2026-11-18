@@ -11,6 +11,7 @@ from app.core.deps import require_roles
 from app.core.ids import public_id
 from app.core.money import money
 from app.core.rbac import Role
+from app.core.serializers import _id_documents, _mask
 from app.models.audit import AuditLog
 from app.models.catalog import Commodity
 from app.models.common import LedgerDirection
@@ -370,7 +371,8 @@ def ledger_accounts(user=Depends(_staff), db: Session = Depends(get_db)):
 
 @router.get("/kyc")
 def kyc_queue(status_filter: str = "pending", user=Depends(_staff), db: Session = Depends(get_db)):
-    """Users awaiting KYC verification (farmers, buyers, agents)."""
+    """Users awaiting KYC verification (farmers, buyers), with their submitted
+    government photo-ID documents so staff can review them before deciding."""
     out = []
     # Agents are onboarded via training/performance, not KYC verification.
     for model, kind in ((FarmerProfile, "farmer"), (BuyerProfile, "buyer")):
@@ -383,6 +385,10 @@ def kyc_queue(status_filter: str = "pending", user=Depends(_staff), db: Session 
                 "kind": kind, "verification_status": p.verification_status,
                 "village": getattr(p, "village", None),
                 "buyer_type": getattr(p, "buyer_type", None),
+                "aadhaar_masked": _mask(u.aadhaar),
+                "pan_masked": _mask(u.pan),
+                # Uploaded ID photos/PDFs for the reviewer to open one by one.
+                "id_documents": _id_documents(u),
             })
     return out
 

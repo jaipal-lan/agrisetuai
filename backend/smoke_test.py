@@ -707,9 +707,17 @@ def run():
     myoffers = client.get("/api/offers", headers=hdr(buyer)).json()
     check("reorder offer appears in buyer's offers", any(o["id"] == r.json()["offer_id"] for o in myoffers))
 
+    # Re-submit an ID proof so the reviewer queue can surface it for review.
+    client.post("/api/auth/me/id-proof", headers=hdr(newf),
+                json={"object_key": "sample/aadhaar-front.jpg", "doc_type": "aadhaar"})
     q = client.get("/api/admin/kyc", headers=hdr(superadmin)).json()
     check("new farmer appears in KYC queue", any(x["phone"] == "919000000031" for x in q))
     target = next(x for x in q if x["phone"] == "919000000031")
+    check("KYC queue surfaces the submitted ID documents for review",
+          isinstance(target.get("id_documents"), list)
+          and len(target["id_documents"]) == 1
+          and target["id_documents"][0].get("url")
+          and target["id_documents"][0].get("doc_type") == "aadhaar")
     d = client.post(f"/api/admin/kyc/{target['user_id']}/decision", headers=hdr(superadmin),
                     json={"approve": True})
     check("admin approves KYC", d.json()["verification_status"] == "verified")

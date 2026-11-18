@@ -11,8 +11,19 @@ export default function CameraCapture({ onCapture, label = "📷 Take photo", cl
   const streamRef = useRef(null);
   const fallbackRef = useRef(null);
 
+  const [insecure, setInsecure] = useState(false);
+
   const webcamOk = typeof window !== "undefined" && window.isSecureContext
     && !!navigator.mediaDevices?.getUserMedia;
+
+  // On a desktop over plain HTTP the live camera is blocked by the browser
+  // (getUserMedia needs a secure context). Detect that so we can nudge the user
+  // to the HTTPS URL instead of silently opening a file dialog.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const coarse = window.matchMedia?.("(pointer: coarse)")?.matches;
+    setInsecure(!window.isSecureContext && !coarse); // desktop, not secure
+  }, []);
 
   function open() {
     setErr(null);
@@ -70,6 +81,12 @@ export default function CameraCapture({ onCapture, label = "📷 Take photo", cl
       <input ref={fallbackRef} type="file" accept="image/*" capture="environment"
              style={{ display: "none" }} onChange={onFile} />
       {err && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}
+      {insecure && !err && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          Live camera needs a secure (https://) page — opens a file chooser here. Open the
+          app over <b>https</b> (the deployed link, or <code>npm run dev:https</code>) to shoot a photo directly.
+        </div>
+      )}
       {cam && (
         <div onClick={stopCam} style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", zIndex: 4000,
