@@ -1668,6 +1668,27 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced after COD settlement", acct["balanced"] is True)
 
+    print("\n== WhatsApp transactional alerts (gated, Gupshup) ==")
+    from app.core.config import settings as _st
+    from app.services import whatsapp as _wa
+    check("whatsapp disabled by default is a no-op",
+          _wa.enabled() is False and _wa.send_text("919999999999", "hi") is False)
+    _sent, _orig = [], _wa.send_text
+    _wa.send_text = lambda phone, body: (_sent.append((phone, body)) or True)
+    _st.whatsapp_enabled, _st.gupshup_api_key, _st.gupshup_source = True, "test-key", "919999999999"
+    try:
+        bn2 = client.post("/api/offers/buy-now", headers=hdr(buyer),
+                          json={"listing_id": listing["id"], "quantity": 100})
+        check("an order event pushes WhatsApp when enabled",
+              bn2.status_code == 200 and len(_sent) >= 1)
+        before = len(_sent)
+        client.post("/api/offers", headers=hdr(buyer),
+                    json={"listing_id": listing["id"], "price_per_unit": 20.0, "quantity": 100})
+        check("a proactive offer alert does NOT hit WhatsApp", len(_sent) == before)
+    finally:
+        _wa.send_text = _orig
+        _st.whatsapp_enabled, _st.gupshup_api_key, _st.gupshup_source = False, "", ""
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

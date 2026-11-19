@@ -83,6 +83,20 @@ class Settings(BaseSettings):
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
 
+    # WhatsApp (via Gupshup BSP) for transactional alerts — order/payment/sale,
+    # payout and dispute updates reach farmers where they actually are. Gated:
+    # nothing is sent unless whatsapp_enabled is true AND the keys below are set
+    # (so dev/tests never message anyone). Get these from your Gupshup app:
+    #   gupshup_api_key  — the app's API key
+    #   gupshup_source   — your WhatsApp Business number (digits, e.g. 9180...)
+    #   gupshup_src_name — the Gupshup app name
+    # Business-initiated messages outside the 24h session window need Gupshup-
+    # approved message templates; see WHATSAPP_SETUP.md.
+    whatsapp_enabled: bool = False
+    gupshup_api_key: str = ""
+    gupshup_source: str = ""
+    gupshup_src_name: str = ""
+
     # A GPS point counts as "inside the delivery footprint" when the nearest
     # serviceable mandal is within this many km (else the UI says "not serviced
     # here yet" instead of snapping to a far-away mandal).

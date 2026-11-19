@@ -30,6 +30,14 @@ _CATEGORY_BY_OBJECT: dict[str, str] = {
 }
 
 
+# Transactional events worth pushing to WhatsApp (gated). Deliberately a small
+# set — the moments a farmer/buyer really wants off-app: order lifecycle, money
+# movements, account/security and disputes. Noisy/proactive categories (offers,
+# rfq, announcements, price alerts) and bulk broadcasts are intentionally
+# excluded, both to avoid spam and to keep broadcast loops off the network.
+_WHATSAPP_OBJECTS = {"order", "payout", "payout_account", "dispute", "user"}
+
+
 def category_for(object_type: str | None) -> str | None:
     """The muteable category for an object_type, or None if always-on."""
     return _CATEGORY_BY_OBJECT.get(object_type or "")
@@ -71,4 +79,15 @@ def send(
         deferred=deferred,
     )
     db.add(n)
+
+    # Mirror important transactional alerts to WhatsApp (gated: no-op unless
+    # configured). Skipped for digest-deferred items and for anything outside the
+    # small transactional set, so proactive nudges and bulk broadcasts never hit
+    # the network here. Best-effort — a messaging failure never breaks the caller.
+    if not deferred and object_type in _WHATSAPP_OBJECTS:
+        from app.services import whatsapp
+        if whatsapp.enabled():
+            recipient = db.get(User, user_id)
+            if recipient is not None and recipient.phone:
+                whatsapp.send_text(recipient.phone, f"{title}\n{body}")
     return n
