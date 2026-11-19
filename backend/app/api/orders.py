@@ -25,6 +25,7 @@ from app.models.order import (
     ShipmentEvent,
 )
 from app.services import audit
+from app.services import inventory
 from app.services import ledger
 from app.services.ledger import Leg
 from app.services.state_machine import InvalidTransition, transition
@@ -315,7 +316,16 @@ def assign_inspection(
     user=Depends(require_roles(Role.FIELD_LEADER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
+    from app.models.user import User
+
     order = _get_order(order_id, db)
+    # Only a real field agent/leader/manager can receive an inspection job — a
+    # mis-assignment to a buyer/transport user would strand the order.
+    assignee = db.get(User, body.agent_id)
+    if assignee is None or assignee.role not in (
+        Role.FIELD_AGENT, Role.FIELD_LEADER, Role.FIELD_MANAGER
+    ):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assignee must be a field agent.")
     order.assigned_agent_id = body.agent_id
     _safe_transition(db, order, S.INSPECTION_ASSIGNED, actor_id=user.id,
                      reason_code="agent_assigned", note=f"agent={body.agent_id}")
@@ -885,6 +895,13 @@ def shipment_event(
                             carrier_id=user.id, status="created")
         db.add(shipment)
         db.flush()
+    # A delivery belongs to the first courier who takes it. Another courier must
+    # not be able to work (or hijack) someone else's in-flight shipment; staff
+    # (leader/superadmin) may still step in.
+    if (shipment.carrier_id is not None and shipment.carrier_id != user.id
+            and user.role == Role.TRANSPORT):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "This delivery is already assigned to another courier.")
     # The transport partner who works the milestones is the delivery-payout payee.
     if shipment.carrier_id is None and user.role == Role.TRANSPORT:
         shipment.carrier_id = user.id
@@ -918,6 +935,10 @@ def proof_of_delivery(
     shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
     if not shipment:
         raise HTTPException(status.HTTP_409_CONFLICT, "No shipment yet")
+    if (shipment.carrier_id is not None and shipment.carrier_id != user.id
+            and user.role == Role.TRANSPORT):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "This delivery is already assigned to another courier.")
     expected = (shipment.proof_of_delivery or {}).get("otp")
     if expected and body.otp and body.otp != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid delivery OTP")
@@ -1024,12 +1045,7 @@ def cancel(order_id: int, body: CancelBody, user=Depends(get_current_user), db: 
         raise HTTPException(status.HTTP_409_CONFLICT, f"Cannot cancel from {order.status}")
 
     # Release reserved quantity back to availability.
-    for line in order.lines:
-        if line.listing_id and line.allocation_status in ("reserved", "packed"):
-            listing = db.get(Listing, line.listing_id, with_for_update=True)
-            if listing:
-                listing.reserved_qty = max(D("0"), D(listing.reserved_qty) - D(line.quantity))
-            line.allocation_status = "released"
+    inventory.release_reserved(db, order)
     audit.record(db, actor_id=user.id, action="order.cancel", object_type="order",
                  object_id=order.public_id, reason=body.reason_code)
     db.commit()

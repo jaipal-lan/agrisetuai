@@ -12,6 +12,7 @@ from app.models.common import OrderStatus as S
 from app.models.order import Inspection, Order
 from app.models.user import User
 from app.services import audit
+from app.services import inventory
 from app.services.state_machine import InvalidTransition, transition
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -134,6 +135,13 @@ def submit_inspection(
     # A pass advances automatically to buyer approval (PRD 5 state chain).
     if outcome_state == S.INSPECTION_PASS and order.status == S.INSPECTION_PASS:
         _safe(db, order, S.BUYER_APPROVAL_PENDING, actor_id=user.id, reason_code="awaiting_buyer")
+
+    # A failed inspection must not strand the order. Auto-cancel it and return the
+    # reserved stock to the farmer; the CANCELLED transition notifies both parties,
+    # who can still open a dispute if they disagree with the result.
+    if outcome_state == S.INSPECTION_FAIL and order.status == S.INSPECTION_FAIL:
+        _safe(db, order, S.CANCELLED, actor_id=user.id, reason_code="inspection_failed")
+        inventory.release_reserved(db, order)
 
     audit.record(db, actor_id=user.id, action="inspection.decision", object_type="order",
                  object_id=order.public_id, new_values={"outcome": str(body.outcome), "net_qty": str(net) if net else None})

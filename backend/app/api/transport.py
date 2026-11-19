@@ -29,13 +29,21 @@ def transport_jobs(include_done: bool = False, user=Depends(_transport), db: Ses
     if include_done:
         states += [S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED]
     orders = db.scalars(select(Order).where(Order.status.in_(states)).order_by(Order.id.desc()))
+    # A courier only sees jobs that are theirs or still unclaimed; staff
+    # (leader/superadmin) oversee the whole pool.
+    is_courier = user.role == Role.TRANSPORT
     jobs = []
     earnings_active = money(0)
     for o in orders:
         shipment = db.scalar(select(Shipment).where(Shipment.order_id == o.id))
+        carrier_id = shipment.carrier_id if shipment else None
+        mine = carrier_id == user.id
+        claimable = carrier_id is None
+        if is_courier and not (mine or claimable):
+            continue  # another courier already owns this delivery
         quote = o.quote or {}
         charge = money(quote.get("transport_charge", 0))
-        if o.status in _ACTIVE:
+        if o.status in _ACTIVE and (mine or not is_courier):
             earnings_active += charge
         jobs.append({
             "order_id": o.id,
@@ -47,6 +55,8 @@ def transport_jobs(include_done: bool = False, user=Depends(_transport), db: Ses
             "transport_charge": str(charge),
             "quantity": (o.accepted_terms or {}).get("quantity"),
             "unit": (o.accepted_terms or {}).get("unit"),
+            "mine": mine,
+            "claimable": claimable,
         })
     return {"jobs": jobs, "active_earning": str(earnings_active), "active_count":
             sum(1 for j in jobs if j["status"] in [str(s) for s in _ACTIVE])}
@@ -141,6 +151,9 @@ def post_location(order_id: int, body: LocationPing, user=Depends(_transport),
     shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
     if shipment is None:
         raise HTTPException(404, "No shipment for this order yet.")
+    if (shipment.carrier_id is not None and shipment.carrier_id != user.id
+            and user.role == Role.TRANSPORT):
+        raise HTTPException(403, "This delivery is assigned to another courier.")
     shipment.last_lat = body.lat
     shipment.last_lng = body.lng
     shipment.last_location_at = utcnow()

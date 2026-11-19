@@ -14,10 +14,14 @@ from app.models.finance import Payment, Refund
 from app.models.order import Order
 from app.models.support import Dispute, SupportTicket
 from app.services import audit
+from app.services import inventory
 from app.services import ledger
 from app.services.ledger import Leg
 from app.services import notify
 from app.services.state_machine import InvalidTransition, transition
+
+# Moving money out (a refund) is a finance action, even inside a dispute.
+_FINANCE_ROLES = {Role.FIELD_MANAGER, Role.SUPERADMIN}
 
 router = APIRouter(tags=["support"])
 
@@ -234,6 +238,13 @@ def decide_dispute(
 
     refund_result = None
     if body.decision in _REFUND_DECISIONS:
+        # A refund moves money out — keep that authority with finance roles, even
+        # though a field leader may resolve the non-financial side of a dispute.
+        if user.role not in _FINANCE_ROLES:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Only a field manager or superadmin can resolve a dispute with a refund.",
+            )
         # full_refund => remaining balance (amount=None); partial => the named amount.
         amount = None if body.decision == "full_refund" else body.refund_amount
         if body.decision == "partial_refund" and not amount:
@@ -356,6 +367,13 @@ def perform_refund(
             transition(db, order, target, actor_id=actor_id, reason_code=reason_code, note=note)
     except InvalidTransition as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+
+    # A full refund means the sale did not complete: return any stock still held
+    # in reserved/packed state to the farmer's availability (goods already
+    # delivered are left as sold — a full refund there is compensation, not a
+    # re-sellable return).
+    if target == S.REFUNDED:
+        inventory.release_reserved(db, order)
     audit.record(
         db,
         actor_id=actor_id,
@@ -374,7 +392,7 @@ def refund_order(
     order_id: int,
     body: RefundBody,
     idempotency_key: str | None = Header(default=None),
-    user=Depends(require_roles(Role.FIELD_MANAGER, Role.SUPERADMIN, Role.FIELD_MANAGER)),
+    user=Depends(require_roles(Role.FIELD_MANAGER, Role.SUPERADMIN)),
     db: Session = Depends(get_db),
 ):
     """Post a balanced refund. Partial refunds keep original payment history intact."""

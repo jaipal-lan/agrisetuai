@@ -393,6 +393,15 @@ def run():
                     json={"agent_id": 3})
     check("manager assigns inspection", r.json()["status"] == "inspection_assigned")
 
+    # Assignment must target a real field agent — a mis-assignment would strand it.
+    buyer_uid = client.get("/api/auth/me", headers=hdr(buyer)).json().get("id")
+    r = client.post(f"/api/orders/{order_id}/assign-inspection", headers=hdr(manager),
+                    json={"agent_id": buyer_uid or 999999})
+    check("assign-inspection rejects a non-agent assignee", r.status_code == 400)
+    r = client.post(f"/api/orders/{order_id}/assign-inspection", headers=hdr(manager),
+                    json={"agent_id": 999999})
+    check("assign-inspection rejects an unknown assignee", r.status_code == 400)
+
     jobs = client.get("/api/agent/jobs", headers=hdr(agent)).json()
     check("agent sees assigned job", any(j["order_id"] == order_id for j in jobs))
 
@@ -1185,6 +1194,10 @@ def run():
     dlist = client.get("/api/disputes", headers=hdr(superadmin)).json()
     mine = next(d for d in dlist if d["id"] == ev_dispute_id)
     check("evidence photos persisted on dispute", len(mine["evidence"].get("media", [])) == 2)
+    # A field leader may run the dispute, but moving money (a refund) is finance-only.
+    r = client.post(f"/api/disputes/{ev_dispute_id}/decision", headers=hdr(manager),
+                    json={"decision": "full_refund", "note": "leader attempt"})
+    check("field leader cannot resolve a dispute with a refund", r.status_code == 403)
     # Ops resolves with a FULL refund of the remaining balance via the decision endpoint.
     r = client.post(f"/api/disputes/{ev_dispute_id}/decision", headers=hdr(superadmin),
                     json={"decision": "full_refund", "note": "Lot rejected on re-inspection"})
@@ -1597,6 +1610,24 @@ def run():
     check("re-accepting a settled order does not double-accrue payouts", after == before)
     check("ledger still balanced after the edge-case probe",
           client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()["balanced"] is True)
+
+    print("\n== Failed inspection auto-cancels + releases stock ==")
+    resv_before = float(client.get(f"/api/listings/{listing['id']}").json()["reserved_qty"])
+    r = client.post("/api/offers", headers=hdr(buyer), json={
+        "listing_id": listing["id"], "price_per_unit": 24.0, "quantity": 100})
+    fail_offer_id = r.json()["id"]
+    r = client.post(f"/api/offers/{fail_offer_id}/accept", headers=hdr(farmer))
+    fail_order_id = r.json()["order"]["id"]
+    resv_reserved = float(client.get(f"/api/listings/{listing['id']}").json()["reserved_qty"])
+    check("fresh order reserves stock", resv_reserved == resv_before + 100)
+    client.post(f"/api/orders/{fail_order_id}/assign-inspection", headers=hdr(manager),
+                json={"agent_id": 3})
+    r = client.post(f"/api/agent/orders/{fail_order_id}/inspection", headers=hdr(agent),
+                    json={"client_draft_id": "draft-fail-1", "gross_weight": 100, "tare_weight": 0,
+                          "outcome": "fail", "checklist": {"foreign_matter": "high"}})
+    check("failed inspection auto-cancels the order", r.json()["order_status"] == "cancelled")
+    resv_after = float(client.get(f"/api/listings/{listing['id']}").json()["reserved_qty"])
+    check("failed inspection releases the reserved stock back", resv_after == resv_before)
 
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
