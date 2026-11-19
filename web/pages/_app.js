@@ -73,6 +73,44 @@ function Bell() {
   );
 }
 
+// A compact top-level dropdown: a labelled button that reveals its links.
+// Closes on outside click and on navigation. `items` are {href, label}; falsy
+// entries are ignored so callers can inline role conditions.
+function Menu({ label, items }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const list = (items || []).filter(Boolean);
+
+  useEffect(() => { setOpen(false); }, [router.asPath]);
+  useEffect(() => {
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  if (!list.length) return null;
+  const active = list.some((it) => router.pathname === it.href);
+  return (
+    <div className={`navmenu${open ? " open" : ""}`} ref={ref}>
+      <button type="button" className={`navmenu-btn${active ? " active" : ""}`}
+              aria-haspopup="true" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {label} <span className="caret" aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="navmenu-panel" role="menu">
+          {list.map((it) => (
+            <Link key={it.href} href={it.href} role="menuitem"
+                  className={`navmenu-item${router.pathname === it.href ? " active" : ""}`}>
+              {it.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Nav() {
   const { t, lang, setLang } = useI18n();
   const router = useRouter();
@@ -89,6 +127,10 @@ function Nav() {
   const agent = user && ["field_agent", "field_leader", "field_manager", "superadmin"].includes(user.role);
   const lead = user && ["field_leader", "field_manager", "superadmin"].includes(user.role);
   const carrier = user && ["transport", "field_leader", "field_manager", "superadmin"].includes(user.role);
+  const opsOnly = user && !shopper; // staff/agent/transport who don't browse/trade
+
+  // A tiny helper so role conditions can be inlined inside the item lists.
+  const it = (cond, href, label) => (cond ? { href, label } : null);
 
   async function doLogout() {
     try {
@@ -111,24 +153,52 @@ function Nav() {
           {t("app_name")}
         </span>
       </Link>
+
       {user && <Link href="/dashboard">{t("dashboard")}</Link>}
-      {(!user || shopper) && <Link href="/">{t("marketplace")}</Link>}
-      {seller && <Link href="/sell">{t("sell")}</Link>}
-      {seller && <Link href="/earnings">{t("earnings")}</Link>}
-      {(shopper || agent) && <Link href="/requests">{t("requests")}</Link>}
-      {shopper && <Link href="/offers">{t("my_offers")}</Link>}
-      {shopper && <Link href="/orders">{t("my_orders")}</Link>}
-      {shopper && <Link href="/invoices">{t("invoices")}</Link>}
-      {agent && <Link href="/agent">{t("agent_jobs")}</Link>}
-      {lead && <Link href="/team">{t("team")}</Link>}
-      {carrier && <Link href="/transport">{t("transport")}</Link>}
-      {(agent || carrier) && <Link href="/scan">Scan</Link>}
-      <Link href="/track">Track</Link>
-      <Link href="/prices">{t("market_prices")}</Link>
-      {staff && <Link href="/admin">{t("admin")}</Link>}
-      {user && <Link href="/inbox">{t("inbox")}</Link>}
-      {user && <Link href="/support">{t("support")}</Link>}
-      {user && <Link href="/profile">{t("profile")}</Link>}
+
+      {/* Guests: a few direct links. Logged-in users: grouped menus. */}
+      {!user && <Link href="/">{t("marketplace")}</Link>}
+      {!user && <Link href="/prices">{t("market_prices")}</Link>}
+      {!user && <Link href="/track">Track</Link>}
+
+      {shopper && <Menu label={t("buy")} items={[
+        it(true, "/", t("marketplace")),
+        it(true, "/prices", t("market_prices")),
+        it(true, "/requests", t("requests")),
+        it(true, "/offers", t("my_offers")),
+      ]} />}
+
+      {seller && <Menu label={t("sell")} items={[
+        it(true, "/sell", t("sell")),
+        it(true, "/earnings", t("earnings")),
+      ]} />}
+
+      {shopper && <Menu label={t("my_orders")} items={[
+        it(true, "/orders", t("my_orders")),
+        it(true, "/invoices", t("invoices")),
+        it(true, "/track", "Track"),
+      ]} />}
+
+      {opsOnly && <Menu label={t("work")} items={[
+        it(agent, "/agent", t("agent_jobs")),
+        it(lead, "/team", t("team")),
+        it(carrier, "/transport", t("transport")),
+        it(agent || carrier, "/scan", "Scan"),
+        it(staff, "/admin", t("admin")),
+        it(true, "/requests", t("requests")),
+        it(true, "/prices", t("market_prices")),
+        it(true, "/track", "Track"),
+      ]} />}
+
+      {/* Staff who also need the admin console but are shoppers (rare) still get it. */}
+      {staff && shopper && <Link href="/admin">{t("admin")}</Link>}
+
+      {user && <Menu label={t("account")} items={[
+        it(true, "/inbox", t("inbox")),
+        it(true, "/support", t("support")),
+        it(true, "/profile", t("profile")),
+      ]} />}
+
       {user && user.onboarding_complete === false && (
         <Link href="/onboarding" className="pill" style={{ background: "var(--amber-600)", color: "#fff" }}>
           {t("complete_profile")}

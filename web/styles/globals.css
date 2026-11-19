@@ -54,7 +54,7 @@ a:hover { text-decoration: underline; }
   padding: 12px 20px;
   background: var(--green-900); color: #fff;
   box-shadow: var(--shadow);
-  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  flex-wrap: wrap; overflow: visible;
 }
 .nav::-webkit-scrollbar { height: 0; }
 .nav > * { flex: 0 0 auto; white-space: nowrap; }
@@ -68,6 +68,35 @@ a:hover { text-decoration: underline; }
   padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 14px;
 }
 .nav .pill:hover { background: rgba(255,255,255,0.24); }
+
+/* Grouped dropdown menus (keep the bar short) */
+.navmenu { position: relative; display: inline-flex; }
+.navmenu-btn {
+  background: transparent; border: none; cursor: pointer;
+  color: #e7f5ec; font-weight: 500; font-size: inherit; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 4px; padding: 0;
+}
+.navmenu-btn:hover, .navmenu-btn.active { color: #fff; }
+.navmenu-btn .caret { font-size: 11px; opacity: .85; transition: transform .15s ease; }
+.navmenu.open .navmenu-btn .caret { transform: rotate(180deg); }
+.navmenu-panel {
+  position: absolute; top: calc(100% + 10px); left: 0; z-index: 30;
+  min-width: 180px; padding: 6px;
+  background: var(--card, #fff); color: var(--ink, #1f2937);
+  border: 1px solid var(--line, #e5e7eb); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.navmenu-item {
+  color: var(--ink, #1f2937) !important; font-weight: 500;
+  padding: 9px 12px; border-radius: 8px; white-space: nowrap;
+}
+.navmenu-item:hover { background: var(--green-50, #f0fdf4); color: var(--green-700, #15803d) !important; }
+.navmenu-item.active { background: var(--green-50, #f0fdf4); color: var(--green-700, #15803d) !important; }
+:root[data-theme="dark"] .navmenu-panel { background: #11291c; border-color: #1f3d2b; color: #e7f5ec; }
+:root[data-theme="dark"] .navmenu-item { color: #e7f5ec !important; }
+:root[data-theme="dark"] .navmenu-item:hover,
+:root[data-theme="dark"] .navmenu-item.active { background: #16351f; color: #bbf7d0 !important; }
 .bell-badge {
   display: inline-block; margin-left: 4px; min-width: 18px; height: 18px;
   padding: 0 5px; border-radius: 999px; background: #dc2626; color: #fff;
