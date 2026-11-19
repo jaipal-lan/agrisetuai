@@ -412,6 +412,9 @@ class ConfirmBody(BaseModel):
     # Omit route_km (or send null) to let the server compute it from mandal
     # coordinates. An explicit value is treated as a manual override.
     route_km: float | None = None
+    # How the buyer intends to pay: "online" (prepaid via provider/mock) or
+    # "cod" (cash collected at the door, captured as a receivable until then).
+    payment_method: str = "online"
     # Delivery destination. Prefer address_id (one of the buyer's saved
     # addresses, which also carries the street line for the courier); to_mandal_id
     # is the lower-level fallback when the buyer has no saved address.
@@ -503,6 +506,7 @@ def confirm_quote(
     ))
     qjson = quote.to_json()
     qjson["route_km_source"] = route.source
+    qjson["payment_method"] = "cod" if body.payment_method == "cod" else "online"
     order.quote = qjson
     order.pricing_rule_version = rule.version
     order.buyer_total = money(quote.buyer_total)
@@ -516,12 +520,20 @@ def confirm_quote(
 
 def capture_order_payment(db: Session, order: Order, *, idempotency_key: str,
                           provider: str = "mock", provider_ref: str | None = None,
-                          actor_id: int | None = None) -> bool:
+                          actor_id: int | None = None,
+                          cash_account: str = "cash_clearing",
+                          payment_status: str = "paid") -> bool:
     """Idempotently capture an order's payment and post the full ledger.
 
     Returns True if a capture was performed, False on idempotent replay. Does NOT
     commit — the caller commits. The same path backs the mock /pay endpoint and a
     real/sandbox provider webhook, so swapping the provider is isolated.
+
+    For cash-on-delivery the money is not in hand yet: the caller passes
+    cash_account="cod_receivable" (an asset — the buyer owes us) and
+    payment_status="pending_collection"; the receivable is cleared to cash at
+    proof-of-delivery. The seller/platform/transport credit legs are identical,
+    so the rest of the flow and settlement are unchanged.
     """
     existing = db.scalar(select(Payment).where(Payment.idempotency_key == idempotency_key))
     if existing:
@@ -534,9 +546,10 @@ def capture_order_payment(db: Session, order: Order, *, idempotency_key: str,
     q = order.quote
     buyer_total = money(order.buyer_total)
     txn = f"pay:{order.public_id}"
+    debit_memo = "COD receivable (collect on delivery)" if cash_account == "cod_receivable" else "buyer payment captured"
     platform_rev = money(q["service_fee"]) + money(q.get("seller_commission", "0"))
     legs = [
-        Leg("cash_clearing", LedgerDirection.DEBIT, buyer_total, "buyer payment captured"),
+        Leg(cash_account, LedgerDirection.DEBIT, buyer_total, debit_memo),
         Leg("seller_payable", LedgerDirection.CREDIT, money(order.seller_payable), "seller proceeds"),
         Leg("platform_revenue", LedgerDirection.CREDIT, platform_rev, "service fee + commission"),
         Leg("transport_payable", LedgerDirection.CREDIT, money(q["transport_charge"]), "transport"),
@@ -548,12 +561,63 @@ def capture_order_payment(db: Session, order: Order, *, idempotency_key: str,
     ledger.post(db, txn_group=txn, legs=legs, order_id=order.id, currency=q["currency"])
     db.add(Payment(
         order_id=order.id, provider=provider, provider_ref=provider_ref or txn,
-        idempotency_key=idempotency_key, amount=buyer_total, currency=q["currency"], status="paid",
+        idempotency_key=idempotency_key, amount=buyer_total, currency=q["currency"], status=payment_status,
     ))
     _safe_transition(db, order, S.PAID, actor_id=actor_id, reason_code="payment_captured")
     audit.record(db, actor_id=actor_id, action="order.pay", object_type="order",
                  object_id=order.public_id, new_values={"amount": str(buyer_total), "provider": provider})
     return True
+
+
+@router.post("/{order_id}/cod-confirm")
+def cod_confirm(
+    order_id: int,
+    idempotency_key: str | None = Header(default=None),
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Confirm a cash-on-delivery order.
+
+    The buyer commits to pay cash at the door; we book the amount as a receivable
+    (not cash) and move the order to PAID so inspection/packing/delivery proceed.
+    The cash is collected — and the receivable cleared — at proof-of-delivery.
+    """
+    order = _get_order(order_id, db)
+    _require_party(order, user, buyer=True)
+    if (order.quote or {}).get("payment_method") != "cod":
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "This order is not set to cash on delivery. Choose COD at checkout.")
+    idem = idempotency_key or f"cod:{order.public_id}"
+    capture_order_payment(db, order, idempotency_key=idem, provider="cod",
+                          cash_account="cod_receivable", payment_status="pending_collection",
+                          actor_id=user.id)
+    db.commit()
+    return _order_json(order, db, user)
+
+
+def _collect_cod(db: Session, order: Order) -> None:
+    """Clear a cash-on-delivery receivable to cash once goods are delivered.
+
+    Idempotent: only an uncollected COD payment is affected, so it is safe to
+    call from either delivery path (the 'delivered' shipment event or an explicit
+    proof-of-delivery).
+    """
+    if (order.quote or {}).get("payment_method") != "cod":
+        return
+    cod_pay = db.scalar(select(Payment).where(
+        Payment.order_id == order.id, Payment.provider == "cod",
+        Payment.status == "pending_collection"))
+    if not cod_pay:
+        return
+    ledger.post(
+        db, txn_group=f"cod-collect:{order.public_id}",
+        legs=[
+            Leg("cash_clearing", LedgerDirection.DEBIT, money(cod_pay.amount), "COD cash collected"),
+            Leg("cod_receivable", LedgerDirection.CREDIT, money(cod_pay.amount), "clear COD receivable"),
+        ],
+        order_id=order.id, currency=(order.quote or {}).get("currency", "INR"),
+    )
+    cod_pay.status = "paid"
 
 
 @router.post("/{order_id}/pay")
@@ -577,6 +641,9 @@ def pay(
         )
     order = _get_order(order_id, db)
     _require_party(order, user, buyer=True)
+    if (order.quote or {}).get("payment_method") == "cod":
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "This is a cash-on-delivery order — confirm it with COD, not online pay.")
     idem = idempotency_key or gen_idem()
     capture_order_payment(db, order, idempotency_key=idem, provider="mock", actor_id=user.id)
     db.commit()
@@ -913,6 +980,10 @@ def shipment_event(
     db.add(ShipmentEvent(shipment_id=shipment.id, event=body.event, actor_id=user.id,
                          evidence_ref=body.evidence_ref, at=utcnow()))
     _safe_transition(db, order, to, actor_id=user.id, reason_code=f"ship_{body.event}")
+    # A plain 'delivered' milestone (no explicit proof-of-delivery) still collects
+    # the cash for a cash-on-delivery order.
+    if to == S.DELIVERED_PENDING_ACCEPTANCE:
+        _collect_cod(db, order)
     db.commit()
     return {"order": _order_json(order, db, user), "shipment_id": shipment.public_id}
 
@@ -952,6 +1023,9 @@ def proof_of_delivery(
     }
     if order.status == S.OUT_FOR_DELIVERY:
         _safe_transition(db, order, S.DELIVERED_PENDING_ACCEPTANCE, actor_id=user.id, reason_code="pod")
+
+    # Cash-on-delivery: the cash is now collected at the door.
+    _collect_cod(db, order)
     db.commit()
     return {"order": _order_json(order, db, user), "proof": shipment.proof_of_delivery}
 

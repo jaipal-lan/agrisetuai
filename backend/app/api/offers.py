@@ -331,29 +331,15 @@ def reject(offer_id: int, user: User = Depends(get_current_user), db: Session = 
     return _offer_json(offer, db)
 
 
-@router.post("/{offer_id}/accept")
-def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Accept the latest version. Creates a provisional order and reserves stock.
+def _materialise_order(db: Session, offer: Offer, latest: OfferVersion, *, actor_id: int,
+                       action: str = "offer.accept") -> Order:
+    """Turn an agreed offer version into a provisional order.
 
-    Only the party that did not make the latest proposal can accept it.
+    Reserves stock, snapshots the immutable accepted terms, creates the order +
+    line, closes the offer and notifies both parties. Shared by accept() (buyer
+    or seller accepts a negotiated version) and buy_now() (buyer takes the
+    listing's asking price in one tap). Commits.
     """
-    offer = db.get(Offer, offer_id)
-    if not offer:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
-    role = _party_role(offer, user, db)
-    if offer.status not in (OfferStatus.OPEN, OfferStatus.COUNTERED):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Offer is closed")
-
-    latest = _latest(offer, db)
-    if latest.proposer_role == role:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "You cannot accept your own proposal"
-        )
-    if ensure_aware(latest.expires_at) < utcnow():
-        offer.status = OfferStatus.EXPIRED
-        db.commit()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Offer has expired")
-
     listing = db.get(Listing, offer.listing_id) if offer.listing_id else None
     rfq = db.get(RFQ, offer.rfq_id) if offer.rfq_id else None
     accepted_qty = qty(latest.quantity)
@@ -419,14 +405,101 @@ def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = 
                     object_type="order", object_id=order.public_id)
     audit.record(
         db,
-        actor_id=user.id,
-        action="offer.accept",
+        actor_id=actor_id,
+        action=action,
         object_type="offer",
         object_id=offer.id,
         new_values={"order_public_id": order.public_id, "accepted_terms": accepted_terms},
     )
     db.commit()
     db.refresh(order)
+    return order
+
+
+class BuyNowBody(BaseModel):
+    listing_id: int
+    quantity: float = Field(gt=0)
+    grade_spec_id: int | None = None
+
+
+@router.post("/buy-now")
+def buy_now(body: BuyNowBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One-tap purchase at the listing's asking price.
+
+    Skips the offer/counter negotiation (the listing IS the seller's standing
+    offer, so buying at the asking price is simply accepting it) but still runs
+    the full verified flow afterwards: inspection -> buyer approval -> quote ->
+    payment -> packing -> delivery. Meant for households who just want to buy.
+    """
+    listing = db.get(Listing, body.listing_id)
+    if not listing or listing.status != ListingStatus.OPEN:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Listing not open")
+    if listing.seller_id == user.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot buy your own listing")
+    q = qty(body.quantity)
+    if q > qty(listing.available_qty):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Quantity exceeds available")
+
+    from app.models.catalog import Commodity
+    commodity = db.get(Commodity, listing.commodity_id)
+    product_moq = qty(commodity.min_order_qty) if commodity and commodity.min_order_qty else qty(0)
+    listing_moq = qty(listing.min_order_qty) if listing.min_order_qty else qty(0)
+    moq = max(product_moq, listing_moq)
+    if moq > qty(0) and q < moq:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Below minimum order quantity ({moq} {listing.unit})")
+
+    offer = Offer(listing_id=listing.id, buyer_id=user.id,
+                  seller_id=listing.seller_id, status=OfferStatus.OPEN)
+    db.add(offer)
+    db.flush()
+    now = utcnow()
+    v = OfferVersion(
+        offer_id=offer.id, version_no=1, proposer_role="seller",
+        proposer_id=listing.seller_id, price_per_unit=listing.asking_price,
+        quantity=q, unit=listing.unit,
+        grade_spec_id=body.grade_spec_id or listing.grade_spec_id,
+        expires_at=now + DEFAULT_OFFER_TTL, created_at=now,
+    )
+    db.add(v)
+    db.flush()
+    order = _materialise_order(db, offer, v, actor_id=user.id, action="offer.buy_now")
+    return {
+        "buy_now": True,
+        "offer_id": offer.id,
+        "order": {
+            "id": order.id,
+            "public_id": order.public_id,
+            "status": order.status,
+            "accepted_terms": order.accepted_terms,
+        },
+    }
+
+
+@router.post("/{offer_id}/accept")
+def accept(offer_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Accept the latest version. Creates a provisional order and reserves stock.
+
+    Only the party that did not make the latest proposal can accept it.
+    """
+    offer = db.get(Offer, offer_id)
+    if not offer:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
+    role = _party_role(offer, user, db)
+    if offer.status not in (OfferStatus.OPEN, OfferStatus.COUNTERED):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Offer is closed")
+
+    latest = _latest(offer, db)
+    if latest.proposer_role == role:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "You cannot accept your own proposal"
+        )
+    if ensure_aware(latest.expires_at) < utcnow():
+        offer.status = OfferStatus.EXPIRED
+        db.commit()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Offer has expired")
+
+    order = _materialise_order(db, offer, latest, actor_id=user.id)
     return {
         "offer": _offer_json(offer, db),
         "order": {

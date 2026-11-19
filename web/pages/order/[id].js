@@ -338,6 +338,7 @@ export default function OrderDetail() {
   const [addrId, setAddrId] = useState("");
   const [newAddr, setNewAddr] = useState(null);     // from AddressPicker ("deliver elsewhere")
   const [addingAddr, setAddingAddr] = useState(false);
+  const [payMethod, setPayMethod] = useState("online");  // "online" | "cod"
 
   useEffect(() => {
     setMe(getUser());
@@ -591,6 +592,18 @@ export default function OrderDetail() {
                    placeholder="auto" />
           </details>
 
+          {/* Payment method choice carried into the quote */}
+          <label style={{ marginTop: 12 }}>{t("pay_method")}</label>
+          <div className="seg" role="group" style={{ marginTop: 2 }}>
+            <button type="button" className={payMethod === "online" ? "seg-on" : ""}
+                    onClick={() => setPayMethod("online")}>💳 {t("pay_online")}</button>
+            <button type="button" className={payMethod === "cod" ? "seg-on" : ""}
+                    onClick={() => setPayMethod("cod")}>💵 {t("pay_cod")}</button>
+          </div>
+          {payMethod === "cod" && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{t("cod_note")}</div>
+          )}
+
           <div style={{ marginTop: 12 }}>
             <button
               disabled={busy || (addingAddr && !newAddr?.lat) || (!addingAddr && addresses.length === 0)}
@@ -612,6 +625,7 @@ export default function OrderDetail() {
                   ...(useAddrId ? { address_id: Number(useAddrId) } : {}),
                   ...(!useAddrId && newAddr?.lat ? { delivery_lat: newAddr.lat, delivery_lng: newAddr.lng } : {}),
                   ...(routeKm.trim() === "" ? {} : { route_km: Number(routeKm) }),
+                  payment_method: payMethod,
                 });
               }}
             >
@@ -621,15 +635,26 @@ export default function OrderDetail() {
         </Action>
       )}
 
-      {/* Buyer: pay */}
+      {/* Buyer: pay — online (provider/mock) or confirm a cash-on-delivery order */}
       {isBuyer && s === "payment_pending" && (
-        <Action>
-          <h3>Pay ₹{order.buyer_total}</h3>
-          <p className="muted" style={{ fontSize: 13 }}>Mock payment in dev. Posts the double-entry ledger.</p>
-          <button disabled={busy} onClick={() => act(`/orders/${id}/pay`, undefined, { "Idempotency-Key": order.public_id })}>
-            Pay now
-          </button>
-        </Action>
+        order.quote?.payment_method === "cod" ? (
+          <Action>
+            <h3>💵 {t("pay_cod")} — ₹{order.buyer_total}</h3>
+            <p className="muted" style={{ fontSize: 13 }}>{t("cod_note")}.</p>
+            <button disabled={busy}
+                    onClick={() => act(`/orders/${id}/cod-confirm`, undefined, { "Idempotency-Key": order.public_id })}>
+              {t("cod_confirm")}
+            </button>
+          </Action>
+        ) : (
+          <Action>
+            <h3>Pay ₹{order.buyer_total}</h3>
+            <p className="muted" style={{ fontSize: 13 }}>Mock payment in dev. Posts the double-entry ledger.</p>
+            <button disabled={busy} onClick={() => act(`/orders/${id}/pay`, undefined, { "Idempotency-Key": order.public_id })}>
+              Pay now
+            </button>
+          </Action>
+        )
       )}
 
       {/* Agent/staff: packing */}

@@ -1629,6 +1629,45 @@ def run():
     resv_after = float(client.get(f"/api/listings/{listing['id']}").json()["reserved_qty"])
     check("failed inspection releases the reserved stock back", resv_after == resv_before)
 
+    print("\n== Buy Now + Cash on Delivery (end to end) ==")
+    bn = client.post("/api/offers/buy-now", headers=hdr(buyer),
+                     json={"listing_id": listing["id"], "quantity": 100})
+    check("buy-now creates a provisional order",
+          bn.status_code == 200 and bn.json()["order"]["status"] == "provisional_agreement")
+    ask_price = client.get(f"/api/listings/{listing['id']}").json()["asking_price"]
+    check("buy-now uses the listing asking price",
+          bn.json()["order"]["accepted_terms"]["price_per_unit"] == ask_price)
+    check("cannot buy-now your own listing",
+          client.post("/api/offers/buy-now", headers=hdr(farmer),
+                      json={"listing_id": listing["id"], "quantity": 100}).status_code == 400)
+    cod_order = bn.json()["order"]["id"]
+    client.post(f"/api/orders/{cod_order}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
+    client.post(f"/api/agent/orders/{cod_order}/inspection", headers=hdr(agent),
+                json={"client_draft_id": "draft-cod-1", "gross_weight": 100, "tare_weight": 0, "outcome": "pass"})
+    client.post(f"/api/orders/{cod_order}/buyer-approve", headers=hdr(buyer))
+    r = client.post(f"/api/orders/{cod_order}/confirm-quote", headers=hdr(buyer),
+                    json={"route_km": 40, "payment_method": "cod"})
+    check("checkout records cash-on-delivery", r.json()["quote"]["payment_method"] == "cod")
+    check("online pay refused on a COD order",
+          client.post(f"/api/orders/{cod_order}/pay", headers=hdr(buyer)).status_code == 409)
+    r = client.post(f"/api/orders/{cod_order}/cod-confirm", headers=hdr(buyer))
+    check("COD confirm moves the order to paid", r.json()["status"] == "paid")
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("COD receivable booked and ledger balanced",
+          acct["balanced"] is True and float(acct["accounts"].get("cod_receivable", "0")) != 0)
+    client.post(f"/api/orders/{cod_order}/packing-complete", headers=hdr(agent), json={})
+    client.post(f"/api/orders/{cod_order}/assign-courier", headers=hdr(buyer),
+                json={"courier_id": carrier_id, "vehicle_class": "mini_truck"})
+    for ev in ("picked_up", "in_transit", "out_for_delivery", "delivered"):
+        client.post(f"/api/orders/{cod_order}/shipment/event", headers=hdr(transport), json={"event": ev})
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("COD cash collected at delivery (receivable cleared)",
+          float(acct["accounts"].get("cod_receivable", "0")) == 0.0)
+    r = client.post(f"/api/orders/{cod_order}/acceptance", headers=hdr(buyer))
+    check("COD order settles after acceptance", r.json()["status"] == "settled")
+    acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
+    check("ledger balanced after COD settlement", acct["balanced"] is True)
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

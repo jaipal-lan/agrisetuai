@@ -57,6 +57,23 @@ export default function ListingDetail() {
     }
   }
 
+  async function buyNow() {
+    setErr(null);
+    setBusy(true);
+    try {
+      const q = Number(qty) || Number(listing.min_order_qty);
+      const res = await api("/offers/buy-now", {
+        method: "POST",
+        body: { listing_id: Number(id), quantity: q },
+      });
+      router.push(`/order/${res.order.id}`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (err && !listing) return <div className="error">{err}</div>;
   if (!listing) return <p className="muted">{t("loading")}</p>;
 
@@ -161,19 +178,41 @@ export default function ListingDetail() {
         <div className="ok" style={{ marginTop: 16 }}>This is your listing. Manage it under {t("sell")}.</div>
       ) : isBuyer ? (
         <div className="card" style={{ marginTop: 16 }}>
-          <h3>{t("make_offer")}</h3>
-          <div className="row">
-            <div style={{ flex: 1 }}>
-              <label>{t("price")} (₹/{listing.unit || "kg"})</label>
-              <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
+          {/* One-tap purchase at the asking price (simple path for households) */}
+          <div className="between" style={{ marginBottom: 8 }}>
+            <div>
+              <h3 style={{ margin: 0 }}>🛒 {t("buy_now")}</h3>
+              <div className="muted" style={{ fontSize: 13 }}>{t("buy_now_sub")}</div>
             </div>
-            <div style={{ flex: 1 }}>
-              <label>{t("quantity")} ({listing.unit})</label>
-              <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" />
-            </div>
+            <div className="price">₹{listing.asking_price}<small> /{listing.unit || "kg"}</small></div>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <button onClick={makeOffer} disabled={busy || !price || !qty}>{t("make_offer")}</button>
+          <label>{t("quantity")} ({listing.unit}) · min {listing.min_order_qty}</label>
+          <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal"
+                 placeholder={String(listing.min_order_qty)} />
+          <div style={{ marginTop: 12 }}>
+            <button onClick={buyNow} disabled={busy}>
+              🛒 {t("buy_now")} — ₹{listing.asking_price}/{listing.unit || "kg"}
+            </button>
+          </div>
+
+          {/* Negotiation stays available for bulk/business buyers */}
+          <div className="ack-box" style={{ marginTop: 16 }}>
+            <h3 style={{ fontSize: 15, margin: "2px 0 8px" }}>{t("or_negotiate")}</h3>
+            <div className="row">
+              <div style={{ flex: 1 }}>
+                <label>{t("price")} (₹/{listing.unit || "kg"})</label>
+                <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label>{t("quantity")} ({listing.unit})</label>
+                <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" />
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button className="ghost" onClick={makeOffer} disabled={busy || !price || !qty}>
+                {t("make_offer")}
+              </button>
+            </div>
           </div>
         </div>
       ) : (

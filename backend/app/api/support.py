@@ -345,7 +345,13 @@ def perform_refund(
         biggest = max(shares, key=lambda k: shares[k])
         shares[biggest] = money(shares[biggest] + residual)
 
-    legs = [Leg("cash_clearing", LedgerDirection.CREDIT, refund_amount, "refund to buyer")]
+    # If this is a cash-on-delivery order whose cash was never collected, the
+    # refund reverses the receivable rather than paying cash back out.
+    cod_uncollected = db.scalar(select(Payment).where(
+        Payment.order_id == order.id, Payment.provider == "cod",
+        Payment.status == "pending_collection"))
+    refund_cash_acct = "cod_receivable" if cod_uncollected else "cash_clearing"
+    legs = [Leg(refund_cash_acct, LedgerDirection.CREDIT, refund_amount, "refund to buyer")]
     legs += [Leg(acct, LedgerDirection.DEBIT, shares[acct], memo)
              for acct, _, memo in debit_spec]
     legs = [l for l in legs if money(l.amount) != money(0)]
