@@ -899,6 +899,142 @@ def refresh_market_prices(user=Depends(require_roles(Role.SUPERADMIN)), db: Sess
     return {"configured": True, "ok": True, **result}
 
 
+# --- Service areas (delivery coverage) -------------------------------------
+
+def _state_code_for(db: Session, name: str) -> str:
+    """A unique short code for a new state (existing codes are reused elsewhere)."""
+    base = "".join(c for c in name.upper() if c.isalpha())[:3] or "ST"
+    code, n = base, 1
+    while db.scalar(select(State).where(State.code == code)):
+        n += 1
+        code = f"{base[:2]}{n}"
+    return code
+
+
+def _ensure_mandal(db: Session, state_name: str, district_name: str, mandal_name: str,
+                   lat, lng, *, serviceable: bool = True, state_code: str | None = None):
+    from decimal import Decimal
+    state = db.scalar(select(State).where(State.name == state_name))
+    if not state:
+        state = State(name=state_name, code=state_code or _state_code_for(db, state_name))
+        db.add(state)
+        db.flush()
+    district = db.scalar(select(District).where(
+        District.name == district_name, District.state_id == state.id))
+    if not district:
+        district = District(name=district_name, state_id=state.id)
+        db.add(district)
+        db.flush()
+    m = db.scalar(select(Mandal).where(
+        Mandal.name == mandal_name, Mandal.district_id == district.id))
+    created = m is None
+    if created:
+        m = Mandal(name=mandal_name, district_id=district.id)
+        db.add(m)
+    if lat is not None:
+        m.latitude = Decimal(str(lat))
+    if lng is not None:
+        m.longitude = Decimal(str(lng))
+    m.serviceable = serviceable
+    db.flush()
+    return m, created
+
+
+@router.get("/service-areas")
+def service_areas(user=Depends(_staff), db: Session = Depends(get_db)):
+    """All states → districts → mandals with coverage + coordinates, for the
+    superadmin coverage manager."""
+    states = list(db.scalars(select(State).order_by(State.name)))
+    districts = list(db.scalars(select(District).order_by(District.name)))
+    mandals = list(db.scalars(select(Mandal).order_by(Mandal.name)))
+    d_by_state: dict[int, list] = {}
+    m_by_district: dict[int, list] = {}
+    for m in mandals:
+        m_by_district.setdefault(m.district_id, []).append({
+            "id": m.id, "name": m.name, "serviceable": m.serviceable,
+            "latitude": float(m.latitude) if m.latitude is not None else None,
+            "longitude": float(m.longitude) if m.longitude is not None else None,
+        })
+    for d in districts:
+        d_by_state.setdefault(d.state_id, []).append({
+            "id": d.id, "name": d.name, "mandals": m_by_district.get(d.id, []),
+        })
+    return [{
+        "id": s.id, "name": s.name, "code": s.code,
+        "districts": d_by_state.get(s.id, []),
+        "serviceable_count": sum(1 for d in d_by_state.get(s.id, [])
+                                 for m in d["mandals"] if m["serviceable"]),
+    } for s in states]
+
+
+class MandalUpsert(BaseModel):
+    state: str
+    district: str
+    name: str
+    latitude: float | None = None
+    longitude: float | None = None
+    serviceable: bool = True
+
+
+@router.post("/service-areas/mandal")
+def add_service_mandal(body: MandalUpsert,
+                       user=Depends(require_roles(Role.SUPERADMIN)),
+                       db: Session = Depends(get_db)):
+    """Add (or update) a single mandal's coverage + coordinates."""
+    name = (body.name or "").strip()
+    if not (name and body.state.strip() and body.district.strip()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "State, district and mandal name are required.")
+    m, created = _ensure_mandal(db, body.state.strip(), body.district.strip(), name,
+                                body.latitude, body.longitude, serviceable=body.serviceable)
+    audit.record(db, actor_id=user.id, action="service_area.upsert", object_type="mandal",
+                 object_id=m.id, new_values={"name": name, "serviceable": body.serviceable})
+    db.commit()
+    return {"id": m.id, "created": created, "serviceable": m.serviceable}
+
+
+class MandalPatch(BaseModel):
+    serviceable: bool | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+@router.patch("/service-areas/mandal/{mandal_id}")
+def patch_service_mandal(mandal_id: int, body: MandalPatch,
+                         user=Depends(require_roles(Role.SUPERADMIN)),
+                         db: Session = Depends(get_db)):
+    """Toggle a mandal's serviceable flag or correct its coordinates."""
+    from decimal import Decimal
+    m = db.get(Mandal, mandal_id)
+    if not m:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mandal not found")
+    if body.serviceable is not None:
+        m.serviceable = body.serviceable
+    if body.latitude is not None:
+        m.latitude = Decimal(str(body.latitude))
+    if body.longitude is not None:
+        m.longitude = Decimal(str(body.longitude))
+    audit.record(db, actor_id=user.id, action="service_area.patch", object_type="mandal",
+                 object_id=m.id, new_values={"serviceable": m.serviceable})
+    db.commit()
+    return {"id": m.id, "serviceable": m.serviceable}
+
+
+@router.post("/service-areas/preset/hyderabad")
+def add_hyderabad_metro(user=Depends(require_roles(Role.SUPERADMIN)),
+                        db: Session = Depends(get_db)):
+    """One-click: add the Hyderabad metro mandals as serviceable coverage."""
+    from app.core.geo_presets import HYDERABAD_METRO
+    added = 0
+    for state_name, code, district, mandal, lat, lng in HYDERABAD_METRO:
+        _, created = _ensure_mandal(db, state_name, district, mandal, lat, lng,
+                                    serviceable=True, state_code=code)
+        added += 1 if created else 0
+    audit.record(db, actor_id=user.id, action="service_area.preset", object_type="system",
+                 object_id="hyderabad", new_values={"added": added})
+    db.commit()
+    return {"ok": True, "added": added, "total": len(HYDERABAD_METRO)}
+
+
 @router.get("/audit-logs")
 def audit_logs(limit: int = 100, user=Depends(_staff), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))

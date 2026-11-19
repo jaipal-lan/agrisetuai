@@ -933,6 +933,8 @@ export default function Admin() {
 
       {["field_manager", "superadmin"].includes(me?.role) && <BarcodeTracking me={me} />}
 
+      <ServiceAreasAdmin me={me} />
+
       <CatalogManager me={me} />
 
       <h2>Product minimum order quantities</h2>
@@ -1175,6 +1177,124 @@ function BarcodeTracking({ me }) {
             </tbody>
           </table>
         </div>
+      )}
+    </>
+  );
+}
+
+// Delivery coverage: states → districts → mandals with a serviceable toggle, an
+// add-mandal form, and a one-click "Add Hyderabad metro" preset (superadmin).
+function ServiceAreasAdmin({ me }) {
+  const [states, setStates] = useState([]);
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ state: "Telangana", district: "", name: "", latitude: "", longitude: "" });
+  const isSuper = me?.role === "superadmin";
+
+  function load() { api("/admin/service-areas").then(setStates).catch((e) => setErr(e.message)); }
+  useEffect(() => { load(); }, []);
+
+  async function toggle(m) {
+    setErr(null);
+    try { await api(`/admin/service-areas/mandal/${m.id}`, { method: "PATCH", body: { serviceable: !m.serviceable } }); load(); }
+    catch (e) { setErr(e.message); }
+  }
+  async function addHyderabad() {
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const r = await api("/admin/service-areas/preset/hyderabad", { method: "POST" });
+      setMsg(`Hyderabad metro coverage added (${r.added} new of ${r.total}).`); load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function addMandal(e) {
+    e.preventDefault(); setErr(null); setMsg(null);
+    if (!form.state.trim() || !form.district.trim() || !form.name.trim()) return;
+    setBusy(true);
+    try {
+      await api("/admin/service-areas/mandal", { method: "POST", body: {
+        state: form.state.trim(), district: form.district.trim(), name: form.name.trim(),
+        latitude: form.latitude ? Number(form.latitude) : null,
+        longitude: form.longitude ? Number(form.longitude) : null, serviceable: true } });
+      setForm((f) => ({ ...f, name: "", latitude: "", longitude: "" }));
+      setMsg("Mandal saved as serviceable."); load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <>
+      <h2>Service areas (delivery coverage)</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
+        Mandals marked <b>serviceable</b> count as inside the delivery footprint — a buyer&apos;s
+        location resolves to the nearest serviceable mandal. Add coordinates so distance/ETA work.
+      </p>
+      {err && <div className="error">{err}</div>}
+      {msg && <div className="ok">{msg}</div>}
+
+      {isSuper && (
+        <div className="card" style={{ marginBottom: 10 }}>
+          <div className="between" style={{ flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <b>Quick add: Hyderabad metro</b>
+              <div className="muted" style={{ fontSize: 13 }}>
+                Kukatpally, Secunderabad, Serilingampally, Rangareddy, Medchal &amp; more — all serviceable.
+              </div>
+            </div>
+            <button disabled={busy} onClick={addHyderabad}>＋ Add Hyderabad metro</button>
+          </div>
+        </div>
+      )}
+
+      {states.map((s) => (
+        <div className="card" key={s.id} style={{ marginBottom: 10 }}>
+          <div className="between">
+            <b>{s.name} <span className="muted" style={{ fontWeight: 400 }}>({s.code})</span></b>
+            <span className="badge grey">{s.serviceable_count} serviceable</span>
+          </div>
+          {s.districts.map((d) => (
+            <div key={d.id} style={{ marginTop: 8 }}>
+              <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>{d.name}</div>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                {d.mandals.map((m) => (
+                  <button key={m.id} type="button"
+                          onClick={() => isSuper && toggle(m)}
+                          disabled={!isSuper}
+                          title={m.latitude == null ? "No coordinates — add them so distance works" : ""}
+                          className={`badge ${m.serviceable ? "green" : "amber"}`}
+                          style={{ cursor: isSuper ? "pointer" : "default", border: "none" }}>
+                    {m.serviceable ? "✓ " : "✕ "}{m.name}{m.latitude == null ? " ⚠" : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {isSuper && (
+        <form className="card" onSubmit={addMandal}>
+          <b>Add a mandal</b>
+          <div className="form-grid" style={{ marginTop: 8 }}>
+            <label>State
+              <input value={form.state} onChange={(e) => setF("state", e.target.value)} list="sa-states" />
+              <datalist id="sa-states">{states.map((s) => <option key={s.id} value={s.name} />)}</datalist>
+            </label>
+            <label>District
+              <input value={form.district} onChange={(e) => setF("district", e.target.value)} />
+            </label>
+            <label>Mandal / area
+              <input value={form.name} onChange={(e) => setF("name", e.target.value)} />
+            </label>
+            <label>Latitude
+              <input value={form.latitude} onChange={(e) => setF("latitude", e.target.value)} inputMode="decimal" placeholder="17.49" />
+            </label>
+            <label>Longitude
+              <input value={form.longitude} onChange={(e) => setF("longitude", e.target.value)} inputMode="decimal" placeholder="78.39" />
+            </label>
+          </div>
+          <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add as serviceable</button>
+        </form>
       )}
     </>
   );

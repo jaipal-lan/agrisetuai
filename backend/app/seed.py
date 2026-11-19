@@ -39,6 +39,11 @@ def seed_locations(db: Session) -> dict:
             "Karimnagar": [("Huzurabad", 18.1950, 79.4050)],
         }),
     }
+    # Fold in the Hyderabad-metro coverage preset (Telangana) so fresh installs
+    # serve Hyderabad out of the box; existing DBs add it via the admin one-click.
+    from app.core.geo_presets import HYDERABAD_METRO
+    for sname, scode, dist, mandal, lat, lon in HYDERABAD_METRO:
+        data.setdefault(sname, (scode, {}))[1].setdefault(dist, []).append((mandal, lat, lon))
     mandals: dict[str, Mandal] = {}
     for state_name, (code, districts) in data.items():
         state, _ = _get_or_create(db, State, name=state_name, code=code)

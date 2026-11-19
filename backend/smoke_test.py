@@ -1541,6 +1541,29 @@ def run():
           "blocked_unverified_identity" in ov
           and all("identity_verified" in p for p in ov["pending"]))
 
+    print("\n== Service areas (coverage) ==")
+    sa = client.get("/api/admin/service-areas", headers=hdr(superadmin)).json()
+    check("service-areas lists states with districts+mandals",
+          isinstance(sa, list) and any(s["districts"] for s in sa))
+    # One-click Hyderabad metro, then confirm a KPHB point is now serviceable.
+    hz = client.post("/api/admin/service-areas/preset/hyderabad", headers=hdr(superadmin))
+    check("hyderabad preset applied", hz.status_code == 200 and hz.json()["total"] >= 10)
+    near = client.get("/api/locations/nearest", params={"lat": 17.4948, "lng": 78.3996},
+                      headers=hdr(buyer)).json()
+    check("KPHB now resolves inside the service area", near.get("within_service_area") is True)
+    # Non-superadmin cannot change coverage.
+    check("non-superadmin cannot add coverage",
+          client.post("/api/admin/service-areas/preset/hyderabad", headers=hdr(farmer)).status_code == 403)
+    # Add + toggle a single mandal.
+    add = client.post("/api/admin/service-areas/mandal", headers=hdr(superadmin),
+                      json={"state": "Telangana", "district": "Hyderabad", "name": "Kompally",
+                            "latitude": 17.54, "longitude": 78.48, "serviceable": True})
+    check("add single mandal", add.status_code == 200 and add.json()["serviceable"] is True)
+    mid = add.json()["id"]
+    off = client.patch(f"/api/admin/service-areas/mandal/{mid}", headers=hdr(superadmin),
+                       json={"serviceable": False})
+    check("toggle mandal serviceable off", off.json()["serviceable"] is False)
+
     print("\n== Ledger edge cases ==")
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger globally balanced", acct["balanced"] is True)
