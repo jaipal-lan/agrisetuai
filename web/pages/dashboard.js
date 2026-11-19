@@ -54,15 +54,17 @@ export default function Dashboard() {
             {data.cards.map((c) => (
               <div
                 key={c.label}
-                className="card stat-card"
+                className={`card stat-card${c.alert ? " alert" : ""}`}
                 style={{
                   cursor: c.href ? "pointer" : "default",
                   borderLeft: c.alert ? "4px solid var(--amber-600)" : "4px solid var(--green-600)",
                 }}
                 onClick={() => c.href && router.push(c.href)}
               >
+                <div className="stat-icon" aria-hidden="true">{c.icon || "•"}</div>
                 <div className="muted" style={{ fontSize: 13 }}>{c.label}</div>
                 <div className="price" style={{ fontSize: 26 }}>{c.value}</div>
+                {c.alert && <span className="stat-dot" title="Needs attention" />}
               </div>
             ))}
           </div>

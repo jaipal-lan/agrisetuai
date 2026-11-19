@@ -4,6 +4,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 const STRINGS = {
   te: {
     app_name: "కిసాన్ సేతు",
+    trust_q_t: "ఏజెంట్ ధృవీకరించిన నాణ్యత", trust_q_s: "క్షేత్రంలో తనిఖీ + ప్యాకింగ్ వీడియో",
+    trust_d_t: "ఇంటి వద్దకు డెలివరీ", trust_d_s: "లైవ్ ట్రాకింగ్‌తో",
+    trust_p_t: "న్యాయమైన, నేరుగా ధరలు", trust_p_s: "నేరుగా రైతు నుండి",
     tagline: "రైతు నుండి కొనుగోలుదారు వరకు — ధృవీకరించిన మార్కెట్",
     marketplace: "మార్కెట్",
     sell: "అమ్మకం",
@@ -95,6 +98,9 @@ const STRINGS = {
   },
   en: {
     app_name: "KissanSetu",
+    trust_q_t: "Agent-verified quality", trust_q_s: "Field inspection + packing video",
+    trust_d_t: "Doorstep delivery", trust_d_s: "With live tracking",
+    trust_p_t: "Fair, direct prices", trust_p_s: "Straight from the farmer",
     tagline: "Farmer to buyer — a verified marketplace",
     marketplace: "Marketplace",
     sell: "Sell",
@@ -186,6 +192,9 @@ const STRINGS = {
   },
   hi: {
     app_name: "किसान सेतु",
+    trust_q_t: "एजेंट-सत्यापित गुणवत्ता", trust_q_s: "खेत पर जाँच + पैकिंग वीडियो",
+    trust_d_t: "घर तक डिलीवरी", trust_d_s: "लाइव ट्रैकिंग के साथ",
+    trust_p_t: "उचित, सीधे दाम", trust_p_s: "सीधे किसान से",
     tagline: "किसान से खरीदार तक — एक सत्यापित बाज़ार",
     marketplace: "बाज़ार",
     sell: "बेचें",

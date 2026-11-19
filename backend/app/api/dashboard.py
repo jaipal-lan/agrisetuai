@@ -34,6 +34,20 @@ _ROLE_LABEL = {
     "superadmin": "Superadmin",
 }
 
+# Per-card icon (keyed by label) so the dashboard reads richly without the
+# frontend hard-coding emoji against localized strings.
+_CARD_ICONS = {
+    "Active listings": "🌾", "Open negotiations": "🤝", "Orders selling": "📦",
+    "Awaiting payout": "💰", "Orders buying": "🛒", "Open offers": "🤝",
+    "Orders in progress": "📦", "Open requests (RFQ)": "📋",
+    "Inspections to do": "🔍", "My targets": "🎯", "Upcoming meetings": "📅",
+    "Unassigned inspections": "📥", "In inspection": "🔎", "Field agents": "👥",
+    "Active targets": "🎯", "GMV (settled)": "📈", "Open disputes": "⚖️",
+    "Pending payouts": "💸", "Active deliveries": "🚚", "Earnings (paid)": "💰",
+    "Total orders": "📦", "Open listings": "🌾", "Pending KYC": "🪪",
+    "Unread alerts": "🔔",
+}
+
 _TERMINAL = (S.SETTLED, S.CANCELLED, S.REFUNDED)
 _INSPECTION_STATES = (S.INSPECTION_ASSIGNED, S.INSPECTION_IN_PROGRESS, S.INSPECTION_HOLD)
 _ACTIVE_SHIPMENT = (S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT, S.OUT_FOR_DELIVERY)
@@ -198,6 +212,9 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
                    {"label": "Disputes & refunds", "href": "/support"}]
 
     cards.append({"label": "Unread alerts", "value": unread, "href": "/inbox", "alert": unread > 0})
+
+    for c in cards:
+        c.setdefault("icon", _CARD_ICONS.get(c["label"], "•"))
 
     return {
         "role": role,

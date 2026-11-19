@@ -217,6 +217,22 @@ export default function Marketplace() {
       ) : (
         /* ---------------- Curated landing ---------------- */
         <>
+          {/* Trust strip — the three promises that make KissanSetu different */}
+          <div className="trust-strip">
+            <div className="trust-item">
+              <span className="trust-ico" aria-hidden="true">✅</span>
+              <div><div className="trust-ttl">{t("trust_q_t")}</div><div className="trust-sub">{t("trust_q_s")}</div></div>
+            </div>
+            <div className="trust-item">
+              <span className="trust-ico" aria-hidden="true">🚚</span>
+              <div><div className="trust-ttl">{t("trust_d_t")}</div><div className="trust-sub">{t("trust_d_s")}</div></div>
+            </div>
+            <div className="trust-item">
+              <span className="trust-ico" aria-hidden="true">🌾</span>
+              <div><div className="trust-ttl">{t("trust_p_t")}</div><div className="trust-sub">{t("trust_p_s")}</div></div>
+            </div>
+          </div>
+
           {/* Headline stats */}
           {disc.stats?.live_products > 0 && (
             <div className="stat-strip">
