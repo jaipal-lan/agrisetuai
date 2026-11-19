@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
+import { localizeName } from "../lib/translit";
 
 // Is this a per-quintal unit (so it can be shown per-kg)? AGMARKNET is mostly
 // ₹/quintal, but a few commodities (eggs, coconut) report per piece/unit — those
@@ -21,7 +22,13 @@ const unitLabel = (unit, unitMode) =>
 
 // Today's government-declared mandi prices, all-India, product-wise.
 export default function Prices() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  // Emoji by category; the label itself is translated via t(`cat_<key>`).
+  const CAT_EMOJI = {
+    all: "", vegetable: "🥬", fruit: "🍎", cereal: "🌾", pulse: "🫘",
+    oilseed: "🛢️", spice: "🌶️", dairy_meat: "🥛", other: "",
+  };
+  const catLabel = (key) => `${CAT_EMOJI[key] ? CAT_EMOJI[key] + " " : ""}${t("cat_" + key)}`;
   const [commodities, setCommodities] = useState([]);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -33,13 +40,9 @@ export default function Prices() {
   const [stateFilter, setStateFilter] = useState("all"); // detail area filter
   const [mktSort, setMktSort] = useState("state");   // detail market sort
 
-  const CAT_LABELS = {
-    all: "All", vegetable: "🥬 Vegetables", fruit: "🍎 Fruits", cereal: "🌾 Cereals",
-    pulse: "🫘 Pulses", oilseed: "🛢️ Oilseeds", spice: "🌶️ Spices",
-    dairy_meat: "🥛 Dairy & meat", other: "Other",
-  };
+  const CAT_ORDER = ["all", "vegetable", "fruit", "cereal", "pulse", "oilseed", "spice", "dairy_meat", "other"];
   const cats = ["all", ...Array.from(new Set(commodities.map((c) => c.category || "other")))
-    .sort((a, b) => Object.keys(CAT_LABELS).indexOf(a) - Object.keys(CAT_LABELS).indexOf(b))];
+    .sort((a, b) => CAT_ORDER.indexOf(a) - CAT_ORDER.indexOf(b))];
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => {
     const mid = (c) => (Number(c.modal_min) + Number(c.modal_max)) / 2;
@@ -91,19 +94,16 @@ export default function Prices() {
   return (
     <div>
       <h1>{t("market_prices")}</h1>
-      <p className="tagline">
-        Today's government-declared mandi prices across India. A past modal price is
-        not a guaranteed sale price on this platform.
-      </p>
+      <p className="tagline">{t("prices_intro")}</p>
       {err && <div className="error">{err}</div>}
 
       {!selected ? (
         <>
-          <p className="muted" style={{ fontSize: 14 }}>Tap a product to see its price across all markets.</p>
+          <p className="muted" style={{ fontSize: 14 }}>{t("prices_tap")}</p>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search a product (e.g. tomato, paddy, apple)…"
+            placeholder={t("prices_search_ph")}
             style={{ fontSize: 16, width: "100%", maxWidth: 420, marginBottom: 10 }}
           />
           <div className="row" style={{ flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
@@ -111,26 +111,26 @@ export default function Prices() {
               <button key={cx} className={cat === cx ? "" : "ghost"}
                       style={{ padding: "4px 10px", fontSize: 13 }}
                       onClick={() => setCat(cx)}>
-                {CAT_LABELS[cx] || cx}
+                {catLabel(cx)}
               </button>
             ))}
           </div>
           <div className="row" style={{ flexWrap: "wrap", gap: 10, marginBottom: 12, alignItems: "center" }}>
             <label className="muted" style={{ fontSize: 13 }}>
-              Sort:{" "}
+              {t("sort_label")}:{" "}
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                <option value="name">Name (A–Z)</option>
-                <option value="price_lo">Price: low → high</option>
-                <option value="price_hi">Price: high → low</option>
+                <option value="name">{t("sort_name_az")}</option>
+                <option value="price_lo">{t("sort_price_lo")}</option>
+                <option value="price_hi">{t("sort_price_hi")}</option>
               </select>
             </label>
             <div className="seg" aria-label="price unit">
-              <button className={unitMode === "qtl" ? "seg-on" : ""} onClick={() => setUnitMode("qtl")}>₹/quintal</button>
-              <button className={unitMode === "kg" ? "seg-on" : ""} onClick={() => setUnitMode("kg")}>₹/kg</button>
+              <button className={unitMode === "qtl" ? "seg-on" : ""} onClick={() => setUnitMode("qtl")}>{t("per_quintal")}</button>
+              <button className={unitMode === "kg" ? "seg-on" : ""} onClick={() => setUnitMode("kg")}>{t("per_kg_u")}</button>
             </div>
           </div>
           <p className="muted" style={{ fontSize: 13, marginTop: -6 }}>
-            {shown.length} of {commodities.length} products
+            {shown.length} {t("word_of")} {commodities.length} {t("word_products")}
           </p>
           <div className="grid">
             {shown.map((c) => (
@@ -138,11 +138,14 @@ export default function Prices() {
                       style={{ textAlign: "left", cursor: "pointer", color: "var(--ink)" }}
                       onClick={() => setSelected(c.commodity)}>
                 <div className="between" style={{ alignItems: "flex-start" }}>
-                  <h3 style={{ margin: "0 0 6px", color: "var(--ink)" }}>{c.commodity}</h3>
+                  <h3 style={{ margin: "0 0 2px", color: "var(--ink)" }}>{localizeName(c.commodity, lang)}</h3>
                   {c.category && c.category !== "other" && (
-                    <span className="pill-tag">{(CAT_LABELS[c.category] || c.category).replace(/^\S+\s/, "")}</span>
+                    <span className="pill-tag">{t("cat_" + c.category)}</span>
                   )}
                 </div>
+                {lang !== "en" && (
+                  <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{c.commodity}</div>
+                )}
                 <div className="price" style={{ fontSize: 20 }}>
                   {priceText(c.modal_min, c.unit, unitMode)}
                   {Number(c.modal_max) !== Number(c.modal_min)
@@ -150,49 +153,52 @@ export default function Prices() {
                   <small> {unitLabel(c.unit, unitMode)}</small>
                 </div>
                 <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                  {c.market_count} markets · {c.state_count} states · {c.as_of}
+                  {c.market_count} {t("word_markets")} · {c.state_count} {t("word_states")} · {c.as_of}
                 </div>
               </button>
             ))}
           </div>
-          {shown.length === 0 && <p className="muted">No products match that search.</p>}
+          {shown.length === 0 && <p className="muted">{t("no_match")}</p>}
         </>
       ) : !detail ? (
         <p className="muted">{t("loading")}</p>
       ) : (
         <>
-          <button className="ghost" onClick={() => setSelected(null)}>← All products</button>
+          <button className="ghost" onClick={() => setSelected(null)}>{t("all_products_back")}</button>
           <div className="between" style={{ marginTop: 12, flexWrap: "wrap", gap: 8 }}>
-            <h2 style={{ margin: 0 }}>{detail.commodity}</h2>
+            <h2 style={{ margin: 0 }}>
+              {localizeName(detail.commodity, lang)}
+              {lang !== "en" && <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}> · {detail.commodity}</span>}
+            </h2>
             <UnitToggle unit={detail.unit} />
           </div>
           <div className="stat-strip">
-            <div><b>{priceText(detail.modal_avg, detail.unit, unitMode)}</b> avg modal</div>
-            <div><b>{priceText(detail.modal_min, detail.unit, unitMode)}–{priceText(detail.modal_max, detail.unit, unitMode).replace("₹", "")}</b> range</div>
-            <div><b>{detail.market_count}</b> markets</div>
+            <div><b>{priceText(detail.modal_avg, detail.unit, unitMode)}</b> {t("avg_modal")}</div>
+            <div><b>{priceText(detail.modal_min, detail.unit, unitMode)}–{priceText(detail.modal_max, detail.unit, unitMode).replace("₹", "")}</b> {t("word_range")}</div>
+            <div><b>{detail.market_count}</b> {t("word_markets")}</div>
           </div>
           <div className="muted" style={{ fontSize: 13, margin: "6px 0 14px" }}>
-            {unitLabel(detail.unit, unitMode)} · as of {detail.as_of} · {detail.source_name}
+            {unitLabel(detail.unit, unitMode)} · {t("word_as_of")} {detail.as_of} · {detail.source_name}
           </div>
 
           {/* Sort + area filter */}
           <div className="row" style={{ flexWrap: "wrap", gap: 10, marginBottom: 12, alignItems: "center" }}>
             <label className="muted" style={{ fontSize: 13 }}>
-              Area:{" "}
+              {t("area_label")}:{" "}
               <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
-                <option value="all">All states</option>
-                {detailStates.map((s) => <option key={s} value={s}>{s}</option>)}
+                <option value="all">{t("all_states")}</option>
+                {detailStates.map((s) => <option key={s} value={s}>{localizeName(s, lang)}</option>)}
               </select>
             </label>
             <label className="muted" style={{ fontSize: 13 }}>
-              Sort markets:{" "}
+              {t("sort_markets")}:{" "}
               <select value={mktSort} onChange={(e) => setMktSort(e.target.value)}>
-                <option value="state">By state</option>
-                <option value="modal_lo">Modal: low → high (best buy)</option>
-                <option value="modal_hi">Modal: high → low (best sell)</option>
+                <option value="state">{t("by_state")}</option>
+                <option value="modal_lo">{t("modal_lo")}</option>
+                <option value="modal_hi">{t("modal_hi")}</option>
               </select>
             </label>
-            <span className="muted" style={{ fontSize: 13 }}>{flatMarkets.length} markets</span>
+            <span className="muted" style={{ fontSize: 13 }}>{flatMarkets.length} {t("word_markets")}</span>
           </div>
 
           {mktSort === "state" ? (
@@ -201,17 +207,17 @@ export default function Prices() {
               .filter((s) => stateFilter === "all" || s.state === stateFilter)
               .map((s) => (
                 <div key={s.state} style={{ marginBottom: 16 }}>
-                  <h3 style={{ margin: "6px 0" }}>{s.state}</h3>
+                  <h3 style={{ margin: "6px 0" }}>{localizeName(s.state, lang)}</h3>
                   <div className="table-wrap">
                     <table>
                       <thead>
-                        <tr><th>Market</th><th>Variety</th><th>Min</th><th>Modal</th><th>Max</th></tr>
+                        <tr><th>{t("th_market")}</th><th>{t("th_variety")}</th><th>{t("th_min")}</th><th>{t("th_modal")}</th><th>{t("th_max")}</th></tr>
                       </thead>
                       <tbody>
                         {s.markets.map((m) => (
                           <tr key={m.id}>
-                            <td>{m.market}{m.stale && <span className="pill-tag" style={{ marginLeft: 6 }}>stale</span>}</td>
-                            <td className="muted">{m.variety || "—"}</td>
+                            <td>{localizeName(m.market, lang)}{m.stale && <span className="pill-tag" style={{ marginLeft: 6 }}>{t("word_stale")}</span>}</td>
+                            <td className="muted">{m.variety ? localizeName(m.variety, lang) : "—"}</td>
                             <td>{priceText(m.min_price, detail.unit, unitMode)}</td>
                             <td><b>{priceText(m.modal_price, detail.unit, unitMode)}</b></td>
                             <td>{priceText(m.max_price, detail.unit, unitMode)}</td>
@@ -227,20 +233,20 @@ export default function Prices() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Market</th><th>State</th><th>Variety</th><th>Min</th><th>Modal</th><th>Max</th></tr>
+                  <tr><th>{t("th_market")}</th><th>{t("th_state")}</th><th>{t("th_variety")}</th><th>{t("th_min")}</th><th>{t("th_modal")}</th><th>{t("th_max")}</th></tr>
                 </thead>
                 <tbody>
                   {flatMarkets.map((m) => (
                     <tr key={m.id}>
                       <td>
-                        {m.market}
+                        {localizeName(m.market, lang)}
                         {Number(m.modal_price) === cheapest && (
-                          <span className="badge green" style={{ marginLeft: 6 }}>best</span>
+                          <span className="badge green" style={{ marginLeft: 6 }}>{t("word_best")}</span>
                         )}
-                        {m.stale && <span className="pill-tag" style={{ marginLeft: 6 }}>stale</span>}
+                        {m.stale && <span className="pill-tag" style={{ marginLeft: 6 }}>{t("word_stale")}</span>}
                       </td>
-                      <td className="muted">{m.state}</td>
-                      <td className="muted">{m.variety || "—"}</td>
+                      <td className="muted">{localizeName(m.state, lang)}</td>
+                      <td className="muted">{m.variety ? localizeName(m.variety, lang) : "—"}</td>
                       <td>{priceText(m.min_price, detail.unit, unitMode)}</td>
                       <td><b>{priceText(m.modal_price, detail.unit, unitMode)}</b></td>
                       <td>{priceText(m.max_price, detail.unit, unitMode)}</td>

@@ -159,7 +159,7 @@ function Nav() {
       {/* Guests: a few direct links. Logged-in users: grouped menus. */}
       {!user && <Link href="/">{t("marketplace")}</Link>}
       {!user && <Link href="/prices">{t("market_prices")}</Link>}
-      {!user && <Link href="/track">Track</Link>}
+      {!user && <Link href="/track">{t("track")}</Link>}
 
       {shopper && <Menu label={t("buy")} items={[
         it(true, "/", t("marketplace")),
@@ -176,7 +176,7 @@ function Nav() {
       {shopper && <Menu label={t("my_orders")} items={[
         it(true, "/orders", t("my_orders")),
         it(true, "/invoices", t("invoices")),
-        it(true, "/track", "Track"),
+        it(true, "/track", t("track")),
       ]} />}
 
       {opsOnly && <Menu label={t("work")} items={[
@@ -187,7 +187,7 @@ function Nav() {
         it(staff, "/admin", t("admin")),
         it(true, "/requests", t("requests")),
         it(true, "/prices", t("market_prices")),
-        it(true, "/track", "Track"),
+        it(true, "/track", t("track")),
       ]} />}
 
       {/* Staff who also need the admin console but are shoppers (rare) still get it. */}
