@@ -157,7 +157,7 @@ def send(phone: str, message: str) -> bool:
 
 def send_otp(phone: str, code: str) -> bool:
     provider = (settings.sms_provider or "console").lower()
-    msg = f"Your AgriSetuAI verification code is {code}. Valid for 5 minutes."
+    msg = f"Your KissanSetu verification code is {code}. Valid for 5 minutes."
     # 2Factor.in: delivers our code through its pre-approved OTP template (no DLT
     # work on our side) — the recommended India path.
     if provider == "2factor":

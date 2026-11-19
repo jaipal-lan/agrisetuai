@@ -190,7 +190,7 @@ function Certificate({ orderId }) {
   return (
     <div className="card" style={{ marginTop: 16, borderLeft: "4px solid var(--green-600)" }}>
       <div className="between">
-        <h3>✅ AgriSetu Verified Lot</h3>
+        <h3>✅ KissanSetu Verified Lot</h3>
         <span className="pill-tag">{cert.certificate_id}</span>
       </div>
       <div style={{ fontSize: 14 }}>
@@ -425,7 +425,7 @@ export default function OrderDetail() {
       {order.quote && (
         <div style={{ marginTop: 12 }}>
           <button className="ghost" onClick={() =>
-            downloadFile(`/orders/${id}/invoice.pdf`, `agrisetu-invoice-${order.public_id}.pdf`)
+            downloadFile(`/orders/${id}/invoice.pdf`, `kissansetu-invoice-${order.public_id}.pdf`)
               .catch((e) => setErr(e.message))}>
             ⬇ {["paid", "packing", "ready_for_pickup", "picked_up", "in_transit",
                  "out_for_delivery", "delivered_pending_acceptance", "completed", "settled"].includes(s)

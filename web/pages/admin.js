@@ -459,7 +459,7 @@ export default function Admin() {
           <div className="between">
             <h2>Reports — GMV ₹{reports.total_gmv} · {reports.total_orders} orders</h2>
             <button className="ghost" onClick={() =>
-              downloadCsv(`/admin/reports.csv${rangeQS()}`, "agrisetu-gmv-report.csv").catch((e) => setErr(e.message))}>
+              downloadCsv(`/admin/reports.csv${rangeQS()}`, "kissansetu-gmv-report.csv").catch((e) => setErr(e.message))}>
               ⬇ Download CSV
             </button>
           </div>
@@ -492,7 +492,7 @@ export default function Admin() {
           <div className="between">
             <h2>Operations scorecard</h2>
             <button className="ghost" onClick={() =>
-              downloadCsv(`/admin/ops-report.csv${rangeQS()}`, "agrisetu-ops-report.csv").catch((e) => setErr(e.message))}>
+              downloadCsv(`/admin/ops-report.csv${rangeQS()}`, "kissansetu-ops-report.csv").catch((e) => setErr(e.message))}>
               ⬇ Download CSV
             </button>
           </div>

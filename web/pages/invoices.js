@@ -59,7 +59,7 @@ export default function Invoices() {
                   <td><span className="badge grey">{o.status.replace(/_/g, " ")}</span></td>
                   <td>
                     <button className="ghost" onClick={() =>
-                      downloadFile(`/orders/${o.id}/invoice.pdf`, `agrisetu-invoice-${o.public_id}.pdf`)
+                      downloadFile(`/orders/${o.id}/invoice.pdf`, `kissansetu-invoice-${o.public_id}.pdf`)
                         .catch((e) => setErr(e.message))}>
                       ⬇ {paid ? "Receipt" : "Invoice"} (PDF)
                     </button>

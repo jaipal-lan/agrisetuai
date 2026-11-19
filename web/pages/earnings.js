@@ -103,7 +103,7 @@ export default function Earnings() {
         <h1>Earnings</h1>
         {data && data.orders.length > 0 && (
           <button className="ghost" onClick={() =>
-            downloadCsv("/auth/me/earnings.csv", "agrisetu-earnings.csv").catch((e) => setErr(e.message))}>
+            downloadCsv("/auth/me/earnings.csv", "kissansetu-earnings.csv").catch((e) => setErr(e.message))}>
             ⬇ Download CSV
           </button>
         )}

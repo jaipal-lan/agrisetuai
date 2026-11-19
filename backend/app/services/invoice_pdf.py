@@ -32,7 +32,7 @@ def build_invoice_pdf(*, order, buyer_name: str, seller_name: str,
     # Header
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(31, 122, 51)
-    pdf.cell(0, 10, "AgriSetuAI", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "KissanSetu", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(90, 90, 90)
     pdf.cell(0, 6, "Verified farm-to-market marketplace", new_x="LMARGIN", new_y="NEXT")
@@ -114,7 +114,7 @@ def build_invoice_pdf(*, order, buyer_name: str, seller_name: str,
     pdf.set_text_color(120, 120, 120)
     pdf.set_font("Helvetica", "I", 8)
     pdf.multi_cell(0, 4,
-        _safe("This is a system-generated commercial document for the above AgriSetuAI "
+        _safe("This is a system-generated commercial document for the above KissanSetu "
               "trade and is not a statutory tax invoice. Quality figures, where shown, "
               "reflect field inspection, not laboratory testing. Amounts in INR."))
     return bytes(pdf.output())

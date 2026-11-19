@@ -29,7 +29,7 @@ from app.core.config import settings
 from app.core.database import run_migrations
 
 app = FastAPI(
-    title="AgriSetuAI",
+    title="KissanSetu",
     version="0.2.0",
     description="Door-to-door farm-to-buyer marketplace: list, agent-verify, pay, deliver.",
 )

@@ -172,7 +172,7 @@ def reports_csv(from_: str | None = Query(None, alias="from"), to: str | None = 
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="agrisetu-gmv-report.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="kissansetu-gmv-report.csv"'},
     )
 
 
@@ -349,7 +349,7 @@ def ops_report_csv(from_: str | None = Query(None, alias="from"), to: str | None
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="agrisetu-ops-report.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="kissansetu-ops-report.csv"'},
     )
 
 

@@ -908,7 +908,7 @@ def my_earnings_csv(user: User = Depends(get_current_user), db: Session = Depend
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="agrisetu-earnings.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="kissansetu-earnings.csv"'},
     )
 
 

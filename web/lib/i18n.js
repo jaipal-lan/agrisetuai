@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 const STRINGS = {
   te: {
-    app_name: "అగ్రిసేతు AI",
+    app_name: "కిసాన్ సేతు",
     tagline: "రైతు నుండి కొనుగోలుదారు వరకు — ధృవీకరించిన మార్కెట్",
     marketplace: "మార్కెట్",
     sell: "అమ్మకం",
@@ -94,7 +94,7 @@ const STRINGS = {
     places: "ప్రాంతాలు",
   },
   en: {
-    app_name: "AgriSetuAI",
+    app_name: "KissanSetu",
     tagline: "Farmer to buyer — a verified marketplace",
     marketplace: "Marketplace",
     sell: "Sell",
@@ -185,7 +185,7 @@ const STRINGS = {
     places: "places",
   },
   hi: {
-    app_name: "अग्रिसेतु AI",
+    app_name: "किसान सेतु",
     tagline: "किसान से खरीदार तक — एक सत्यापित बाज़ार",
     marketplace: "बाज़ार",
     sell: "बेचें",

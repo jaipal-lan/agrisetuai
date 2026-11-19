@@ -206,7 +206,7 @@ _NOT_TESTED_NOTE = (
     "This certificate records what the field agent observed and measured on site. "
     "It does NOT test for pesticide residues, chemical adulteration, aflatoxins or "
     "microbial safety; those require accredited laboratory analysis. This is an "
-    "AgriSetu verification, not a government or statutory certification."
+    "KissanSetu verification, not a government or statutory certification."
 )
 
 
@@ -297,7 +297,7 @@ def order_invoice_pdf(order_id: int, user=Depends(get_current_user), db: Session
         commodity_name=commodity.name if commodity else "Produce",
         paid=order.status in paid_states,
     )
-    filename = f"agrisetu-invoice-{order.public_id}.pdf"
+    filename = f"kissansetu-invoice-{order.public_id}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
