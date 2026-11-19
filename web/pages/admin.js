@@ -935,6 +935,8 @@ export default function Admin() {
 
       <ServiceAreasAdmin me={me} />
 
+      {me?.role === "superadmin" && <PricingAdmin me={me} />}
+
       <CatalogManager me={me} />
 
       <h2>Product minimum order quantities</h2>
@@ -1310,6 +1312,161 @@ function ServiceAreasAdmin({ me }) {
           <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add as serviceable</button>
         </form>
       )}
+    </>
+  );
+}
+
+// Superadmin pricing: transport (buyer-paid, by km + weight) + agent commission
+// (seller-paid, % of value). Draft -> simulate -> publish; versions are
+// immutable and a confirmed order keeps the version it was priced on.
+function PricingAdmin() {
+  const [rules, setRules] = useState([]);
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    rate_per_km: "", rate_per_kg: "", fixed_pickup_fee: "", min_transport_charge: "",
+    max_transport_charge: "", seller_commission_pct: "", inspection_fee: "", packing_fee: "",
+    service_fee_pct: "", service_fee_flat: "", service_fee_payer: "buyer", tax_pct: "", reason: "",
+  });
+  const [sim, setSim] = useState({ product_value: "10000", billable_kg: "100", route_km: "20" });
+  const [simOut, setSimOut] = useState(null);
+
+  const num = (v) => (v === "" || v == null ? 0 : Number(v));
+  function load() { api("/pricing/rules").then(setRules).catch((e) => setErr(e.message)); }
+  useEffect(() => { load(); }, []);
+  const published = rules.find((r) => r.status === "published");
+  const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function saveDraft(e) {
+    e.preventDefault(); setErr(null); setMsg(null); setBusy(true);
+    try {
+      const body = {
+        rate_per_km: num(form.rate_per_km), rate_per_kg: num(form.rate_per_kg),
+        fixed_pickup_fee: num(form.fixed_pickup_fee), min_transport_charge: num(form.min_transport_charge),
+        max_transport_charge: form.max_transport_charge === "" ? null : num(form.max_transport_charge),
+        seller_commission_pct: num(form.seller_commission_pct),
+        inspection_fee: num(form.inspection_fee), packing_fee: num(form.packing_fee),
+        service_fee_pct: num(form.service_fee_pct), service_fee_flat: num(form.service_fee_flat),
+        service_fee_payer: form.service_fee_payer, tax_pct: num(form.tax_pct), reason: form.reason || null,
+      };
+      const r = await api("/admin/pricing-rules/draft", { method: "POST", body });
+      setMsg(`Draft v${r.version} saved — simulate it below, then publish to go live.`); load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function simulate(ruleId) {
+    setErr(null);
+    try {
+      setSimOut(await api(`/admin/pricing-rules/${ruleId}/simulate`, { method: "POST", body: {
+        product_value: num(sim.product_value), billable_kg: num(sim.billable_kg), route_km: num(sim.route_km) } }));
+    } catch (e) { setErr(e.message); }
+  }
+  async function publish(ruleId) {
+    if (!confirm("Publish this pricing rule?\n\nIt becomes live for NEW orders. Orders already confirmed keep the price they were quoted on.")) return;
+    setErr(null); setMsg(null); setBusy(true);
+    try { await api(`/admin/pricing-rules/${ruleId}/publish`, { method: "POST" }); setMsg("Published — now live."); load(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  function prefill(r) {
+    setForm({
+      rate_per_km: r.rate_per_km, rate_per_kg: r.rate_per_kg, fixed_pickup_fee: r.fixed_pickup_fee,
+      min_transport_charge: r.min_transport_charge, max_transport_charge: r.max_transport_charge ?? "",
+      seller_commission_pct: r.seller_commission_pct, inspection_fee: r.inspection_fee, packing_fee: r.packing_fee,
+      service_fee_pct: r.service_fee_pct, service_fee_flat: r.service_fee_flat,
+      service_fee_payer: r.service_fee_payer, tax_pct: r.tax_pct, reason: "",
+    });
+  }
+
+  const F = ({ k, label, step = "0.01" }) => (
+    <label>{label}
+      <input value={form[k]} onChange={(e) => setF(k, e.target.value)} inputMode="decimal" step={step} placeholder="0" />
+    </label>
+  );
+
+  return (
+    <>
+      <h2>Pricing — transport (buyer) &amp; commission (seller)</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8, maxWidth: 640 }}>
+        <b>Transport is charged to the buyer</b>, computed by distance &amp; weight:
+        <code> ₹/km × km + ₹/kg × weight + pickup</code> (clamped to min/max).
+        <b> Agent commission is charged to the seller</b> as a % of the produce value.
+        Publishing a new version never reprices existing orders.
+      </p>
+      {err && <div className="error">{err}</div>}
+      {msg && <div className="ok">{msg}</div>}
+
+      {published && (
+        <div className="card" style={{ marginBottom: 10, borderLeft: "4px solid var(--green-600)" }}>
+          <b>Live now — v{published.version}</b>
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Transport: ₹{published.rate_per_km}/km · ₹{published.rate_per_kg}/kg · pickup ₹{published.fixed_pickup_fee}
+            · min ₹{published.min_transport_charge}{published.max_transport_charge ? ` · max ₹${published.max_transport_charge}` : ""}
+            <br />Seller commission: {published.seller_commission_pct}% · inspection ₹{published.inspection_fee} · packing ₹{published.packing_fee} · tax {published.tax_pct}%
+          </div>
+          <button className="ghost" style={{ marginTop: 8 }} onClick={() => prefill(published)}>Edit a copy →</button>
+        </div>
+      )}
+
+      <form onSubmit={saveDraft} className="card">
+        <b>New pricing version</b>
+        <div className="form-grid" style={{ marginTop: 8 }}>
+          <F k="rate_per_km" label="Transport ₹ / km (buyer)" />
+          <F k="rate_per_kg" label="Transport ₹ / kg (buyer)" />
+          <F k="fixed_pickup_fee" label="Pickup fee ₹ (buyer)" />
+          <F k="min_transport_charge" label="Min transport ₹" />
+          <F k="max_transport_charge" label="Max transport ₹ (blank = none)" />
+          <F k="seller_commission_pct" label="Agent commission % (seller)" step="0.001" />
+          <F k="inspection_fee" label="Inspection fee ₹" />
+          <F k="packing_fee" label="Packing fee ₹" />
+          <F k="service_fee_pct" label="Service fee %" step="0.001" />
+          <F k="service_fee_flat" label="Service fee flat ₹" />
+          <label>Service fee payer
+            <select value={form.service_fee_payer} onChange={(e) => setF("service_fee_payer", e.target.value)}>
+              <option value="buyer">buyer</option><option value="seller">seller</option>
+            </select>
+          </label>
+          <F k="tax_pct" label="Tax %" step="0.001" />
+        </div>
+        <label>Reason / note<input value={form.reason} onChange={(e) => setF("reason", e.target.value)} placeholder="e.g. fuel revision Nov 2026" /></label>
+        <button disabled={busy} style={{ marginTop: 10 }}>Save as draft</button>
+      </form>
+
+      {/* Simulate a quote against any rule */}
+      <div className="card" style={{ marginTop: 10 }}>
+        <b>Simulate a quote</b>
+        <div className="form-grid" style={{ marginTop: 8 }}>
+          <label>Produce value ₹<input value={sim.product_value} onChange={(e) => setSim((s) => ({ ...s, product_value: e.target.value }))} inputMode="decimal" /></label>
+          <label>Weight (kg)<input value={sim.billable_kg} onChange={(e) => setSim((s) => ({ ...s, billable_kg: e.target.value }))} inputMode="decimal" /></label>
+          <label>Distance (km)<input value={sim.route_km} onChange={(e) => setSim((s) => ({ ...s, route_km: e.target.value }))} inputMode="decimal" /></label>
+        </div>
+        {simOut && (
+          <div className="muted" style={{ fontSize: 14, marginTop: 8 }}>
+            Transport (buyer): <b>₹{simOut.transport_charge}</b> · Commission (seller): <b>₹{simOut.seller_commission}</b>
+            {" · "}Buyer pays: <b>₹{simOut.buyer_total}</b> · Seller receives: <b>₹{simOut.seller_payable}</b>
+          </div>
+        )}
+      </div>
+
+      <div className="table-wrap" style={{ marginTop: 10 }}>
+        <table>
+          <thead><tr><th>Ver</th><th>Status</th><th>₹/km</th><th>₹/kg</th><th>Pickup</th><th>Comm %</th><th></th></tr></thead>
+          <tbody>
+            {rules.map((r) => (
+              <tr key={r.id}>
+                <td>v{r.version}</td>
+                <td><span className={`badge ${r.status === "published" ? "green" : r.status === "draft" ? "amber" : "grey"}`}>{r.status}</span></td>
+                <td>₹{r.rate_per_km}</td><td>₹{r.rate_per_kg}</td><td>₹{r.fixed_pickup_fee}</td><td>{r.seller_commission_pct}%</td>
+                <td>
+                  <button className="ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => simulate(r.id)}>Simulate</button>
+                  {r.status === "draft" && (
+                    <button style={{ padding: "4px 10px", fontSize: 13, marginLeft: 6 }} disabled={busy} onClick={() => publish(r.id)}>Publish</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

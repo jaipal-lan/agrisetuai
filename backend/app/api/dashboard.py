@@ -45,7 +45,7 @@ _CARD_ICONS = {
     "Active targets": "🎯", "GMV (settled)": "📈", "Open disputes": "⚖️",
     "Pending payouts": "💸", "Active deliveries": "🚚", "Earnings (paid)": "💰",
     "Total orders": "📦", "Open listings": "🌾", "Pending KYC": "🪪",
-    "Unread alerts": "🔔",
+    "Held at warehouse": "🏬", "Unread alerts": "🔔",
 }
 
 _TERMINAL = (S.SETTLED, S.CANCELLED, S.REFUNDED)
@@ -148,6 +148,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         unassigned = _count(db, select(func.count(Order.id)).where(
             Order.status.in_(_INSPECTION_STATES), Order.assigned_agent_id.is_(None)))
         agents = _count(db, select(func.count(User.id)).where(User.role == str(Role.FIELD_AGENT)))
+        at_warehouse = _count(db, select(func.count(Order.id)).where(Order.status == S.DELIVERY_FAILED))
         active_orders = _count(db, select(func.count(Order.id)).where(Order.status.not_in(_TERMINAL)))
         active_targets = _count(db, select(func.count(AgentTarget.id)).where(AgentTarget.status == "active"))
         upcoming_meetings = _count(db, select(func.count(TeamMeeting.id)).where(TeamMeeting.status == "scheduled"))
@@ -157,6 +158,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
             {"label": "Field agents", "value": agents, "href": "/team"},
             {"label": "Active targets", "value": active_targets, "href": "/team"},
             {"label": "Upcoming meetings", "value": upcoming_meetings, "href": "/team"},
+            {"label": "Held at warehouse", "value": at_warehouse, "href": "/orders", "alert": at_warehouse > 0},
             {"label": "Orders in progress", "value": active_orders, "href": "/orders"},
         ]
         actions = [
@@ -199,8 +201,10 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
                        + _count(db, select(func.count(BuyerProfile.user_id)).where(BuyerProfile.verification_status == "pending")))
         open_disputes = _count(db, select(func.count(Dispute.id)).where(Dispute.status != "decided"))
         pending_payouts = _count(db, select(func.count(Payout.id)).where(Payout.status == "pending"))
+        at_warehouse = _count(db, select(func.count(Order.id)).where(Order.status == S.DELIVERY_FAILED))
         cards = [
             {"label": "Total orders", "value": total_orders, "href": "/admin"},
+            {"label": "Held at warehouse", "value": at_warehouse, "href": "/admin", "alert": at_warehouse > 0},
             {"label": "GMV (settled)", "value": f"₹{_settled_gmv(db)}", "href": "/admin"},
             {"label": "Open listings", "value": open_listings, "href": "/"},
             {"label": "Pending KYC", "value": pending_kyc, "href": "/admin", "alert": pending_kyc > 0},

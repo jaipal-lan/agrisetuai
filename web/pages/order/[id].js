@@ -339,6 +339,7 @@ export default function OrderDetail() {
   const [newAddr, setNewAddr] = useState(null);     // from AddressPicker ("deliver elsewhere")
   const [addingAddr, setAddingAddr] = useState(false);
   const [payMethod, setPayMethod] = useState("online");  // "online" | "cod"
+  const [rescheduleAddr, setRescheduleAddr] = useState(false);  // failed-delivery re-address
 
   useEffect(() => {
     setMe(getUser());
@@ -666,9 +667,60 @@ export default function OrderDetail() {
       )}
 
       {/* Delivery timeline (all parties) once the order is packed or moving. */}
-      {["ready_for_pickup", "picked_up", "in_transit", "out_for_delivery",
+      {["ready_for_pickup", "picked_up", "in_transit", "out_for_delivery", "delivery_failed",
         "delivered_pending_acceptance", "completed", "settled"].includes(s) && (
         <TrackingTimeline orderId={id} isBuyer={isBuyer} />
+      )}
+
+      {/* Failed delivery: goods are held at the warehouse (Zepto/Swiggi style). */}
+      {s === "delivery_failed" && (
+        <Action>
+          <h3 style={{ borderLeft: "4px solid var(--amber-600)", paddingLeft: 10 }}>📦 Held at our warehouse</h3>
+          <p className="muted" style={{ fontSize: 13 }}>
+            We couldn&apos;t complete the delivery. Your order is safe at our warehouse.
+            Update your address to reschedule a delivery, or pick it up.
+          </p>
+
+          {isBuyer && (
+            <>
+              {!rescheduleAddr ? (
+                <button className="ghost" onClick={() => setRescheduleAddr(true)}>
+                  📍 Deliver to a different address
+                </button>
+              ) : (
+                <div style={{ marginTop: 6 }}>
+                  <AddressPicker autoLocate onChange={setNewAddr} />
+                  <button className="ghost" style={{ marginTop: 8 }}
+                          onClick={() => { setRescheduleAddr(false); setNewAddr(null); }}>
+                    ← Keep the original address
+                  </button>
+                </div>
+              )}
+              <div style={{ marginTop: 12 }}>
+                <button disabled={busy || (rescheduleAddr && !newAddr?.lat)}
+                        onClick={async () => {
+                          const body = (rescheduleAddr && newAddr?.lat)
+                            ? { delivery_lat: newAddr.lat, delivery_lng: newAddr.lng } : {};
+                          await act(`/orders/${id}/redeliver`, body);
+                          setRescheduleAddr(false); setNewAddr(null);
+                        }}>
+                  🚚 Reschedule delivery
+                </button>
+              </div>
+            </>
+          )}
+
+          {(isTransport || isStaff || isAgent) && (
+            <div className="row" style={{ marginTop: 14, gap: 8 }}>
+              <button className="ghost" disabled={busy} onClick={() => act(`/orders/${id}/redeliver`, {})}>
+                Send back out for delivery
+              </button>
+              <button disabled={busy} onClick={() => act(`/orders/${id}/warehouse-pickup`)}>
+                ✅ Buyer collected at warehouse
+              </button>
+            </div>
+          )}
+        </Action>
       )}
 
       <div className="row" style={{ gap: 8, marginTop: 10 }}>
@@ -733,6 +785,12 @@ export default function OrderDetail() {
                   {label}
                 </button>
               ))}
+            {s === "out_for_delivery" && (
+              <button className="amber" disabled={busy}
+                      onClick={() => act(`/orders/${id}/shipment/event`, { event: "failed_delivery" })}>
+                Delivery failed → warehouse
+              </button>
+            )}
           </div>
         </Action>
       )}

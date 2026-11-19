@@ -20,6 +20,8 @@ _ALERTS: dict[S, tuple[str, str, str]] = {
     S.PAID: ("seller", "Payment received", "The buyer has paid. Prepare the lot for packing."),
     S.READY_FOR_PICKUP: ("buyer", "Packed & ready", "Your order is packed and ready for pickup."),
     S.OUT_FOR_DELIVERY: ("buyer", "Out for delivery", "Your order is out for delivery."),
+    S.DELIVERY_FAILED: ("buyer", "Delivery couldn't be completed",
+                        "Your order is safe at our warehouse. Update your delivery address to reschedule, or choose to pick it up."),
     S.DELIVERED_PENDING_ACCEPTANCE: ("buyer", "Delivered", "Please confirm delivery to complete the order."),
     S.SETTLED: ("seller", "You've been paid", "Settlement complete — your payout has been released."),
     S.CANCELLED: ("both", "Order cancelled", "This order was cancelled."),
@@ -72,7 +74,15 @@ TRANSITIONS: dict[S, set[S]] = {
     S.READY_FOR_PICKUP: {S.PICKED_UP, S.DISPUTED, S.REFUNDED, S.PARTIALLY_REFUNDED},
     S.PICKED_UP: {S.IN_TRANSIT, S.DISPUTED, S.REFUNDED, S.PARTIALLY_REFUNDED},
     S.IN_TRANSIT: {S.OUT_FOR_DELIVERY, S.DISPUTED, S.REFUNDED, S.PARTIALLY_REFUNDED},
-    S.OUT_FOR_DELIVERY: {S.DELIVERED_PENDING_ACCEPTANCE, S.DISPUTED, S.REFUNDED, S.PARTIALLY_REFUNDED},
+    S.OUT_FOR_DELIVERY: {S.DELIVERED_PENDING_ACCEPTANCE, S.DELIVERY_FAILED, S.DISPUTED, S.REFUNDED, S.PARTIALLY_REFUNDED},
+    S.DELIVERY_FAILED: {
+        S.OUT_FOR_DELIVERY,               # rescheduled re-delivery (new address)
+        S.DELIVERED_PENDING_ACCEPTANCE,   # buyer picked up from the warehouse
+        S.DISPUTED,
+        S.REFUNDED,
+        S.PARTIALLY_REFUNDED,
+        S.CANCELLED,
+    },
     S.DELIVERED_PENDING_ACCEPTANCE: {
         S.COMPLETED,
         S.DISPUTED,

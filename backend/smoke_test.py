@@ -1668,6 +1668,58 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced after COD settlement", acct["balanced"] is True)
 
+    print("\n== Failed delivery -> warehouse hold -> reschedule / pickup ==")
+    fd = client.post("/api/offers/buy-now", headers=hdr(buyer),
+                     json={"listing_id": listing["id"], "quantity": 100})
+    fd_order = fd.json()["order"]["id"]
+    client.post(f"/api/orders/{fd_order}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
+    client.post(f"/api/agent/orders/{fd_order}/inspection", headers=hdr(agent),
+                json={"client_draft_id": "draft-fd-1", "gross_weight": 100, "tare_weight": 0, "outcome": "pass"})
+    client.post(f"/api/orders/{fd_order}/buyer-approve", headers=hdr(buyer))
+    client.post(f"/api/orders/{fd_order}/confirm-quote", headers=hdr(buyer), json={"route_km": 40})
+    client.post(f"/api/orders/{fd_order}/pay", headers=hdr(buyer))
+    client.post(f"/api/orders/{fd_order}/packing-complete", headers=hdr(agent), json={})
+    client.post(f"/api/orders/{fd_order}/assign-courier", headers=hdr(buyer), json={"courier_id": carrier_id})
+    for ev in ("picked_up", "in_transit", "out_for_delivery"):
+        client.post(f"/api/orders/{fd_order}/shipment/event", headers=hdr(transport), json={"event": ev})
+    r = client.post(f"/api/orders/{fd_order}/shipment/event", headers=hdr(transport),
+                    json={"event": "failed_delivery"})
+    check("failed delivery holds the order at the warehouse (not disputed)",
+          r.json()["order"]["status"] == "delivery_failed")
+    r = client.post(f"/api/orders/{fd_order}/redeliver", headers=hdr(buyer),
+                    json={"delivery_lat": 17.49, "delivery_lng": 78.39})
+    check("buyer reschedules -> back out for delivery", r.json()["status"] == "out_for_delivery")
+    client.post(f"/api/orders/{fd_order}/shipment/event", headers=hdr(transport),
+                json={"event": "failed_delivery"})
+    check("a non-party cannot reschedule someone else's delivery",
+          client.post(f"/api/orders/{fd_order}/redeliver", headers=hdr(farmer), json={}).status_code in (403, 404))
+    r = client.post(f"/api/orders/{fd_order}/warehouse-pickup", headers=hdr(transport))
+    check("warehouse pickup -> delivered pending acceptance",
+          r.json()["status"] == "delivered_pending_acceptance")
+    r = client.post(f"/api/orders/{fd_order}/acceptance", headers=hdr(buyer))
+    check("accepted after warehouse pickup -> settled", r.json()["status"] == "settled")
+    check("ledger balanced after warehouse-pickup settlement",
+          client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()["balanced"] is True)
+
+    print("\n== Superadmin pricing (km+weight transport, seller commission) ==")
+    draft = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin), json={
+        "rate_per_km": 5, "rate_per_kg": 2, "fixed_pickup_fee": 50,
+        "min_transport_charge": 100, "seller_commission_pct": 1.5})
+    check("superadmin creates a pricing draft", draft.status_code == 201)
+    rid = draft.json()["id"]
+    check("non-superadmin cannot draft pricing",
+          client.post("/api/admin/pricing-rules/draft", headers=hdr(manager),
+                      json={"rate_per_km": 1}).status_code in (401, 403))
+    sj = client.post(f"/api/admin/pricing-rules/{rid}/simulate", headers=hdr(superadmin),
+                     json={"product_value": 10000, "billable_kg": 100, "route_km": 20}).json()
+    # transport = 5*20 + 2*100 + 50 = 350 (buyer); commission = 1.5% of 10000 = 150 (seller)
+    check("transport computed by km + weight, charged to buyer", float(sj["transport_charge"]) == 350.0)
+    check("agent commission is % of value, deducted from seller",
+          float(sj["seller_commission"]) == 150.0 and float(sj["seller_payable"]) == 9850.0)
+    check("buyer total = produce + transport", float(sj["buyer_total"]) == 10350.0)
+    check("pricing draft publishes to live",
+          client.post(f"/api/admin/pricing-rules/{rid}/publish", headers=hdr(superadmin)).json()["status"] == "published")
+
     print("\n== WhatsApp transactional alerts (gated, Gupshup) ==")
     from app.core.config import settings as _st
     from app.services import whatsapp as _wa

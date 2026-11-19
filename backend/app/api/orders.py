@@ -426,6 +426,46 @@ class ConfirmBody(BaseModel):
     delivery_lng: float | None = None
 
 
+def _resolve_destination(db: Session, order: Order, *, address_id=None, to_mandal_id=None,
+                         delivery_lat=None, delivery_lng=None, fallback_mandal_id=None) -> dict:
+    """Resolve a delivery destination into accepted_terms fields.
+
+    Priority: a chosen saved address (also carries the street line) → an explicit
+    mandal → a dropped map pin (nearest serviceable mandal) → whatever is already
+    on the order → the produce's own mandal. Shared by confirm-quote and the
+    re-delivery flow so an address correction routes the courier the same way.
+    """
+    terms = order.accepted_terms or {}
+    label = terms.get("delivery_label")
+    address_line = terms.get("delivery_address_line")
+    chosen = to_mandal_id
+    if address_id is not None:
+        from app.models.account import SavedAddress
+        addr = db.get(SavedAddress, address_id)
+        if addr is None or addr.user_id != order.buyer_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Saved address not found")
+        chosen = addr.mandal_id
+        label = addr.label
+        address_line = addr.address_line
+    if chosen is None and delivery_lat is not None and delivery_lng is not None:
+        from app.api.locations import _haversine_km
+        from app.models.location import Mandal as _M
+        cand = [m for m in db.scalars(select(_M)) if m.latitude is not None and m.longitude is not None]
+        if cand:
+            cand.sort(key=lambda m: _haversine_km(delivery_lat, delivery_lng,
+                                                  float(m.latitude), float(m.longitude)))
+            serviceable = [m for m in cand if m.serviceable]
+            chosen = (serviceable or cand)[0].id
+    to_mandal = chosen or terms.get("destination_mandal_id") or fallback_mandal_id or terms.get("mandal_id")
+    return {
+        "destination_mandal_id": to_mandal,
+        "delivery_label": label,
+        "delivery_address_line": address_line,
+        "delivery_lat": delivery_lat if delivery_lat is not None else terms.get("delivery_lat"),
+        "delivery_lng": delivery_lng if delivery_lng is not None else terms.get("delivery_lng"),
+    }
+
+
 @router.post("/{order_id}/confirm-quote")
 def confirm_quote(
     order_id: int,
@@ -454,50 +494,21 @@ def confirm_quote(
     if not rule:
         raise HTTPException(status.HTTP_409_CONFLICT, "No published pricing rule applies")
 
-    # Delivery destination, in priority order: a chosen saved address (which also
-    # supplies the street line for the courier), then an explicit mandal, then
-    # whatever was already on the order, finally the produce's own mandal.
-    delivery_label = terms.get("delivery_label")
-    delivery_address_line = terms.get("delivery_address_line")
-    chosen_mandal_id = body.to_mandal_id
-    if body.address_id is not None:
-        from app.models.account import SavedAddress
-        addr = db.get(SavedAddress, body.address_id)
-        if addr is None or addr.user_id != order.buyer_id:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Saved address not found")
-        chosen_mandal_id = addr.mandal_id
-        delivery_label = addr.label
-        delivery_address_line = addr.address_line
-
-    # A dropped map pin (no saved address/mandal) resolves to the nearest mandal.
-    if chosen_mandal_id is None and body.delivery_lat is not None and body.delivery_lng is not None:
-        from app.api.locations import _haversine_km
-        from app.models.location import Mandal as _M
-        cand = [m for m in db.scalars(select(_M)) if m.latitude is not None and m.longitude is not None]
-        if cand:
-            cand.sort(key=lambda m: _haversine_km(body.delivery_lat, body.delivery_lng,
-                                                  float(m.latitude), float(m.longitude)))
-            serviceable = [m for m in cand if m.serviceable]
-            chosen_mandal_id = (serviceable or cand)[0].id
+    # Delivery destination, in priority order: a chosen saved address, then an
+    # explicit mandal, then a map pin, then whatever was already on the order.
+    dest = _resolve_destination(
+        db, order, address_id=body.address_id, to_mandal_id=body.to_mandal_id,
+        delivery_lat=body.delivery_lat, delivery_lng=body.delivery_lng, fallback_mandal_id=mandal_id,
+    )
+    to_mandal_id = dest["destination_mandal_id"]
 
     # Resolve the billable distance server-side: origin = the produce's mandal,
-    # destination = the buyer's delivery mandal (defaults to the order mandal).
-    to_mandal_id = chosen_mandal_id or terms.get("destination_mandal_id") or mandal_id
-    route = distance.route_km_between(
-        db, mandal_id, to_mandal_id, override=body.route_km,
-    )
+    # destination = the buyer's delivery mandal.
+    route = distance.route_km_between(db, mandal_id, to_mandal_id, override=body.route_km)
 
     # Persist the resolved delivery destination onto the order so the courier and
-    # the tracking timeline route to the right door (JSON column: reassign to flag
-    # the change for SQLAlchemy).
-    order.accepted_terms = {
-        **terms,
-        "destination_mandal_id": to_mandal_id,
-        "delivery_label": delivery_label,
-        "delivery_address_line": delivery_address_line,
-        "delivery_lat": body.delivery_lat if body.delivery_lat is not None else terms.get("delivery_lat"),
-        "delivery_lng": body.delivery_lng if body.delivery_lng is not None else terms.get("delivery_lng"),
-    }
+    # the tracking timeline route to the right door.
+    order.accepted_terms = {**terms, **dest}
 
     from app.services.pricing_engine import billable_kg_for
     quote = compute(rule, QuoteInput(
@@ -935,7 +946,9 @@ _SHIP_FLOW = {
     "in_transit": S.IN_TRANSIT,
     "out_for_delivery": S.OUT_FOR_DELIVERY,
     "delivered": S.DELIVERED_PENDING_ACCEPTANCE,
-    "failed_delivery": S.DISPUTED,
+    # A failed attempt no longer opens a dispute: the goods go back to the
+    # warehouse and wait for the buyer to reschedule or pick up.
+    "failed_delivery": S.DELIVERY_FAILED,
 }
 
 
@@ -1028,6 +1041,89 @@ def proof_of_delivery(
     _collect_cod(db, order)
     db.commit()
     return {"order": _order_json(order, db, user), "proof": shipment.proof_of_delivery}
+
+
+# --- Failed delivery -> warehouse hold -> reschedule / pickup ------------
+
+class RedeliverBody(BaseModel):
+    # Optional corrected delivery destination (the usual reason a delivery failed).
+    address_id: int | None = None
+    to_mandal_id: int | None = None
+    delivery_lat: float | None = None
+    delivery_lng: float | None = None
+
+
+@router.post("/{order_id}/redeliver")
+def redeliver(
+    order_id: int,
+    body: RedeliverBody,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reschedule a failed delivery held at the warehouse.
+
+    The buyer (or ops/transport) optionally corrects the delivery address, then
+    the order goes back out for delivery. The locked quote is kept as-is — a
+    re-attempt to a corrected nearby address is not re-priced (Zepto/Swiggi-style
+    goodwill re-delivery).
+    """
+    order = _get_order(order_id, db)
+    staff = user.role in (Role.FIELD_LEADER, Role.FIELD_MANAGER, Role.SUPERADMIN, Role.TRANSPORT)
+    if not staff and user.id != order.buyer_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the buyer or staff can reschedule delivery")
+    if order.status != S.DELIVERY_FAILED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Order is not awaiting re-delivery")
+
+    if any(v is not None for v in (body.address_id, body.to_mandal_id, body.delivery_lat, body.delivery_lng)):
+        dest = _resolve_destination(
+            db, order, address_id=body.address_id, to_mandal_id=body.to_mandal_id,
+            delivery_lat=body.delivery_lat, delivery_lng=body.delivery_lng,
+        )
+        order.accepted_terms = {**(order.accepted_terms or {}), **dest}
+
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    _safe_transition(db, order, S.OUT_FOR_DELIVERY, actor_id=user.id, reason_code="redispatch")
+    if shipment is not None:
+        shipment.status = "out_for_delivery"
+        import secrets as _secrets
+        otp = f"{_secrets.randbelow(1_000_000):06d}"
+        shipment.proof_of_delivery = {
+            **(shipment.proof_of_delivery or {}),
+            "otp": otp, "otp_issued": True, "nearby_notified": False,
+        }
+    audit.record(db, actor_id=user.id, action="order.redeliver", object_type="order",
+                 object_id=order.public_id)
+    db.commit()
+    return _order_json(order, db, user)
+
+
+@router.post("/{order_id}/warehouse-pickup")
+def warehouse_pickup(
+    order_id: int,
+    user=Depends(require_roles(Role.TRANSPORT, Role.FIELD_AGENT, Role.FIELD_LEADER,
+                              Role.FIELD_MANAGER, Role.SUPERADMIN)),
+    db: Session = Depends(get_db),
+):
+    """Record that the buyer collected the order from the warehouse after a failed
+    delivery. Marks it delivered so the buyer can accept + settle; collects the
+    cash for a cash-on-delivery order."""
+    order = _get_order(order_id, db)
+    if order.status != S.DELIVERY_FAILED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Order is not held at the warehouse")
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    if shipment is not None:
+        shipment.status = "delivered"
+        shipment.proof_of_delivery = {
+            **(shipment.proof_of_delivery or {}),
+            "collected_at_warehouse": True, "captured_by": user.id,
+        }
+    _safe_transition(db, order, S.DELIVERED_PENDING_ACCEPTANCE, actor_id=user.id,
+                     reason_code="warehouse_pickup")
+    _collect_cod(db, order)
+    audit.record(db, actor_id=user.id, action="order.warehouse_pickup", object_type="order",
+                 object_id=order.public_id)
+    db.commit()
+    return _order_json(order, db, user)
 
 
 # --- Buyer acceptance -> settlement --------------------------------------

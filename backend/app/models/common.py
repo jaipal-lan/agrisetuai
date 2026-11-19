@@ -79,6 +79,9 @@ class OrderStatus(StrEnum):
     PICKED_UP = "picked_up"
     IN_TRANSIT = "in_transit"
     OUT_FOR_DELIVERY = "out_for_delivery"
+    # A delivery attempt failed; the goods are held safely at the warehouse while
+    # the buyer updates their address to reschedule, or opts to pick up manually.
+    DELIVERY_FAILED = "delivery_failed"
     DELIVERED_PENDING_ACCEPTANCE = "delivered_pending_acceptance"
     COMPLETED = "completed"
     SETTLED = "settled"
