@@ -69,10 +69,19 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
 
-    # Payment provider: "mock" (in-app capture) or "sandbox" (intent + signed
-    # webhook flow, same shape as a real marketplace provider). Real keys plug in.
+    # Payment provider:
+    #   "mock"    — in-app capture via POST /orders/{id}/pay (dev/demo only).
+    #   "sandbox" — intent + our signed webhook (provider-shaped, no live API).
+    #   "razorpay"— live/live-sandbox: create a real Razorpay Order for checkout;
+    #               confirm via Razorpay's webhook (X-Razorpay-Signature = HMAC-
+    #               SHA256 hex of the raw body with payment_webhook_secret).
+    # The in-app /pay bypass is accepted ONLY for "mock" (or dev_mode); any other
+    # provider must be paid through the real checkout + webhook.
     payment_provider: str = "mock"
     payment_webhook_secret: str = "dev-sandbox-webhook-secret"
+    # Razorpay keys (only used when payment_provider == "razorpay").
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
 
     # A GPS point counts as "inside the delivery footprint" when the nearest
     # serviceable mandal is within this many km (else the UI says "not serviced

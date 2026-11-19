@@ -553,7 +553,18 @@ def pay(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Mock payment capture (in-app). Posts the full double-entry ledger."""
+    """Mock payment capture (in-app). Posts the full double-entry ledger.
+
+    Accepted ONLY in the mock provider (or dev_mode). With a real provider
+    configured, payment must flow through the provider checkout + signed webhook —
+    otherwise this endpoint would let a buyer mark an order paid for free.
+    """
+    from app.core.config import settings
+    if settings.payment_provider != "mock" and not settings.dev_mode:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "In-app pay is disabled — complete payment through the checkout.",
+        )
     order = _get_order(order_id, db)
     _require_party(order, user, buyer=True)
     idem = idempotency_key or gen_idem()

@@ -202,11 +202,14 @@ async def _store_evidence(db: Session, owner_id: int, upload: UploadFile) -> str
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Evidence file is too large.")
     ext = _ALLOWED[ctype]
     fname = f"{public_id('REG', 10).lower()}.{ext}"
-    # Prefer Cloudinary (permanent); fall back to local disk for dev.
+    # KYC evidence is PRIVATE: Cloudinary authenticated (signed URL), else local
+    # disk under the `priv/` prefix that only the signed /media/secure route serves.
+    from app.api.media import PRIVATE_PREFIX
     from app.services import storage
-    object_key = storage.save(raw, ctype, folder=f"agrisetu/kyc/{owner_id}", filename=fname)
+    object_key = storage.save(raw, ctype, folder=f"agrisetu/kyc/{owner_id}",
+                              filename=fname, private=True)
     if not object_key:
-        object_key = f"{owner_id}/{fname}"
+        object_key = f"{PRIVATE_PREFIX}{owner_id}/{fname}"
         root = os.path.abspath(settings.media_dir)
         dest = os.path.join(root, object_key.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -219,7 +222,7 @@ async def _store_evidence(db: Session, owner_id: int, upload: UploadFile) -> str
         content_type=ctype,
         size_bytes=len(raw),
         checksum=hashlib.sha256(raw).hexdigest(),
-        access_class="restricted",
+        access_class="private",
     ))
     return object_key
 
@@ -316,7 +319,9 @@ async def register(
         db.add(FarmerProfile(user_id=user.id, mandal_id=address_mandal_id))
     else:
         kind = "business" if is_business else "household"
-        db.add(BuyerProfile(user_id=user.id, buyer_type=kind))
+        # A business that submits registration evidence is awaiting staff review.
+        db.add(BuyerProfile(user_id=user.id, buyer_type=kind,
+                            verification_status="pending" if is_business else "unverified"))
 
     # Business organisation + evidence.
     if is_business:
@@ -435,6 +440,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
         org = db.get(Organisation, user.organisation_id)
         if org:
             refs = org.licence_refs or {}
+            from app.core.serializers import _secure_media_url
             out["organisation"] = {
                 "id": org.id,
                 "type": org.type,
@@ -442,6 +448,9 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
                 "verification_status": org.verification_status,
                 "registration_number": refs.get("registration_number"),
                 "gst": refs.get("gst"),
+                # Signed view-links to the submitted registration docs (owner only).
+                "evidence": [{"object_key": k, "url": _secure_media_url(k)}
+                             for k in (refs.get("evidence_keys") or [])],
             }
     return out
 

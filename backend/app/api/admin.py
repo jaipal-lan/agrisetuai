@@ -11,7 +11,7 @@ from app.core.deps import require_roles
 from app.core.ids import public_id
 from app.core.money import money
 from app.core.rbac import Role
-from app.core.serializers import _id_documents, _mask
+from app.core.serializers import _id_documents, _mask, _secure_media_url
 from app.models.audit import AuditLog
 from app.models.catalog import Commodity
 from app.models.common import LedgerDirection
@@ -21,7 +21,7 @@ from app.models.location import District, Mandal, State
 from app.models.marketplace import Listing, Offer, RFQ
 from app.models.order import Inspection, Order
 from app.models.support import Dispute, SupportTicket
-from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
+from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, Organisation, User
 from app.services import audit, kyc, ledger, notify
 from app.services.ledger import Leg
 
@@ -380,7 +380,7 @@ def kyc_queue(status_filter: str = "pending", user=Depends(_staff), db: Session 
             u = db.get(User, p.user_id)
             if not u:
                 continue
-            out.append({
+            entry = {
                 "user_id": u.id, "name": u.name, "phone": u.phone, "role": u.role,
                 "kind": kind, "verification_status": p.verification_status,
                 "village": getattr(p, "village", None),
@@ -389,7 +389,21 @@ def kyc_queue(status_filter: str = "pending", user=Depends(_staff), db: Session 
                 "pan_masked": _mask(u.pan),
                 # Uploaded ID photos/PDFs for the reviewer to open one by one.
                 "id_documents": _id_documents(u),
-            })
+            }
+            # Business buyers: attach the organisation's registration evidence
+            # (signed links) + details so staff can review the KYC in one place.
+            if u.organisation_id:
+                org = db.get(Organisation, u.organisation_id)
+                if org:
+                    refs = org.licence_refs or {}
+                    entry["business"] = {
+                        "legal_name": org.legal_name,
+                        "registration_number": refs.get("registration_number"),
+                        "gst": refs.get("gst"),
+                        "evidence": [{"object_key": k, "url": _secure_media_url(k)}
+                                     for k in (refs.get("evidence_keys") or [])],
+                    }
+            out.append(entry)
     return out
 
 

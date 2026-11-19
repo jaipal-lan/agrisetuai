@@ -5,6 +5,7 @@ Runs against a throwaway SQLite DB using FastAPI's TestClient. No server needed.
     cd backend
     python smoke_test.py            # fresh temp DB
 """
+import json
 import os
 import sys
 import tempfile
@@ -152,6 +153,21 @@ def run():
     check("business account carries its organisation + GST",
           bz_me.get("organisation", {}).get("legal_name") == "Raju Traders"
           and bz_me["organisation"].get("gst") == "36ABCDE1234F1Z5")
+    # Registration evidence is PRIVATE: exposed to the owner only as a signed link,
+    # refused by the public media route, and shown to staff in the KYC queue.
+    ev = (bz_me.get("organisation", {}).get("evidence") or [])
+    check("owner sees their registration evidence as a signed link",
+          len(ev) == 1 and "/media/secure/" in (ev[0].get("url") or ""))
+    ekey = ev[0]["object_key"]
+    if ekey.startswith("priv/"):
+        check("registration evidence refused by the public media route",
+              client.get(f"/api/media/file/{ekey}").status_code == 403)
+    bz_kyc = [x for x in client.get("/api/admin/kyc", headers=hdr(superadmin)).json()
+              if x["user_id"] == bz_me["id"]]
+    check("business buyer appears in KYC queue with signed evidence for staff",
+          len(bz_kyc) == 1 and bz_kyc[0].get("business")
+          and len(bz_kyc[0]["business"]["evidence"]) == 1
+          and "/media/secure/" in (bz_kyc[0]["business"]["evidence"][0].get("url") or ""))
     # Password reset via OTP.
     rcode = client.post("/api/auth/otp/request", json={"phone": ph}).json()["dev_code"]
     rtok = client.post("/api/auth/otp/verify-phone", json={"phone": ph, "code": rcode}).json()["phone_token"]
@@ -726,6 +742,16 @@ def run():
     good = client.post("/api/payments/webhook", content=body,
                        headers={"x-webhook-signature": _pay.sign(body)})
     check("valid-signature webhook runs (unknown order -> 404)", good.status_code == 404)
+    # Razorpay-shaped webhook: X-Razorpay-Signature + {event, payload.payment.entity}.
+    rz = json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": {
+        "order_id": "order_test", "notes": {"order_public_id": "NOPE"}}}}}).encode()
+    rzr = client.post("/api/payments/webhook", content=rz,
+                      headers={"x-razorpay-signature": _pay.sign(rz)})
+    check("razorpay-shaped webhook is parsed + verified (unknown order -> 404)",
+          rzr.status_code == 404)
+    check("razorpay webhook with a bad signature is rejected",
+          client.post("/api/payments/webhook", content=rz,
+                      headers={"x-razorpay-signature": "nope"}).status_code == 401)
 
     print("\n== Reorder + admin KYC queue ==")
     r = client.post(f"/api/orders/{order_id}/reorder", headers=hdr(buyer))

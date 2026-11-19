@@ -772,6 +772,42 @@ export default function Admin() {
                 </div>
               </div>
 
+              {u.business && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--line, #e5e7eb)" }}>
+                  <div style={{ fontSize: 13 }}>
+                    <b>{u.business.legal_name || "Business"}</b>
+                    {u.business.registration_number ? ` · Reg ${u.business.registration_number}` : ""}
+                    {u.business.gst ? ` · GST ${u.business.gst}` : ""}
+                  </div>
+                  {u.business.evidence && u.business.evidence.length > 0 ? (
+                    <div className="row" style={{ gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                      {u.business.evidence.map((d, i) => {
+                        const href = absUrl(d.url || d.object_key);
+                        const isImg = !/\.pdf($|\?)/i.test(d.url || d.object_key || "");
+                        return (
+                          <a key={i} href={href} target="_blank" rel="noopener noreferrer"
+                             title="Business registration evidence — open full size"
+                             style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
+                            {isImg ? (
+                              <img src={href} alt="registration evidence"
+                                   style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 8,
+                                            border: "1px solid var(--line, #e5e7eb)", background: "#f3f4f6" }} />
+                            ) : (
+                              <div style={{ width: 120, height: 90, borderRadius: 8, border: "1px solid var(--line, #e5e7eb)",
+                                            display: "flex", alignItems: "center", justifyContent: "center",
+                                            fontSize: 13, background: "#f3f4f6", color: "#374151" }}>📄 PDF</div>
+                            )}
+                            <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>reg. evidence</div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>No registration evidence on file.</div>
+                  )}
+                </div>
+              )}
+
               {(u.id_documents && u.id_documents.length > 0) ? (
                 <div className="row" style={{ gap: 10, marginTop: 10, flexWrap: "wrap" }}>
                   {u.id_documents.map((d, i) => {
