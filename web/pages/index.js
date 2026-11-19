@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { api, getUser, productImage } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { localizeName } from "../lib/translit";
 
 // --- per-viewer "shopping area", remembered in localStorage -------------------
 const AREA_KEY = "av_area";
@@ -29,17 +30,17 @@ function Rating({ value, count, size = 13 }) {
 
 // A reusable product-grid card (featured, near-you, full grid all share it).
 function ProductCard({ p, lang, t }) {
-  const name = lang === "te" && p.commodity_te ? p.commodity_te : p.commodity;
+  const name = lang === "te" && p.commodity_te ? p.commodity_te : localizeName(p.commodity, lang);
   const available = p.offering_count > 0;
   return (
     <Link href={`/product/${p.commodity_id}`} className="card product-card" style={{ color: "inherit" }}>
       {p.image && <img className="product-thumb" src={productImage(p.image)} alt={name} loading="lazy" />}
       <div className="between">
         <h3>{name}</h3>
-        {p.any_verified && <span className="badge">✓ verified</span>}
+        {p.any_verified && <span className="badge">✓ {t("verified_badge")}</span>}
       </div>
       <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-        {p.category} · MOQ {p.min_order_qty} kg
+        {p.category ? t("cat_" + p.category) : ""} · {t("moq")} {p.min_order_qty} kg
       </div>
       {available ? (
         <>
@@ -49,13 +50,13 @@ function ProductCard({ p, lang, t }) {
           </div>
           <div className="between" style={{ marginTop: 6 }}>
             <span className="muted" style={{ fontSize: 14 }}>
-              {p.offering_count} farmer{p.offering_count > 1 ? "s" : ""} · {p.place_count} place{p.place_count > 1 ? "s" : ""}
+              {p.offering_count} {t("word_farmers")} · {p.place_count} {t("word_places")}
             </span>
             <Rating value={p.seller_rating} count={p.seller_rating_count} />
           </div>
         </>
       ) : (
-        <div className="badge grey" style={{ marginTop: 10 }}>Out of stock</div>
+        <div className="badge grey" style={{ marginTop: 10 }}>{t("out_of_stock")}</div>
       )}
     </Link>
   );
@@ -63,7 +64,7 @@ function ProductCard({ p, lang, t }) {
 
 // A compact "just listed" card for the fresh strip.
 function FreshCard({ f, lang }) {
-  const name = lang === "te" && f.commodity_te ? f.commodity_te : f.commodity;
+  const name = lang === "te" && f.commodity_te ? f.commodity_te : localizeName(f.commodity, lang);
   return (
     <Link href={`/product/${f.commodity_id}`} className="card fresh-card" style={{ color: "inherit" }}>
       {f.image && <img className="fresh-thumb" src={productImage(f.image)} alt={name} loading="lazy" />}
@@ -168,24 +169,24 @@ export default function Marketplace() {
           <div style={{ flex: "2 1 220px" }}>
             <label>{t("search")}</label>
             <input value={q} onChange={(e) => setQ(e.target.value)}
-                   placeholder="Search produce (e.g. paddy, turmeric)…" />
+                   placeholder={t("search_produce_ph")} />
           </div>
           <div style={{ flex: "1 1 160px" }}>
-            <label>Category</label>
+            <label>{t("category_label")}</label>
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
               <option value="">{t("all_products")}</option>
               {(browsing ? gridCategories : (disc?.categories || []).map((c) => c.category))
-                .map((c) => <option key={c} value={c}>{c}</option>)}
+                .map((c) => <option key={c} value={c}>{t("cat_" + c)}</option>)}
             </select>
           </div>
           <div style={{ flex: "1 1 160px" }}>
-            <label>Sort</label>
+            <label>{t("sort_label")}</label>
             <select value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option value="name">Name</option>
-              <option value="price_asc">Price: low to high</option>
-              <option value="price_desc">Price: high to low</option>
-              <option value="verified">Verified first</option>
-              <option value="availability">Most offerings</option>
+              <option value="name">{t("sort_name")}</option>
+              <option value="price_asc">{t("sort_price_lo2")}</option>
+              <option value="price_desc">{t("sort_price_hi2")}</option>
+              <option value="verified">{t("sort_verified")}</option>
+              <option value="availability">{t("sort_most")}</option>
               <option value="rating">{t("sort_top_rated")}</option>
             </select>
           </div>
@@ -206,7 +207,7 @@ export default function Marketplace() {
         loading ? (
           <p className="muted">{t("loading")}</p>
         ) : products.length === 0 ? (
-          <div className="empty"><span className="emoji">🔍</span><p>No products match your search.</p></div>
+          <div className="empty"><span className="emoji">🔍</span><p>{t("no_match")}</p></div>
         ) : (
           <div className="grid">
             {products.map((p) => <ProductCard key={p.commodity_id} p={p} lang={lang} t={t} />)}
@@ -276,7 +277,7 @@ export default function Marketplace() {
               <div className="pill-row">
                 {recent.map((r) => (
                   <Link key={r.commodity_id} href={`/product/${r.commodity_id}`} className="pill">
-                    {lang === "te" && r.commodity_te ? r.commodity_te : r.commodity}
+                    {lang === "te" && r.commodity_te ? r.commodity_te : localizeName(r.commodity, lang)}
                   </Link>
                 ))}
               </div>
@@ -300,7 +301,7 @@ export default function Marketplace() {
               <div className="pill-row">
                 {disc.categories.map((c) => (
                   <button key={c.category} className="pill" onClick={() => setCategory(c.category)}>
-                    {c.category} <span className="muted">· {c.offering_count}</span>
+                    {t("cat_" + c.category)} <span className="muted">· {c.offering_count}</span>
                   </button>
                 ))}
               </div>
