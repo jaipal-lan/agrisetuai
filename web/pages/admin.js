@@ -1207,6 +1207,15 @@ function ServiceAreasAdmin({ me }) {
       setMsg(`Hyderabad metro coverage added (${r.added} new of ${r.total}).`); load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
+  async function launchHyderabadOnly() {
+    if (!confirm("Go live Hyderabad-only?\n\nThis loads all Telangana + Andhra Pradesh regions (inactive) and makes ONLY the Hyderabad metro serviceable — every other area is turned off until you activate it.")) return;
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const r = await api("/admin/service-areas/preset/launch", { method: "POST" });
+      setMsg(`Launch set: Hyderabad live (${r.hyderabad_active} mandals), ${r.regions_loaded} region(s) loaded as inactive, ${r.deactivated} other area(s) turned off.`);
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
   async function addMandal(e) {
     e.preventDefault(); setErr(null); setMsg(null);
     if (!form.state.trim() || !form.district.trim() || !form.name.trim()) return;
@@ -1233,15 +1242,20 @@ function ServiceAreasAdmin({ me }) {
       {msg && <div className="ok">{msg}</div>}
 
       {isSuper && (
-        <div className="card" style={{ marginBottom: 10 }}>
+        <div className="card" style={{ marginBottom: 10, borderLeft: "4px solid var(--green-600, #16a34a)" }}>
           <div className="between" style={{ flexWrap: "wrap", gap: 10 }}>
             <div>
-              <b>Quick add: Hyderabad metro</b>
-              <div className="muted" style={{ fontSize: 13 }}>
-                Kukatpally, Secunderabad, Serilingampally, Rangareddy, Medchal &amp; more — all serviceable.
+              <b>Launch coverage — Hyderabad only</b>
+              <div className="muted" style={{ fontSize: 13, maxWidth: 520 }}>
+                Loads all <b>Telangana + Andhra Pradesh</b> regions into the menu below but keeps
+                <b> only Hyderabad</b> serviceable. Buyers &amp; farmers outside Hyderabad are off until
+                you activate their region (toggle it on once agents/transport are onboarded there).
               </div>
             </div>
-            <button disabled={busy} onClick={addHyderabad}>＋ Add Hyderabad metro</button>
+            <button disabled={busy} onClick={launchHyderabadOnly}>🚀 Set Hyderabad-only launch</button>
+          </div>
+          <div className="row" style={{ gap: 8, marginTop: 10 }}>
+            <button className="ghost" disabled={busy} onClick={addHyderabad}>＋ Add Hyderabad metro (keep others)</button>
           </div>
         </div>
       )}

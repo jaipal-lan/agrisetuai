@@ -59,6 +59,23 @@ def seed_locations(db: Session) -> dict:
                     m.latitude = D(lat)
                     m.longitude = D(lon)
                 mandals[mname] = m
+
+    # Load the wider Telangana + Andhra Pradesh coverage menu as NON-serviceable
+    # (present but inactive). The superadmin activates a region once agents/
+    # transport are onboarded there; Hyderabad (folded in above) ships serviceable.
+    from app.core.geo_presets import AP_TG_REGIONS
+    for sname, scode, dist, mandal, lat, lon in AP_TG_REGIONS:
+        state, _ = _get_or_create(db, State, name=sname, defaults={"code": scode})
+        if not state.code:
+            state.code = scode
+        district, _ = _get_or_create(db, District, name=dist, state_id=state.id)
+        m, created = _get_or_create(
+            db, Mandal, name=mandal, district_id=district.id,
+            defaults={"serviceable": False, "latitude": D(lat), "longitude": D(lon)},
+        )
+        if m.latitude is None:
+            m.latitude, m.longitude = D(lat), D(lon)
+        mandals.setdefault(mandal, m)
     return mandals
 
 

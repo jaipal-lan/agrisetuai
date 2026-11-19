@@ -1035,6 +1035,39 @@ def add_hyderabad_metro(user=Depends(require_roles(Role.SUPERADMIN)),
     return {"ok": True, "added": added, "total": len(HYDERABAD_METRO)}
 
 
+@router.post("/service-areas/preset/launch")
+def launch_coverage(user=Depends(require_roles(Role.SUPERADMIN)),
+                    db: Session = Depends(get_db)):
+    """One-click launch config: Telangana + Andhra Pradesh are LOADED into the
+    coverage menu, but only the Hyderabad metro is left SERVICEABLE. Every other
+    mandal is set non-serviceable, so today only Hyderabad buyers/farmers transact;
+    the superadmin flips a region on (per-mandal toggle) once agents/transport are
+    onboarded there."""
+    from app.core.geo_presets import AP_TG_REGIONS, HYDERABAD_METRO
+    hyd_ids: set[int] = set()
+    for state_name, code, district, mandal, lat, lng in HYDERABAD_METRO:
+        m, _ = _ensure_mandal(db, state_name, district, mandal, lat, lng,
+                              serviceable=True, state_code=code)
+        hyd_ids.add(m.id)
+    loaded = 0
+    for state_name, code, district, mandal, lat, lng in AP_TG_REGIONS:
+        _, created = _ensure_mandal(db, state_name, district, mandal, lat, lng,
+                                    serviceable=False, state_code=code)
+        loaded += 1 if created else 0
+    # Everything except the Hyderabad metro is inactive until a region is onboarded.
+    deactivated = 0
+    for m in db.scalars(select(Mandal)):
+        if m.id not in hyd_ids and m.serviceable:
+            m.serviceable = False
+            deactivated += 1
+    audit.record(db, actor_id=user.id, action="service_area.launch", object_type="system",
+                 object_id="hyderabad_only",
+                 new_values={"hyderabad": len(hyd_ids), "loaded": loaded, "deactivated": deactivated})
+    db.commit()
+    return {"ok": True, "hyderabad_active": len(hyd_ids),
+            "regions_loaded": loaded, "deactivated": deactivated}
+
+
 @router.get("/audit-logs")
 def audit_logs(limit: int = 100, user=Depends(_staff), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))

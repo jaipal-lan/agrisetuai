@@ -446,8 +446,10 @@ def run():
                    params={"from_mandal_id": a_id, "to_mandal_id": b_id}).json()
     check("haversine distance computed between mandals", d["source"] == "haversine")
     check("computed distance is positive", float(d["route_km"]) > 1)
+    # Pick a serviceable mandal (the district also carries loaded-but-inactive ones).
+    svc_id = next((m["id"] for m in two if m.get("serviceable")), a_id)
     svc = client.get("/api/logistics/serviceability", headers=hdr(buyer),
-                     params={"mandal_id": a_id}).json()
+                     params={"mandal_id": svc_id}).json()
     check("mandal serviceable with coordinates", svc["serviceable"] and svc["has_coordinates"])
 
     r = client.post(f"/api/orders/{order_id}/pay",
@@ -1563,6 +1565,24 @@ def run():
     off = client.patch(f"/api/admin/service-areas/mandal/{mid}", headers=hdr(superadmin),
                        json={"serviceable": False})
     check("toggle mandal serviceable off", off.json()["serviceable"] is False)
+
+    # Launch config: both states loaded, ONLY Hyderabad serviceable, rest off.
+    lr = client.post("/api/admin/service-areas/preset/launch", headers=hdr(superadmin))
+    check("launch preset: both states loaded, hyderabad-only active",
+          lr.status_code == 200 and lr.json()["hyderabad_active"] >= 10)
+    sa2 = client.get("/api/admin/service-areas", headers=hdr(superadmin)).json()
+    tg = next((s for s in sa2 if s["code"] == "TG"), None)
+    ap = next((s for s in sa2 if s["code"] == "AP"), None)
+    check("Telangana + Andhra Pradesh both present after launch", bool(tg) and bool(ap))
+    serv_mandals = [(s["name"], d["name"], m["name"]) for s in sa2 for d in s["districts"]
+                    for m in d["mandals"] if m["serviceable"]]
+    hyd_districts = {"Hyderabad", "Rangareddy", "Medchal-Malkajgiri"}
+    check("only Hyderabad-region mandals are serviceable after launch",
+          len(serv_mandals) >= 10 and all(d in hyd_districts for (_, d, _) in serv_mandals))
+    # A Guntur (AP) point is loaded but NOT serviceable now.
+    gnt = client.get("/api/locations/nearest", params={"lat": 16.31, "lng": 80.44},
+                     headers=hdr(buyer)).json()
+    check("Guntur loaded but outside the active service area", gnt.get("within_service_area") is False)
 
     print("\n== Ledger edge cases ==")
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
