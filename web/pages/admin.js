@@ -608,6 +608,11 @@ export default function Admin() {
               ⚠ {payouts.blocked_unverified} pending payout(s) are held — the payee&apos;s account is not verified yet. Verify it above to release it.
             </div>
           )}
+          {payouts.blocked_unverified_identity > 0 && (
+            <div className="error" style={{ marginBottom: 10 }}>
+              ⚠ {payouts.blocked_unverified_identity} pending payout(s) are held — the payee&apos;s identity is not verified. Approve their ID in the Identity verification queue to release it.
+            </div>
+          )}
           <div className="card">
             <div className="between">
               <div>
@@ -620,7 +625,7 @@ export default function Admin() {
             </div>
             {payouts.pending.length > 0 && (
               <table>
-                <thead><tr><th>Order</th><th>Payee</th><th>Type</th><th>Amount</th><th>Account</th></tr></thead>
+                <thead><tr><th>Order</th><th>Payee</th><th>Type</th><th>Amount</th><th>Account</th><th>Identity</th></tr></thead>
                 <tbody>
                   {payouts.pending.map((p) => (
                     <tr key={p.id}>
@@ -630,6 +635,11 @@ export default function Admin() {
                       <td>{!p.has_account
                         ? <span className="badge amber">missing</span>
                         : p.verified
+                          ? <span className="badge green">verified</span>
+                          : <span className="badge amber">unverified</span>}</td>
+                      <td>{p.payee_type === "transport"
+                        ? <span className="badge grey">n/a</span>
+                        : p.identity_verified
                           ? <span className="badge green">verified</span>
                           : <span className="badge amber">unverified</span>}</td>
                     </tr>

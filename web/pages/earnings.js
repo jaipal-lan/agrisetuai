@@ -49,6 +49,12 @@ function WithdrawCard() {
                   : <>Add a payout account in <Link href="/profile">your profile</Link> first.</>}
               </div>
             )}
+            {bal.account_verified && bal.identity_verified === false && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 6, maxWidth: 220 }}>
+                Verify your identity before withdrawing — upload a government photo ID under{" "}
+                <Link href="/profile">Identity verification</Link> and wait for approval.
+              </div>
+            )}
             {bal.account_verified && Number(bal.pending_withdrawal) > 0 && (
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                 A withdrawal of ₹{bal.pending_withdrawal} is already pending.

@@ -22,7 +22,7 @@ from app.models.marketplace import Listing, Offer, RFQ
 from app.models.order import Inspection, Order
 from app.models.support import Dispute, SupportTicket
 from app.models.user import AgentProfile, BuyerProfile, FarmerProfile, User
-from app.services import audit, ledger, notify
+from app.services import audit, kyc, ledger, notify
 from app.services.ledger import Leg
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -476,21 +476,28 @@ def payouts_overview(user=Depends(_finance), db: Session = Depends(get_db)):
     accounts = {a.user_id: a for a in db.scalars(select(PayoutAccount))}
     have_account = set(accounts)
     verified_accounts = {uid for uid, a in accounts.items() if a.verified}
+    # Identity-KYC status of each pending payee (N/A for transport -> treated ok).
+    payees = {u.id: u for u in db.scalars(
+        select(User).where(User.id.in_({p.seller_id for p in pending})))} if pending else {}
+    id_ok = {uid: kyc.identity_verified(u) for uid, u in payees.items()}
     total = money(sum(float(p.amount) for p in pending)) if pending else money(0)
     missing = sum(1 for p in pending if p.seller_id not in have_account)
-    # Payouts that cannot be disbursed yet: no account at all, or an unverified one.
+    # Payouts that cannot be disbursed yet: no/unverified account, or unverified identity.
     blocked = sum(1 for p in pending if p.seller_id not in verified_accounts)
+    blocked_identity = sum(1 for p in pending if not id_ok.get(p.seller_id, False))
     batches = db.scalars(select(PayoutBatch).order_by(PayoutBatch.id.desc()).limit(20))
     return {
         "pending_count": len(pending),
         "pending_total": str(total),
         "missing_payout_accounts": missing,
         "blocked_unverified": blocked,
+        "blocked_unverified_identity": blocked_identity,
         "pending": [{
             "id": p.id, "order": orders.get(p.order_id), "seller": names.get(p.seller_id) or f"user {p.seller_id}",
             "payee_type": getattr(p, "payee_type", "seller"),
             "has_account": p.seller_id in have_account,
             "verified": p.seller_id in verified_accounts,
+            "identity_verified": id_ok.get(p.seller_id, False),
             "amount": str(money(p.amount)), "currency": p.currency,
         } for p in pending],
         "batches": [{
@@ -562,16 +569,28 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
     if not all_pending:
         raise HTTPException(status.HTTP_409_CONFLICT, "No pending payouts to disburse")
 
-    # Only disburse to payees with a VERIFIED payout account. Payouts to payees
-    # with a missing or unverified account are held (left pending) until verified.
+    # Only disburse to payees with BOTH a verified payout account AND a verified
+    # identity (identity-KYC is N/A for transport). Anything else is held.
     verified_accounts = {a.user_id for a in db.scalars(select(PayoutAccount)) if a.verified}
-    pending = [p for p in all_pending if p.seller_id in verified_accounts]
+    payees = {u.id: u for u in db.scalars(
+        select(User).where(User.id.in_({p.seller_id for p in all_pending})))}
+
+    def _disbursable(p):
+        return (p.seller_id in verified_accounts
+                and kyc.identity_verified(payees.get(p.seller_id)))
+
+    pending = [p for p in all_pending if _disbursable(p)]
     held = len(all_pending) - len(pending)
+    held_identity = sum(1 for p in all_pending
+                        if p.seller_id in verified_accounts
+                        and not kyc.identity_verified(payees.get(p.seller_id)))
     if not pending:
+        reason = ("their identity is not verified yet (approve it in the Identity "
+                  "verification queue)" if held_identity
+                  else "the payee has no verified payout account (verify it under Payout accounts)")
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"No payouts are disbursable — {held} pending payout(s) are held because the "
-            "payee has no verified payout account. Verify accounts under Payout accounts first.",
+            f"No payouts are disbursable — {held} pending payout(s) are held because {reason}.",
         )
 
     batch = _disburse_payouts(db, pending, created_by=user.id, note=body.note)
@@ -580,7 +599,8 @@ def run_payout_batch(body: PayoutRun, user=Depends(_finance), db: Session = Depe
                  object_id=batch.public_id, new_values={"count": len(pending), "total": str(total)})
     db.commit()
     return {"batch": batch.public_id, "payout_count": len(pending),
-            "total_amount": str(total), "held_unverified": held}
+            "total_amount": str(total), "held_unverified": held,
+            "held_unverified_identity": held_identity}
 
 
 # --- Farmer withdrawal requests (finance approves -> disburse) -------------
@@ -638,6 +658,10 @@ def decide_withdrawal(wid: int, body: WithdrawalDecision, user=Depends(_finance)
     acct = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == w.farmer_id))
     if not acct or not acct.verified:
         raise HTTPException(status.HTTP_409_CONFLICT, "Payee's payout account is not verified.")
+    if not kyc.identity_verified(db.get(User, w.farmer_id)):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Payee's identity is not verified yet — approve it in the "
+                            "Identity verification queue first.")
     pending = list(db.scalars(select(Payout).where(
         Payout.seller_id == w.farmer_id, Payout.status == "pending").order_by(Payout.id)))
     if not pending:

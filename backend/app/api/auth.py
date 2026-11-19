@@ -721,6 +721,8 @@ def my_balance(user: User = Depends(get_current_user), db: Session = Depends(get
     req = db.scalar(select(WithdrawalRequest).where(
         WithdrawalRequest.farmer_id == user.id, WithdrawalRequest.status == "requested"))
     acct = db.scalar(select(PayoutAccount).where(PayoutAccount.user_id == user.id))
+    from app.services import kyc
+    id_ok = kyc.identity_verified(user)
     return {
         "currency": "INR",
         "available": str(available),
@@ -728,7 +730,8 @@ def my_balance(user: User = Depends(get_current_user), db: Session = Depends(get
         "pending_withdrawal": str(req.amount) if req else "0.00",
         "has_account": acct is not None,
         "account_verified": bool(acct and acct.verified),
-        "can_request": bool(acct and acct.verified) and available > money(0) and req is None,
+        "identity_verified": id_ok,
+        "can_request": bool(acct and acct.verified) and id_ok and available > money(0) and req is None,
     }
 
 
@@ -752,6 +755,11 @@ def request_withdrawal(user: User = Depends(get_current_user), db: Session = Dep
     if acct is None or not acct.verified:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Add and get your payout account verified before withdrawing.")
+    from app.services import kyc
+    if not kyc.identity_verified(user):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Verify your identity first — upload a government photo ID in your "
+                            "profile and wait for approval before withdrawing.")
     if db.scalar(select(WithdrawalRequest).where(
             WithdrawalRequest.farmer_id == user.id, WithdrawalRequest.status == "requested")):
         raise HTTPException(status.HTTP_409_CONFLICT, "You already have a withdrawal request pending.")

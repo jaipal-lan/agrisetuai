@@ -1495,6 +1495,26 @@ def run():
     check("finance withdrawals queue is accessible",
           client.get("/api/admin/withdrawals", headers=hdr(superadmin)).status_code == 200)
 
+    # Identity-KYC gate: even with a verified payout account, a withdrawal is held
+    # until the farmer's identity is verified by staff.
+    bal2 = client.get("/api/auth/me/balance", headers=hdr(wf)).json()
+    check("balance exposes identity_verified flag (unverified farmer)",
+          bal2.get("identity_verified") is False)
+    wd = client.post("/api/auth/me/withdrawals", headers=hdr(wf))
+    check("withdrawal blocked while identity unverified",
+          wd.status_code == 400 and "identity" in str(wd.json().get("detail", "")).lower())
+    client.post(f"/api/admin/kyc/{wf_id}/decision", headers=hdr(superadmin), json={"approve": True})
+    bal3 = client.get("/api/auth/me/balance", headers=hdr(wf)).json()
+    check("identity flag flips to verified after staff approval",
+          bal3.get("identity_verified") is True)
+    wd2 = client.post("/api/auth/me/withdrawals", headers=hdr(wf))
+    check("after identity approval only the zero-balance block remains",
+          wd2.status_code == 400 and "identity" not in str(wd2.json().get("detail", "")).lower())
+    ov = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
+    check("payouts overview exposes identity-gate fields",
+          "blocked_unverified_identity" in ov
+          and all("identity_verified" in p for p in ov["pending"]))
+
     print("\n== Ledger edge cases ==")
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger globally balanced", acct["balanced"] is True)
