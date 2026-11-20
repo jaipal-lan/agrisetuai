@@ -162,8 +162,8 @@ export default function Admin() {
     try {
       const r = await api("/admin/payouts/run", { method: "POST", body: {} });
       setPayoutMsg(
-        `Batch ${r.batch}: disbursed ₹${r.total_amount} across ${r.payout_count} payout(s).`
-        + (r.held_unverified ? ` ${r.held_unverified} held (unverified account).` : "")
+        `${t("adm_batch")} ${r.batch}: ${t("adm_disbursed")} ₹${r.total_amount} ${t("adm_across")} ${r.payout_count} ${t("adm_payouts_word")}.`
+        + (r.held_unverified ? ` ${r.held_unverified} ${t("adm_held")}` : "")
       );
       loadPayouts();
     } catch (e) {
@@ -176,7 +176,7 @@ export default function Admin() {
     setPayoutMsg(null);
     try {
       await api(`/admin/payout-accounts/${userId}/verify`, { method: "POST", body: { approve } });
-      setPayoutMsg(approve ? "Payout account verified." : "Payout account rejected.");
+      setPayoutMsg(approve ? t("adm_payout_verified") : t("adm_payout_rejected"));
       loadPayouts();
     } catch (e) {
       setErr(e.message);
@@ -188,7 +188,7 @@ export default function Admin() {
     setAnnMsg(null);
     try {
       const r = await api("/admin/broadcast", { method: "POST", body: ann });
-      setAnnMsg(`Sent to ${r.sent} ${r.audience === "all" ? "users" : r.audience}.`);
+      setAnnMsg(`${t("adm_sent_to")} ${r.sent} ${r.audience === "all" ? t("adm_users_word") : r.audience}.`);
       setAnn({ title: "", body: "", audience: ann.audience });
     } catch (e) {
       setErr(e.message);
@@ -202,11 +202,11 @@ export default function Admin() {
     try {
       const r = await api("/admin/prices/refresh", { method: "POST" });
       if (r.configured === false) {
-        setPriceMsg("Live feed not configured — set PRICES_PROVIDER=data_gov_in and DATA_GOV_IN_API_KEY. Still serving seeded sample prices.");
+        setPriceMsg(t("adm_feed_not_configured"));
       } else if (r.ok === false) {
-        setErr(r.message || "Price feed error.");
+        setErr(r.message || t("adm_feed_error"));
       } else {
-        setPriceMsg(`Refreshed from ${r.source}: ${r.upserted} price(s) updated (${r.new} new)${r.as_of ? `, as of ${r.as_of}` : ""}.`);
+        setPriceMsg(`${t("adm_refreshed_from")} ${r.source}: ${r.upserted} ${t("adm_prices_updated")} (${r.new} ${t("adm_new_word")})${r.as_of ? `, ${t("adm_as_of")} ${r.as_of}` : ""}.`);
       }
       loadPriceStatus();
     } catch (e) {
@@ -222,7 +222,7 @@ export default function Admin() {
     setSchedBusy(true);
     try {
       const r = await api("/admin/scheduler/run", { method: "POST" });
-      setSchedMsg(`Ran ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} digest(s) sent, ${r.prices_refreshed || 0} market price(s) refreshed, ${r.meeting_reminders || 0} meeting reminder(s) sent.`);
+      setSchedMsg(`${t("adm_ran")} ${new Date(r.ran_at).toLocaleTimeString()}: ${r.digests_sent} ${t("adm_digests_sent")}, ${r.prices_refreshed || 0} ${t("adm_prices_refreshed")}, ${r.meeting_reminders || 0} ${t("adm_reminders_sent")}.`);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -234,7 +234,7 @@ export default function Admin() {
     setErr(null);
     let reason;
     if (!approve) {
-      reason = window.prompt("Reason for rejecting this identity verification? (shown to the user)") || "";
+      reason = window.prompt(t("adm_kyc_reject_prompt")) || "";
       if (!reason.trim()) return; // cancelled / empty — don't reject silently
     }
     try {
@@ -311,7 +311,7 @@ export default function Admin() {
   }
   async function simulate() {
     setErr(null);
-    if (!lastDraftId) return setErr("Create a draft first.");
+    if (!lastDraftId) return setErr(t("adm_create_draft_first"));
     try {
       setSim(
         await api(`/admin/pricing-rules/${lastDraftId}/simulate`, {
@@ -325,7 +325,7 @@ export default function Admin() {
   }
   async function publish() {
     setErr(null);
-    if (!lastDraftId) return setErr("Create a draft first.");
+    if (!lastDraftId) return setErr(t("adm_create_draft_first"));
     try {
       await api(`/admin/pricing-rules/${lastDraftId}/publish`, { method: "POST" });
       setSim(null);
@@ -347,11 +347,11 @@ export default function Admin() {
       <div className="grid">
         {kpis &&
           [
-            ["Orders", kpis.total_orders],
-            ["Settled", kpis.settled_orders],
-            ["Cancelled", kpis.cancelled_orders],
-            ["Open listings", kpis.open_listings],
-            ["GMV (settled)", `₹${kpis.gmv_settled}`],
+            [t("adm_orders"), kpis.total_orders],
+            [t("adm_settled"), kpis.settled_orders],
+            [t("adm_cancelled"), kpis.cancelled_orders],
+            [t("dl_open_listings"), kpis.open_listings],
+            [t("dl_gmv"), `₹${kpis.gmv_settled}`],
           ].map(([label, val]) => (
             <div className="card" key={label}>
               <div className="muted" style={{ fontSize: 13 }}>{label}</div>
@@ -360,13 +360,13 @@ export default function Admin() {
           ))}
       </div>
 
-      <h2>Ledger</h2>
+      <h2>{t("adm_ledger")}</h2>
       {ledger && (
         <div className="card">
           <div className="between">
-            <b>Balance check</b>
+            <b>{t("adm_balance_check")}</b>
             <span className={`badge ${ledger.balanced ? "" : "amber"}`}>
-              {ledger.balanced ? "balanced ✓" : "UNBALANCED"}
+              {ledger.balanced ? t("adm_balanced") : t("adm_unbalanced")}
             </span>
           </div>
           {Object.entries(ledger.accounts).map(([acct, bal]) => (
@@ -377,17 +377,17 @@ export default function Admin() {
         </div>
       )}
 
-      <h2>Pricing rules</h2>
+      <h2>{t("adm_pricing_rules")}</h2>
       <table>
         <thead>
-          <tr><th>v</th><th>Status</th><th>Scope</th><th>₹/kg</th><th>₹/km</th><th>Comm %</th><th>Svc %</th></tr>
+          <tr><th>{t("adm_th_v")}</th><th>{t("status")}</th><th>{t("adm_th_scope")}</th><th>{t("adm_th_per_kg")}</th><th>{t("adm_th_per_km")}</th><th>{t("adm_th_comm")}</th><th>{t("adm_th_svc")}</th></tr>
         </thead>
         <tbody>
           {rules.map((r) => (
             <tr key={r.id}>
               <td>{r.version}</td>
-              <td><span className={`badge ${r.status === "published" ? "" : "grey"}`}>{r.status}</span></td>
-              <td>{r.handling_class || "all"}</td>
+              <td><span className={`badge ${r.status === "published" ? "" : "grey"}`}>{t("prs_" + r.status) || r.status}</span></td>
+              <td>{r.handling_class || t("adm_scope_all")}</td>
               <td>{r.rate_per_kg}</td>
               <td>{r.rate_per_km}</td>
               <td>{r.seller_commission_pct}</td>
@@ -397,17 +397,17 @@ export default function Admin() {
         </tbody>
       </table>
 
-      <h2>New pricing rule</h2>
+      <h2>{t("adm_new_pricing_rule")}</h2>
       <div className="card">
         <div className="row">
           {[
-            ["rate_per_kg", "₹/kg"],
-            ["rate_per_km", "₹/km"],
-            ["min_transport_charge", "Min transport ₹"],
-            ["seller_commission_pct", "Seller commission %"],
-            ["service_fee_pct", "Buyer service fee %"],
-            ["inspection_fee", "Inspection ₹"],
-            ["packing_fee", "Packing ₹"],
+            ["rate_per_kg", t("adm_th_per_kg")],
+            ["rate_per_km", t("adm_th_per_km")],
+            ["min_transport_charge", t("adm_lbl_min_transport")],
+            ["seller_commission_pct", t("adm_lbl_seller_comm")],
+            ["service_fee_pct", t("adm_lbl_buyer_svc")],
+            ["inspection_fee", t("adm_lbl_inspection")],
+            ["packing_fee", t("adm_lbl_packing")],
           ].map(([k, label]) => (
             <div key={k} style={{ flex: "1 1 120px" }}>
               <label>{label}</label>
@@ -415,64 +415,64 @@ export default function Admin() {
             </div>
           ))}
         </div>
-        <label>Reason</label>
+        <label>{t("adm_reason")}</label>
         <input value={draft.reason} onChange={(e) => set("reason", e.target.value)} />
         <div className="row" style={{ marginTop: 16 }}>
-          <button onClick={createDraft}>Create draft</button>
-          <button className="ghost" onClick={simulate} disabled={!lastDraftId}>Simulate</button>
-          <button className="amber" onClick={publish} disabled={!lastDraftId}>Publish</button>
+          <button onClick={createDraft}>{t("adm_create_draft")}</button>
+          <button className="ghost" onClick={simulate} disabled={!lastDraftId}>{t("adm_simulate")}</button>
+          <button className="amber" onClick={publish} disabled={!lastDraftId}>{t("adm_publish")}</button>
         </div>
         {sim && (
           <div className="ok" style={{ marginTop: 14 }}>
-            Simulated on 500 kg · 40 km · ₹12,000 → buyer pays <b>₹{sim.buyer_total}</b>
-            {" "}(transport ₹{sim.transport_charge}, service ₹{sim.service_fee})
-            {sim.seller_commission !== undefined && <> · seller commission ₹{sim.seller_commission}</>}
+            {t("adm_sim_pre")} <b>₹{sim.buyer_total}</b>
+            {" "}({t("adm_sim_transport")} ₹{sim.transport_charge}, {t("adm_sim_service")} ₹{sim.service_fee})
+            {sim.seller_commission !== undefined && <> · {t("adm_sim_commission")} ₹{sim.seller_commission}</>}
           </div>
         )}
       </div>
 
-      <h2>Reporting period</h2>
+      <h2>{t("adm_reporting_period")}</h2>
       <div className="card">
         <div className="row" style={{ alignItems: "flex-end" }}>
           <div style={{ flex: "0 0 auto" }}>
-            <label>From</label>
+            <label>{t("tm_from")}</label>
             <input type="date" value={range.from} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
           </div>
           <div style={{ flex: "0 0 auto" }}>
-            <label>To</label>
+            <label>{t("tm_to")}</label>
             <input type="date" value={range.to} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} />
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <button className="ghost" onClick={() => setRange(monthRange(0))}>This month</button>
-            <button className="ghost" onClick={() => setRange(monthRange(-1))}>Last month</button>
-            <button className="ghost" onClick={() => setRange({ from: "", to: "" })}>All time</button>
+            <button className="ghost" onClick={() => setRange(monthRange(0))}>{t("adm_this_month")}</button>
+            <button className="ghost" onClick={() => setRange(monthRange(-1))}>{t("adm_last_month")}</button>
+            <button className="ghost" onClick={() => setRange({ from: "", to: "" })}>{t("tm_all_time")}</button>
           </div>
         </div>
         <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>
-          {range.from || range.to ? `Showing ${range.from || "start"} → ${range.to || "today"}` : "Showing all time"}
-          {" "}· applies to GMV and operations reports below.
+          {range.from || range.to ? `${t("adm_showing")} ${range.from || t("adm_start")} → ${range.to || t("adm_today")}` : t("adm_showing_all")}
+          {" "}{t("adm_applies")}
         </div>
       </div>
 
       {reports && (
         <>
           <div className="between">
-            <h2>Reports — GMV ₹{reports.total_gmv} · {reports.total_orders} orders</h2>
+            <h2>{t("adm_reports_gmv")} ₹{reports.total_gmv} · {reports.total_orders} {t("adm_orders_word")}</h2>
             <button className="ghost" onClick={() =>
               downloadCsv(`/admin/reports.csv${rangeQS()}`, "kissansetu-gmv-report.csv").catch((e) => setErr(e.message))}>
-              ⬇ Download CSV
+              {t("ea_download_csv")}
             </button>
           </div>
           <div className="grid">
-            {[["By commodity", reports.by_commodity], ["By state", reports.by_state],
-              ["By mandal", reports.by_mandal], ["By agent", reports.by_agent]].map(([title, rows]) => (
+            {[[t("adm_by_commodity"), reports.by_commodity], [t("adm_by_state"), reports.by_state],
+              [t("adm_by_mandal"), reports.by_mandal], [t("adm_by_agent"), reports.by_agent]].map(([title, rows]) => (
               <div className="card" key={title}>
                 <h3 style={{ fontSize: 15 }}>{title}</h3>
-                {rows.length === 0 ? <p className="muted">No data.</p> : (
+                {rows.length === 0 ? <p className="muted">{t("adm_no_data")}</p> : (
                   <>
                     <BarChart unit="₹" data={rows.slice(0, 8).map((r) => ({ label: r.key, value: Number(r.gmv) }))} />
                     <table style={{ marginTop: 8 }}>
-                      <thead><tr><th></th><th>GMV</th><th>Orders</th></tr></thead>
+                      <thead><tr><th></th><th>{t("adm_gmv")}</th><th>{t("adm_orders")}</th></tr></thead>
                       <tbody>
                         {rows.map((r) => (
                           <tr key={r.key}><td>{r.key}</td><td>₹{r.gmv}</td><td>{r.orders}</td></tr>
@@ -490,21 +490,21 @@ export default function Admin() {
       {ops && (
         <>
           <div className="between">
-            <h2>Operations scorecard</h2>
+            <h2>{t("adm_ops_scorecard")}</h2>
             <button className="ghost" onClick={() =>
               downloadCsv(`/admin/ops-report.csv${rangeQS()}`, "kissansetu-ops-report.csv").catch((e) => setErr(e.message))}>
-              ⬇ Download CSV
+              {t("ea_download_csv")}
             </button>
           </div>
 
           <div className="grid">
             <div className="card">
-              <h3 style={{ fontSize: 15 }}>Disputes</h3>
-              <div className="quote-line"><span>Total</span><span>{ops.disputes.total}</span></div>
-              <div className="quote-line"><span>Open</span><span>{ops.disputes.open}</span></div>
-              <div className="quote-line"><span>Decided</span><span>{ops.disputes.decided}</span></div>
+              <h3 style={{ fontSize: 15 }}>{t("sp_disputes")}</h3>
+              <div className="quote-line"><span>{t("adm_total")}</span><span>{ops.disputes.total}</span></div>
+              <div className="quote-line"><span>{t("adm_open")}</span><span>{ops.disputes.open}</span></div>
+              <div className="quote-line"><span>{t("adm_decided")}</span><span>{ops.disputes.decided}</span></div>
               <div className="quote-line">
-                <span>Dispute rate</span>
+                <span>{t("adm_dispute_rate")}</span>
                 <span className={ops.disputes.dispute_rate_pct > 10 ? "badge amber" : ""}>{ops.disputes.dispute_rate_pct}%</span>
               </div>
               {Object.entries(ops.disputes.by_outcome).map(([k, v]) => (
@@ -514,18 +514,18 @@ export default function Admin() {
               ))}
             </div>
             <div className="card">
-              <h3 style={{ fontSize: 15 }}>Payouts</h3>
-              <div className="quote-line"><span>Pending</span><span>₹{ops.payouts.pending_total} · {ops.payouts.pending_count}</span></div>
-              <div className="quote-line"><span>Processed</span><span>₹{ops.payouts.processed_total} · {ops.payouts.processed_count}</span></div>
-              <div className="quote-line"><span>Batches run</span><span>{ops.payouts.batches}</span></div>
+              <h3 style={{ fontSize: 15 }}>{t("adm_payouts")}</h3>
+              <div className="quote-line"><span>{t("adm_pending")}</span><span>₹{ops.payouts.pending_total} · {ops.payouts.pending_count}</span></div>
+              <div className="quote-line"><span>{t("adm_processed")}</span><span>₹{ops.payouts.processed_total} · {ops.payouts.processed_count}</span></div>
+              <div className="quote-line"><span>{t("adm_batches_run")}</span><span>{ops.payouts.batches}</span></div>
             </div>
           </div>
 
-          <h3 style={{ fontSize: 15 }}>Field agents</h3>
-          {ops.agents.length === 0 ? <p className="muted">No agent activity yet.</p> : (
+          <h3 style={{ fontSize: 15 }}>{t("tm_field_agents_h")}</h3>
+          {ops.agents.length === 0 ? <p className="muted">{t("adm_no_agent_activity")}</p> : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Agent</th><th>Inspections</th><th>Pass</th><th>Hold</th><th>Fail</th><th>Pass rate</th><th>Orders</th><th>Advisories</th></tr></thead>
+                <thead><tr><th>{t("tm_th_agent")}</th><th>{t("tm_th_inspections")}</th><th>{t("adm_pass")}</th><th>{t("adm_hold")}</th><th>{t("adm_fail")}</th><th>{t("adm_pass_rate")}</th><th>{t("tm_th_orders")}</th><th>{t("adm_advisories")}</th></tr></thead>
                 <tbody>
                   {ops.agents.map((a) => (
                     <tr key={a.agent_id}>
@@ -538,11 +538,11 @@ export default function Admin() {
             </div>
           )}
 
-          <h3 style={{ fontSize: 15 }}>Couriers</h3>
-          {ops.couriers.length === 0 ? <p className="muted">No shipments yet.</p> : (
+          <h3 style={{ fontSize: 15 }}>{t("adm_couriers")}</h3>
+          {ops.couriers.length === 0 ? <p className="muted">{t("adm_no_shipments")}</p> : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Courier</th><th>Shipments</th><th>Delivered</th><th>Active</th><th>Failed</th><th>Completion</th><th>Avg transit</th></tr></thead>
+                <thead><tr><th>{t("adm_couriers")}</th><th>{t("adm_shipments")}</th><th>{t("adm_delivered")}</th><th>{t("adm_active")}</th><th>{t("adm_failed")}</th><th>{t("adm_completion")}</th><th>{t("adm_avg_transit")}</th></tr></thead>
                 <tbody>
                   {ops.couriers.map((c) => (
                     <tr key={c.courier_id}>
@@ -560,19 +560,19 @@ export default function Admin() {
 
       {payoutAccts && payoutAccts.length > 0 && (
         <>
-          <h2>Payout accounts <span className="badge amber">{payoutAccts.length} to verify</span></h2>
+          <h2>{t("adm_payout_accounts")} <span className="badge amber">{payoutAccts.length} {t("adm_to_verify")}</span></h2>
           <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
-            Partners are paid only after their UPI/bank account is verified. Check the details against the partner, then approve or reject.
+            {t("adm_payout_acct_help")}
           </p>
           <div className="card">
             <table>
-              <thead><tr><th>Partner</th><th>Role</th><th>Method</th><th>Details</th><th>Action</th></tr></thead>
+              <thead><tr><th>{t("adm_partner")}</th><th>{t("role")}</th><th>{t("adm_method")}</th><th>{t("adm_details")}</th><th>{t("adm_action")}</th></tr></thead>
               <tbody>
                 {payoutAccts.map((a) => (
                   <tr key={a.user_id}>
                     <td>{a.name}{a.phone ? <div className="muted" style={{ fontSize: 12 }}>{a.phone}</div> : null}</td>
                     <td><span className="badge grey">{(a.role || "").replace(/_/g, " ")}</span></td>
-                    <td>{a.method === "upi" ? "UPI" : "Bank"}</td>
+                    <td>{a.method === "upi" ? t("pf_upi") : t("adm_bank")}</td>
                     <td className="muted" style={{ fontSize: 13 }}>
                       {a.method === "upi"
                         ? a.upi_id
@@ -581,9 +581,9 @@ export default function Admin() {
                     <td>
                       <div className="row" style={{ gap: 6 }}>
                         <button className="green" style={{ padding: "4px 10px", fontSize: 13 }}
-                                onClick={() => verifyPayoutAccount(a.user_id, true)}>Verify</button>
+                                onClick={() => verifyPayoutAccount(a.user_id, true)}>{t("adm_verify")}</button>
                         <button className="ghost" style={{ padding: "4px 10px", fontSize: 13 }}
-                                onClick={() => verifyPayoutAccount(a.user_id, false)}>Reject</button>
+                                onClick={() => verifyPayoutAccount(a.user_id, false)}>{t("sp_reject")}</button>
                       </div>
                     </td>
                   </tr>
@@ -596,52 +596,52 @@ export default function Admin() {
 
       {payouts && (
         <>
-          <h2>Payouts {payouts.pending_count > 0 && <span className="badge amber">{payouts.pending_count} pending</span>}</h2>
+          <h2>{t("adm_payouts")} {payouts.pending_count > 0 && <span className="badge amber">{payouts.pending_count} {t("adm_pending_badge")}</span>}</h2>
           {payoutMsg && <div className="ok">{payoutMsg}</div>}
           {payouts.missing_payout_accounts > 0 && (
             <div className="error" style={{ marginBottom: 10 }}>
-              ⚠ {payouts.missing_payout_accounts} pending payee(s) have no UPI/bank details on file — they can&apos;t be paid until they add them in their profile.
+              ⚠ {payouts.missing_payout_accounts} {t("adm_warn_missing")}
             </div>
           )}
           {payouts.blocked_unverified > 0 && (
             <div className="error" style={{ marginBottom: 10 }}>
-              ⚠ {payouts.blocked_unverified} pending payout(s) are held — the payee&apos;s account is not verified yet. Verify it above to release it.
+              ⚠ {payouts.blocked_unverified} {t("adm_warn_blocked")}
             </div>
           )}
           {payouts.blocked_unverified_identity > 0 && (
             <div className="error" style={{ marginBottom: 10 }}>
-              ⚠ {payouts.blocked_unverified_identity} pending payout(s) are held — the payee&apos;s identity is not verified. Approve their ID in the Identity verification queue to release it.
+              ⚠ {payouts.blocked_unverified_identity} {t("adm_warn_blocked_identity")}
             </div>
           )}
           <div className="card">
             <div className="between">
               <div>
-                <b>₹{payouts.pending_total}</b> accrued across {payouts.pending_count} payout(s)
-                <div className="muted" style={{ fontSize: 13 }}>Settled orders accrue seller + transport payouts here until a disbursement batch runs.</div>
+                <b>₹{payouts.pending_total}</b> {t("adm_accrued_across")} {payouts.pending_count} {t("adm_payouts_word")}
+                <div className="muted" style={{ fontSize: 13 }}>{t("adm_accrue_help")}</div>
               </div>
               <button className="amber" disabled={payouts.pending_count === 0} onClick={runPayoutBatch}>
-                Run payout batch
+                {t("adm_run_payout_batch")}
               </button>
             </div>
             {payouts.pending.length > 0 && (
               <table>
-                <thead><tr><th>Order</th><th>Payee</th><th>Type</th><th>Amount</th><th>Account</th><th>Identity</th></tr></thead>
+                <thead><tr><th>{t("iv_col_order")}</th><th>{t("adm_payee")}</th><th>{t("sp_col_type")}</th><th>{t("tr_th_amount")}</th><th>{t("adm_account")}</th><th>{t("adm_identity")}</th></tr></thead>
                 <tbody>
                   {payouts.pending.map((p) => (
                     <tr key={p.id}>
                       <td>{p.order || "—"}</td><td>{p.seller}</td>
-                      <td><span className="badge grey">{p.payee_type || "seller"}</span></td>
+                      <td><span className="badge grey">{p.payee_type === "transport" ? t("adm_payee_transport") : t("adm_payee_seller")}</span></td>
                       <td>₹{p.amount}</td>
                       <td>{!p.has_account
-                        ? <span className="badge amber">missing</span>
+                        ? <span className="badge amber">{t("adm_missing")}</span>
                         : p.verified
-                          ? <span className="badge green">verified</span>
-                          : <span className="badge amber">unverified</span>}</td>
+                          ? <span className="badge green">{t("adm_verified")}</span>
+                          : <span className="badge amber">{t("adm_unverified")}</span>}</td>
                       <td>{p.payee_type === "transport"
-                        ? <span className="badge grey">n/a</span>
+                        ? <span className="badge grey">{t("adm_na")}</span>
                         : p.identity_verified
-                          ? <span className="badge green">verified</span>
-                          : <span className="badge amber">unverified</span>}</td>
+                          ? <span className="badge green">{t("adm_verified")}</span>
+                          : <span className="badge amber">{t("adm_unverified")}</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -650,9 +650,9 @@ export default function Admin() {
           </div>
           {payouts.batches.length > 0 && (
             <>
-              <h3 style={{ fontSize: 15 }}>Recent batches</h3>
+              <h3 style={{ fontSize: 15 }}>{t("adm_recent_batches")}</h3>
               <table>
-                <thead><tr><th>Batch</th><th>Payouts</th><th>Total</th><th>When</th></tr></thead>
+                <thead><tr><th>{t("adm_batch")}</th><th>{t("adm_payouts")}</th><th>{t("adm_total")}</th><th>{t("adm_when")}</th></tr></thead>
                 <tbody>
                   {payouts.batches.map((b) => (
                     <tr key={b.public_id}>
@@ -669,82 +669,75 @@ export default function Admin() {
         </>
       )}
 
-      <h2>Broadcast announcement</h2>
+      <h2>{t("adm_broadcast")}</h2>
       <div className="card">
         {annMsg && <div className="ok" style={{ marginBottom: 10 }}>{annMsg}</div>}
         <div className="row">
           <div style={{ flex: 2 }}>
-            <label>Title</label>
+            <label>{t("tm_meeting_title")}</label>
             <input value={ann.title} onChange={(e) => setA("title", e.target.value)}
-                   placeholder="e.g. Market holiday on Sunday" />
+                   placeholder={t("adm_ann_title_ph")} />
           </div>
           <div style={{ flex: 1 }}>
-            <label>Audience</label>
+            <label>{t("adm_audience")}</label>
             <select value={ann.audience} onChange={(e) => setA("audience", e.target.value)}>
-              <option value="all">Everyone</option>
-              <option value="farmers">Farmers</option>
-              <option value="buyers">Buyers</option>
-              <option value="agents">Field agents</option>
-              <option value="couriers">Couriers</option>
-              <option value="staff">Staff</option>
+              <option value="all">{t("adm_aud_all")}</option>
+              <option value="farmers">{t("adm_aud_farmers")}</option>
+              <option value="buyers">{t("adm_aud_buyers")}</option>
+              <option value="agents">{t("adm_aud_agents")}</option>
+              <option value="couriers">{t("adm_aud_couriers")}</option>
+              <option value="staff">{t("adm_aud_staff")}</option>
             </select>
           </div>
         </div>
-        <label>Message</label>
+        <label>{t("adm_message")}</label>
         <textarea rows={3} value={ann.body} onChange={(e) => setA("body", e.target.value)}
-                  placeholder="This appears as an in-app alert for the chosen audience." />
+                  placeholder={t("adm_ann_body_ph")} />
         <div style={{ marginTop: 12 }}>
           <button disabled={!ann.title.trim() || !ann.body.trim()} onClick={sendAnnouncement}>
-            Send announcement
+            {t("adm_send_announcement")}
           </button>
         </div>
       </div>
 
-      <h2>Market price feed</h2>
+      <h2>{t("adm_price_feed")}</h2>
       <div className="card">
         <p className="muted" style={{ fontSize: 14, marginTop: 0 }}>
-          Pulls today&apos;s government-declared mandi prices (data.gov.in / AGMARKNET)
-          and updates the all-India price screen. Requires a data.gov.in API key in
-          the backend config; until then the app serves the seeded sample prices.
+          {t("adm_price_feed_help")}
         </p>
         {priceStatus && (
           <div className="stat-strip" style={{ marginBottom: 10 }}>
-            <div>Feed: <b>{priceStatus.configured ? "live (data.gov.in)" : "sample"}</b></div>
-            <div><b>{priceStatus.row_count}</b> prices{priceStatus.stale_rows ? ` · ${priceStatus.stale_rows} stale` : ""}</div>
-            <div>Last refresh: <b>{priceStatus.last_refresh_at ? new Date(priceStatus.last_refresh_at).toLocaleString() : "never"}</b></div>
+            <div>{t("adm_feed")} <b>{priceStatus.configured ? t("adm_feed_live") : t("adm_feed_sample")}</b></div>
+            <div><b>{priceStatus.row_count}</b> {t("adm_prices_word")}{priceStatus.stale_rows ? ` · ${priceStatus.stale_rows} ${t("adm_stale")}` : ""}</div>
+            <div>{t("adm_last_refresh")} <b>{priceStatus.last_refresh_at ? new Date(priceStatus.last_refresh_at).toLocaleString() : t("adm_never")}</b></div>
             {priceStatus.feed_is_stale && (
-              <div className="badge danger">⚠ feed stale ({priceStatus.stale_after_hours}h+)</div>
+              <div className="badge danger">{t("adm_feed_stale")} ({priceStatus.stale_after_hours}h+)</div>
             )}
           </div>
         )}
         {priceMsg && <div className="ok" style={{ marginBottom: 10 }}>{priceMsg}</div>}
         <button disabled={priceBusy} onClick={refreshPrices}>
-          {priceBusy ? "Refreshing…" : "Refresh prices now"}
+          {priceBusy ? t("adm_refreshing") : t("adm_refresh_now")}
         </button>
       </div>
 
-      <h2>Scheduled jobs</h2>
+      <h2>{t("adm_scheduled_jobs")}</h2>
       <div className="card">
         <p className="muted" style={{ fontSize: 14, marginTop: 0 }}>
-          Compiles each user&apos;s batched alerts into a daily-digest push, refreshes
-          live market prices (if the feed is configured) and sends team-meeting
-          reminders — the sandboxed job a timer (or cron) runs automatically.
-          Trigger it here to see it work now.
+          {t("adm_sched_help")}
         </p>
         {schedMsg && <div className="ok" style={{ marginBottom: 10 }}>{schedMsg}</div>}
         <button disabled={schedBusy} onClick={runScheduler}>
-          {schedBusy ? "Running…" : "Run scheduled jobs now"}
+          {schedBusy ? t("adm_running") : t("adm_run_sched_now")}
         </button>
       </div>
 
-      <h2>Identity verification queue {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>
+      <h2>{t("adm_kyc_queue")} {kyc.length > 0 && <span className="badge amber">{kyc.length}</span>}</h2>
       <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
-        Review each person&apos;s submitted government photo-ID. Open each document, check
-        the name/photo matches, then approve or reject. Rejecting asks for a reason the
-        user will see so they can re-submit.
+        {t("adm_kyc_help")}
       </p>
       {kyc.length === 0 ? (
-        <p className="muted">No pending verifications.</p>
+        <p className="muted">{t("adm_no_kyc")}</p>
       ) : (
         <div className="grid">
           {kyc.map((u) => (
@@ -758,26 +751,26 @@ export default function Admin() {
                   </div>
                   {(u.aadhaar_masked || u.pan_masked) && (
                     <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                      {u.aadhaar_masked ? `Aadhaar ${u.aadhaar_masked}` : ""}
+                      {u.aadhaar_masked ? `${t("pf_aadhaar")} ${u.aadhaar_masked}` : ""}
                       {u.aadhaar_masked && u.pan_masked ? " · " : ""}
-                      {u.pan_masked ? `PAN ${u.pan_masked}` : ""}
+                      {u.pan_masked ? `${t("pf_pan")} ${u.pan_masked}` : ""}
                     </div>
                   )}
                 </div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="green" style={{ padding: "4px 12px", fontSize: 13 }}
-                          onClick={() => kycDecide(u.user_id, true)}>Approve</button>
+                          onClick={() => kycDecide(u.user_id, true)}>{t("adm_approve")}</button>
                   <button className="ghost" style={{ padding: "4px 12px", fontSize: 13 }}
-                          onClick={() => kycDecide(u.user_id, false)}>Reject</button>
+                          onClick={() => kycDecide(u.user_id, false)}>{t("sp_reject")}</button>
                 </div>
               </div>
 
               {u.business && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--line, #e5e7eb)" }}>
                   <div style={{ fontSize: 13 }}>
-                    <b>{u.business.legal_name || "Business"}</b>
-                    {u.business.registration_number ? ` · Reg ${u.business.registration_number}` : ""}
-                    {u.business.gst ? ` · GST ${u.business.gst}` : ""}
+                    <b>{u.business.legal_name || t("adm_business")}</b>
+                    {u.business.registration_number ? ` · ${t("adm_reg")} ${u.business.registration_number}` : ""}
+                    {u.business.gst ? ` · ${t("adm_gst")} ${u.business.gst}` : ""}
                   </div>
                   {u.business.evidence && u.business.evidence.length > 0 ? (
                     <div className="row" style={{ gap: 10, marginTop: 6, flexWrap: "wrap" }}>
@@ -789,7 +782,7 @@ export default function Admin() {
                              title="Business registration evidence — open full size"
                              style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
                             {isImg ? (
-                              <img src={href} alt="registration evidence"
+                              <img src={href} alt={t("adm_reg_evidence_alt")}
                                    style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 8,
                                             border: "1px solid var(--line, #e5e7eb)", background: "#f3f4f6" }} />
                             ) : (
@@ -797,13 +790,13 @@ export default function Admin() {
                                             display: "flex", alignItems: "center", justifyContent: "center",
                                             fontSize: 13, background: "#f3f4f6", color: "#374151" }}>📄 PDF</div>
                             )}
-                            <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>reg. evidence</div>
+                            <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{t("adm_reg_evidence")}</div>
                           </a>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>No registration evidence on file.</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{t("adm_no_reg_evidence")}</div>
                   )}
                 </div>
               )}
@@ -835,7 +828,7 @@ export default function Admin() {
                 </div>
               ) : (
                 <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-                  ⚠ No ID document uploaded yet — ask the user to submit one from their profile before approving.
+                  {t("adm_no_id_doc")}
                 </div>
               )}
             </div>
@@ -843,17 +836,17 @@ export default function Admin() {
         </div>
       )}
 
-      <h2>Users</h2>
+      <h2>{t("adm_users")}</h2>
       <div className="card" style={{ marginBottom: 10 }}>
         <div className="row" style={{ alignItems: "flex-end" }}>
           <div style={{ flex: "2 1 220px" }}>
-            <label>Search name or phone</label>
-            <input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder="e.g. Ravi or 9190…" />
+            <label>{t("adm_search_user")}</label>
+            <input value={userQ} onChange={(e) => setUserQ(e.target.value)} placeholder={t("adm_search_user_ph")} />
           </div>
           <div style={{ flex: "1 1 160px" }}>
-            <label>Role</label>
+            <label>{t("role")}</label>
             <select value={userRole} onChange={(e) => setUserRole(e.target.value)}>
-              <option value="">All roles</option>
+              <option value="">{t("adm_all_roles")}</option>
               {["farmer", "buyer_household", "buyer_business", "field_agent",
                 "field_leader", "field_manager", "transport", "superadmin"]
                 .map((r) => <option key={r} value={r}>{r}</option>)}
@@ -862,11 +855,11 @@ export default function Admin() {
         </div>
       </div>
       {users.length === 0 ? (
-        <p className="muted">No users match.</p>
+        <p className="muted">{t("adm_no_users")}</p>
       ) : (
         <table>
           <thead>
-            <tr><th>Name</th><th>Phone</th><th>Role</th><th>Status</th>{me.role === "superadmin" && <th></th>}</tr>
+            <tr><th>{t("name")}</th><th>{t("adm_phone")}</th><th>{t("role")}</th><th>{t("status")}</th>{me.role === "superadmin" && <th></th>}</tr>
           </thead>
           <tbody>
             {users.map((u) => (
@@ -874,13 +867,13 @@ export default function Admin() {
                 <td>{u.name || "—"}</td>
                 <td>{u.phone}</td>
                 <td>{u.role}</td>
-                <td><span className={`badge ${u.status === "active" ? "" : "amber"}`}>{u.status}</span></td>
+                <td><span className={`badge ${u.status === "active" ? "" : "amber"}`}>{u.status === "active" ? t("adm_us_active") : t("adm_us_suspended")}</span></td>
                 {me.role === "superadmin" && (
                   <td>
                     {u.status === "active" ? (
-                      <button className="ghost" onClick={() => setUserStatus(u.id, "suspended")}>Suspend</button>
+                      <button className="ghost" onClick={() => setUserStatus(u.id, "suspended")}>{t("adm_suspend")}</button>
                     ) : (
-                      <button className="ghost" onClick={() => setUserStatus(u.id, "active")}>Reactivate</button>
+                      <button className="ghost" onClick={() => setUserStatus(u.id, "active")}>{t("adm_reactivate")}</button>
                     )}
                   </td>
                 )}
@@ -890,10 +883,10 @@ export default function Admin() {
         </table>
       )}
 
-      <h2>Transport couriers</h2>
+      <h2>{t("adm_transport_couriers")}</h2>
       <table>
         <thead>
-          <tr><th>Name</th><th>Code</th><th>Areas</th><th>KYC</th><th>Active</th><th></th></tr>
+          <tr><th>{t("name")}</th><th>{t("adm_code")}</th><th>{t("adm_areas")}</th><th>{t("adm_kyc")}</th><th>{t("adm_active_th")}</th><th></th></tr>
         </thead>
         <tbody>
           {carriers.map((c) => (
@@ -901,14 +894,14 @@ export default function Admin() {
               <td>{c.name}</td>
               <td>{c.code}</td>
               <td className="muted">{(c.service_areas || []).join(", ") || "—"}</td>
-              <td><span className={`badge ${c.kyc_status === "verified" ? "" : "amber"}`}>{c.kyc_status}</span></td>
-              <td>{c.active ? "yes" : "no"}</td>
+              <td><span className={`badge ${c.kyc_status === "verified" ? "" : "amber"}`}>{c.kyc_status === "verified" ? t("adm_verified") : c.kyc_status}</span></td>
+              <td>{c.active ? t("adm_yes") : t("adm_no_word")}</td>
               <td>
                 {c.kyc_status !== "verified" && (
-                  <button className="ghost" onClick={() => patchCarrier(c.id, { kyc_status: "verified" })}>Verify</button>
+                  <button className="ghost" onClick={() => patchCarrier(c.id, { kyc_status: "verified" })}>{t("adm_verify")}</button>
                 )}{" "}
                 <button className="ghost" onClick={() => patchCarrier(c.id, { active: !c.active })}>
-                  {c.active ? "Suspend" : "Enable"}
+                  {c.active ? t("adm_suspend") : t("adm_enable")}
                 </button>
               </td>
             </tr>
@@ -917,15 +910,15 @@ export default function Admin() {
       </table>
       <div className="card" style={{ marginTop: 10 }}>
         <div className="row">
-          <div style={{ flex: 2 }}><label>Courier name</label>
+          <div style={{ flex: 2 }}><label>{t("adm_courier_name")}</label>
             <input value={newCarrier.name} onChange={(e) => setC("name", e.target.value)} /></div>
-          <div style={{ flex: 1 }}><label>Code</label>
+          <div style={{ flex: 1 }}><label>{t("adm_code")}</label>
             <input value={newCarrier.code} onChange={(e) => setC("code", e.target.value)} /></div>
-          <div style={{ flex: 1 }}><label>Phone</label>
+          <div style={{ flex: 1 }}><label>{t("adm_phone")}</label>
             <input value={newCarrier.contact_phone} onChange={(e) => setC("contact_phone", e.target.value)} inputMode="numeric" /></div>
         </div>
         <div style={{ marginTop: 10 }}>
-          <button disabled={!newCarrier.name || !newCarrier.code} onClick={onboardCarrier}>Onboard courier</button>
+          <button disabled={!newCarrier.name || !newCarrier.code} onClick={onboardCarrier}>{t("adm_onboard_courier")}</button>
         </div>
       </div>
 
@@ -939,10 +932,10 @@ export default function Admin() {
 
       <CatalogManager me={me} />
 
-      <h2>Product minimum order quantities</h2>
+      <h2>{t("adm_product_moq")}</h2>
       <table>
         <thead>
-          <tr><th>Product</th><th>Category</th><th>MOQ ({"kg"})</th><th></th></tr>
+          <tr><th>{t("adm_product")}</th><th>{t("category_label")}</th><th>{t("adm_moq_kg")}</th><th></th></tr>
         </thead>
         <tbody>
           {commodities.map((c) => (
@@ -964,6 +957,7 @@ function monthRange(offset) {
 }
 
 function MoqRow({ c, onSave }) {
+  const { t } = useI18n();
   const [val, setVal] = useState(c.min_order_qty);
   const changed = String(val) !== String(c.min_order_qty);
   return (
@@ -975,7 +969,7 @@ function MoqRow({ c, onSave }) {
                style={{ width: 90 }} />
       </td>
       <td>
-        <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>Save</button>
+        <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>{t("adm_save")}</button>
       </td>
     </tr>
   );
@@ -1002,6 +996,7 @@ function BarChart({ data, unit = "" }) {
 // Finance: farmer withdrawal requests — approve (disburses their accrued payouts)
 // or reject.
 function WithdrawalsAdmin() {
+  const { t } = useI18n();
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -1012,34 +1007,34 @@ function WithdrawalsAdmin() {
   async function decide(id, approve) {
     setErr(null); setMsg(null);
     let reason;
-    if (!approve) { reason = window.prompt("Reason for rejecting this withdrawal?") || ""; }
+    if (!approve) { reason = window.prompt(t("adm_wd_reject_prompt")) || ""; }
     try {
       const r = await api(`/admin/withdrawals/${id}/decision`, { method: "POST", body: { approve, reason } });
-      setMsg(approve ? `Paid out (batch ${r.batch}, ₹${r.amount}).` : "Withdrawal rejected.");
+      setMsg(approve ? `${t("adm_paid_out")} ${r.batch}, ₹${r.amount}).` : t("adm_withdrawal_rejected"));
       load();
     } catch (e) { setErr(e.message); }
   }
 
   return (
     <>
-      <h2>Withdrawal requests {rows.length > 0 && <span className="badge amber">{rows.length}</span>}</h2>
+      <h2>{t("adm_withdrawal_requests")} {rows.length > 0 && <span className="badge amber">{rows.length}</span>}</h2>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
       {rows.length === 0 ? (
-        <p className="muted">No pending withdrawal requests.</p>
+        <p className="muted">{t("adm_no_withdrawals")}</p>
       ) : (
         <div className="card">
           {rows.map((w) => (
             <div key={w.id} className="between" style={{ padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
               <div>
-                <b>{w.farmer_name || `User ${w.farmer_id}`}</b> — ₹{w.amount}
+                <b>{w.farmer_name || `${t("adm_user")} ${w.farmer_id}`}</b> — ₹{w.amount}
                 <div className="muted" style={{ fontSize: 13 }}>
-                  {w.method || "—"} {w.account_masked || ""} · requested {w.created_at ? new Date(w.created_at).toLocaleDateString("en-IN") : ""}
+                  {w.method || "—"} {w.account_masked || ""} · {t("adm_requested")} {w.created_at ? new Date(w.created_at).toLocaleDateString("en-IN") : ""}
                 </div>
               </div>
               <div className="row" style={{ gap: 6 }}>
-                <button onClick={() => decide(w.id, true)}>Approve &amp; pay</button>
-                <button className="ghost" onClick={() => decide(w.id, false)}>Reject</button>
+                <button onClick={() => decide(w.id, true)}>{t("adm_approve_pay")}</button>
+                <button className="ghost" onClick={() => decide(w.id, false)}>{t("sp_reject")}</button>
               </div>
             </div>
           ))}
@@ -1054,6 +1049,7 @@ function WithdrawalsAdmin() {
 const BAG_STATUSES = ["created", "picked_up", "at_collection", "in_transit", "delivered"];
 
 function BarcodeTracking({ me }) {
+  const { t } = useI18n();
   const [stats, setStats] = useState(null);
   const [q, setQ] = useState("");
   const [bag, setBag] = useState(null);
@@ -1077,7 +1073,7 @@ function BarcodeTracking({ me }) {
     catch (e) { setErr(e.message); }
   }
   async function correct(code, to_status) {
-    const reason = window.prompt(`Reason for correcting ${code} to "${to_status}"?`);
+    const reason = window.prompt(`${t("adm_correct_prompt_pre")} ${code} ${t("adm_correct_prompt_mid")} "${to_status}"?`);
     if (!reason || !reason.trim()) return;
     try {
       await api(`/bags/${encodeURIComponent(code)}/correct`, { method: "POST", body: { to_status, reason: reason.trim() } });
@@ -1094,28 +1090,28 @@ function BarcodeTracking({ me }) {
 
   return (
     <>
-      <h2>Barcode / live tracking</h2>
+      <h2>{t("adm_barcode_tracking")}</h2>
       {err && <div className="error">{err}</div>}
       <div className="grid">
-        <TILE label="Scanned today" val={stats?.scanned_today} />
-        <TILE label="In transit" val={stats?.in_transit} />
-        <TILE label="At collection" val={stats?.at_collection} />
-        <TILE label="Delivered" val={stats?.delivered} />
-        <TILE label="Total bags" val={stats?.total} />
+        <TILE label={t("adm_scanned_today")} val={stats?.scanned_today} />
+        <TILE label={t("adm_in_transit")} val={stats?.in_transit} />
+        <TILE label={t("adm_at_collection")} val={stats?.at_collection} />
+        <TILE label={t("adm_delivered")} val={stats?.delivered} />
+        <TILE label={t("adm_total_bags")} val={stats?.total} />
       </div>
       {stats && stats.total > 0 && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Bags by status</h3>
+          <h3 style={{ marginTop: 0 }}>{t("adm_bags_by_status")}</h3>
           <BarChart data={[
-            { label: "Created", value: stats.created }, { label: "Picked up", value: stats.picked_up },
-            { label: "At collection", value: stats.at_collection }, { label: "In transit", value: stats.in_transit },
-            { label: "Delivered", value: stats.delivered },
+            { label: t("adm_created"), value: stats.created }, { label: t("adm_picked_up"), value: stats.picked_up },
+            { label: t("adm_at_collection"), value: stats.at_collection }, { label: t("adm_in_transit"), value: stats.in_transit },
+            { label: t("adm_delivered"), value: stats.delivered },
           ]} />
         </div>
       )}
       {live.length > 0 && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Live map — {live.length} bag(s) in transit</h3>
+          <h3 style={{ marginTop: 0 }}>{t("adm_live_map")} — {live.length} {t("adm_bags_in_transit")}</h3>
           <MapView points={live.map((b) => ({
             lat: b.lat, lng: b.lng, label: `${b.bag_code} — ${b.status_label}`,
             color: LIVE_COLOR[b.status] || "#6b7280",
@@ -1124,11 +1120,11 @@ function BarcodeTracking({ me }) {
       )}
 
       <div className="card">
-        <label>Find a bag (by barcode)</label>
+        <label>{t("adm_find_bag")}</label>
         <div className="row" style={{ gap: 6 }}>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="AGRI-1023-BAG-01"
                  style={{ flex: 1 }} onKeyDown={(e) => e.key === "Enter" && search(q)} />
-          <button onClick={() => search(q)}>Search</button>
+          <button onClick={() => search(q)}>{t("search")}</button>
         </div>
         {bag && (
           <div style={{ marginTop: 12 }}>
@@ -1136,9 +1132,9 @@ function BarcodeTracking({ me }) {
               <b>{bag.bag_code}</b>
               <span className="badge">{bag.status_label}</span>
             </div>
-            <div className="muted" style={{ fontSize: 13 }}>Order {bag.order_public_id} · bag {bag.bag_no}{bag.weight ? ` · ${bag.weight} kg` : ""}</div>
+            <div className="muted" style={{ fontSize: 13 }}>{t("iv_col_order")} {bag.order_public_id} · {t("bg_bag").toLowerCase()} {bag.bag_no}{bag.weight ? ` · ${bag.weight} kg` : ""}</div>
             <table style={{ marginTop: 8 }}>
-              <thead><tr><th>Stage</th><th>Status</th><th>By</th><th>When</th><th>GPS</th></tr></thead>
+              <thead><tr><th>{t("sc_stage")}</th><th>{t("status")}</th><th>{t("adm_by_th")}</th><th>{t("adm_when")}</th><th>{t("adm_gps")}</th></tr></thead>
               <tbody>
                 {bag.scans.map((s) => (
                   <tr key={s.id}>
@@ -1153,7 +1149,7 @@ function BarcodeTracking({ me }) {
             </table>
             {isSuper && (
               <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                <span className="muted" style={{ alignSelf: "center", fontSize: 13 }}>Correct to:</span>
+                <span className="muted" style={{ alignSelf: "center", fontSize: 13 }}>{t("adm_correct_to")}</span>
                 {BAG_STATUSES.map((st) => (
                   <button key={st} className="ghost" style={{ fontSize: 12 }}
                           disabled={st === bag.status} onClick={() => correct(bag.bag_code, st)}>{st}</button>
@@ -1167,7 +1163,7 @@ function BarcodeTracking({ me }) {
       {recent.length > 0 && (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Bag</th><th>Status</th><th>Last scan</th></tr></thead>
+            <thead><tr><th>{t("bg_bag")}</th><th>{t("status")}</th><th>{t("adm_last_scan")}</th></tr></thead>
             <tbody>
               {recent.map((b) => (
                 <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => { setQ(b.bag_code); search(b.bag_code); }}>
@@ -1187,6 +1183,7 @@ function BarcodeTracking({ me }) {
 // Delivery coverage: states → districts → mandals with a serviceable toggle, an
 // add-mandal form, and a one-click "Add Hyderabad metro" preset (superadmin).
 function ServiceAreasAdmin({ me }) {
+  const { t } = useI18n();
   const [states, setStates] = useState([]);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -1206,15 +1203,15 @@ function ServiceAreasAdmin({ me }) {
     setErr(null); setMsg(null); setBusy(true);
     try {
       const r = await api("/admin/service-areas/preset/hyderabad", { method: "POST" });
-      setMsg(`Hyderabad metro coverage added (${r.added} new of ${r.total}).`); load();
+      setMsg(`${t("adm_hyd_added")} (${r.added} ${t("adm_new_of")} ${r.total}).`); load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   async function launchHyderabadOnly() {
-    if (!confirm("Go live Hyderabad-only?\n\nThis loads all Telangana + Andhra Pradesh regions (inactive) and makes ONLY the Hyderabad metro serviceable — every other area is turned off until you activate it.")) return;
+    if (!confirm(t("adm_launch_confirm"))) return;
     setErr(null); setMsg(null); setBusy(true);
     try {
       const r = await api("/admin/service-areas/preset/launch", { method: "POST" });
-      setMsg(`Launch set: Hyderabad live (${r.hyderabad_active} mandals), ${r.regions_loaded} region(s) loaded as inactive, ${r.deactivated} other area(s) turned off.`);
+      setMsg(`${t("adm_launch_set")} (${r.hyderabad_active} ${t("adm_mandals_word")}), ${r.regions_loaded} ${t("adm_regions_loaded")}, ${r.deactivated} ${t("adm_deactivated")}`);
       load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
@@ -1228,17 +1225,16 @@ function ServiceAreasAdmin({ me }) {
         latitude: form.latitude ? Number(form.latitude) : null,
         longitude: form.longitude ? Number(form.longitude) : null, serviceable: true } });
       setForm((f) => ({ ...f, name: "", latitude: "", longitude: "" }));
-      setMsg("Mandal saved as serviceable."); load();
+      setMsg(t("adm_mandal_saved")); load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
     <>
-      <h2>Service areas (delivery coverage)</h2>
+      <h2>{t("adm_service_areas")}</h2>
       <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
-        Mandals marked <b>serviceable</b> count as inside the delivery footprint — a buyer&apos;s
-        location resolves to the nearest serviceable mandal. Add coordinates so distance/ETA work.
+        {t("adm_service_areas_help")}
       </p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
@@ -1247,17 +1243,15 @@ function ServiceAreasAdmin({ me }) {
         <div className="card" style={{ marginBottom: 10, borderLeft: "4px solid var(--green-600, #16a34a)" }}>
           <div className="between" style={{ flexWrap: "wrap", gap: 10 }}>
             <div>
-              <b>Launch coverage — Hyderabad only</b>
+              <b>{t("adm_launch_hyd")}</b>
               <div className="muted" style={{ fontSize: 13, maxWidth: 520 }}>
-                Loads all <b>Telangana + Andhra Pradesh</b> regions into the menu below but keeps
-                <b> only Hyderabad</b> serviceable. Buyers &amp; farmers outside Hyderabad are off until
-                you activate their region (toggle it on once agents/transport are onboarded there).
+                {t("adm_launch_hyd_help")}
               </div>
             </div>
-            <button disabled={busy} onClick={launchHyderabadOnly}>🚀 Set Hyderabad-only launch</button>
+            <button disabled={busy} onClick={launchHyderabadOnly}>{t("adm_set_hyd_launch")}</button>
           </div>
           <div className="row" style={{ gap: 8, marginTop: 10 }}>
-            <button className="ghost" disabled={busy} onClick={addHyderabad}>＋ Add Hyderabad metro (keep others)</button>
+            <button className="ghost" disabled={busy} onClick={addHyderabad}>{t("adm_add_hyd_metro")}</button>
           </div>
         </div>
       )}
@@ -1266,7 +1260,7 @@ function ServiceAreasAdmin({ me }) {
         <div className="card" key={s.id} style={{ marginBottom: 10 }}>
           <div className="between">
             <b>{s.name} <span className="muted" style={{ fontWeight: 400 }}>({s.code})</span></b>
-            <span className="badge grey">{s.serviceable_count} serviceable</span>
+            <span className="badge grey">{s.serviceable_count} {t("adm_serviceable")}</span>
           </div>
           {s.districts.map((d) => (
             <div key={d.id} style={{ marginTop: 8 }}>
@@ -1290,26 +1284,26 @@ function ServiceAreasAdmin({ me }) {
 
       {isSuper && (
         <form className="card" onSubmit={addMandal}>
-          <b>Add a mandal</b>
+          <b>{t("adm_add_mandal")}</b>
           <div className="form-grid" style={{ marginTop: 8 }}>
-            <label>State
+            <label>{t("ob_state")}
               <input value={form.state} onChange={(e) => setF("state", e.target.value)} list="sa-states" />
               <datalist id="sa-states">{states.map((s) => <option key={s.id} value={s.name} />)}</datalist>
             </label>
-            <label>District
+            <label>{t("ob_district")}
               <input value={form.district} onChange={(e) => setF("district", e.target.value)} />
             </label>
-            <label>Mandal / area
+            <label>{t("adm_mandal_area")}
               <input value={form.name} onChange={(e) => setF("name", e.target.value)} />
             </label>
-            <label>Latitude
+            <label>{t("adm_latitude")}
               <input value={form.latitude} onChange={(e) => setF("latitude", e.target.value)} inputMode="decimal" placeholder="17.49" />
             </label>
-            <label>Longitude
+            <label>{t("adm_longitude")}
               <input value={form.longitude} onChange={(e) => setF("longitude", e.target.value)} inputMode="decimal" placeholder="78.39" />
             </label>
           </div>
-          <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add as serviceable</button>
+          <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>{t("adm_add_serviceable")}</button>
         </form>
       )}
     </>
@@ -1320,6 +1314,7 @@ function ServiceAreasAdmin({ me }) {
 // (seller-paid, % of value). Draft -> simulate -> publish; versions are
 // immutable and a confirmed order keeps the version it was priced on.
 function PricingAdmin() {
+  const { t } = useI18n();
   const [rules, setRules] = useState([]);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -1351,7 +1346,7 @@ function PricingAdmin() {
         service_fee_payer: form.service_fee_payer, tax_pct: num(form.tax_pct), reason: form.reason || null,
       };
       const r = await api("/admin/pricing-rules/draft", { method: "POST", body });
-      setMsg(`Draft v${r.version} saved — simulate it below, then publish to go live.`); load();
+      setMsg(`${t("adm_draft_saved_pre")}${r.version} ${t("adm_draft_saved_post")}`); load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   async function simulate(ruleId) {
@@ -1362,9 +1357,9 @@ function PricingAdmin() {
     } catch (e) { setErr(e.message); }
   }
   async function publish(ruleId) {
-    if (!confirm("Publish this pricing rule?\n\nIt becomes live for NEW orders. Orders already confirmed keep the price they were quoted on.")) return;
+    if (!confirm(t("adm_publish_confirm"))) return;
     setErr(null); setMsg(null); setBusy(true);
-    try { await api(`/admin/pricing-rules/${ruleId}/publish`, { method: "POST" }); setMsg("Published — now live."); load(); }
+    try { await api(`/admin/pricing-rules/${ruleId}/publish`, { method: "POST" }); setMsg(t("adm_published_live")); load(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   function prefill(r) {
@@ -1385,81 +1380,78 @@ function PricingAdmin() {
 
   return (
     <>
-      <h2>Pricing — transport (buyer) &amp; commission (seller)</h2>
+      <h2>{t("adm_pricing_title")}</h2>
       <p className="muted" style={{ fontSize: 14, marginTop: -8, maxWidth: 640 }}>
-        <b>Transport is charged to the buyer</b>, computed by distance &amp; weight:
-        <code> ₹/km × km + ₹/kg × weight + pickup</code> (clamped to min/max).
-        <b> Agent commission is charged to the seller</b> as a % of the produce value.
-        Publishing a new version never reprices existing orders.
+        {t("adm_pricing_help")}
       </p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
       {published && (
         <div className="card" style={{ marginBottom: 10, borderLeft: "4px solid var(--green-600)" }}>
-          <b>Live now — v{published.version}</b>
+          <b>{t("adm_live_now")} — v{published.version}</b>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Transport: ₹{published.rate_per_km}/km · ₹{published.rate_per_kg}/kg · pickup ₹{published.fixed_pickup_fee}
-            · min ₹{published.min_transport_charge}{published.max_transport_charge ? ` · max ₹${published.max_transport_charge}` : ""}
-            <br />Seller commission: {published.seller_commission_pct}% · inspection ₹{published.inspection_fee} · packing ₹{published.packing_fee} · tax {published.tax_pct}%
+            {t("adm_transport_label")} ₹{published.rate_per_km}/km · ₹{published.rate_per_kg}/kg · {t("adm_pickup")} ₹{published.fixed_pickup_fee}
+            · {t("adm_min")} ₹{published.min_transport_charge}{published.max_transport_charge ? ` · ${t("adm_max")} ₹${published.max_transport_charge}` : ""}
+            <br />{t("adm_seller_commission")} {published.seller_commission_pct}% · {t("adm_inspection")} ₹{published.inspection_fee} · {t("adm_packing")} ₹{published.packing_fee} · {t("adm_tax")} {published.tax_pct}%
           </div>
-          <button className="ghost" style={{ marginTop: 8 }} onClick={() => prefill(published)}>Edit a copy →</button>
+          <button className="ghost" style={{ marginTop: 8 }} onClick={() => prefill(published)}>{t("adm_edit_copy")}</button>
         </div>
       )}
 
       <form onSubmit={saveDraft} className="card">
-        <b>New pricing version</b>
+        <b>{t("adm_new_pricing_version")}</b>
         <div className="form-grid" style={{ marginTop: 8 }}>
-          <F k="rate_per_km" label="Transport ₹ / km (buyer)" />
-          <F k="rate_per_kg" label="Transport ₹ / kg (buyer)" />
-          <F k="fixed_pickup_fee" label="Pickup fee ₹ (buyer)" />
-          <F k="min_transport_charge" label="Min transport ₹" />
-          <F k="max_transport_charge" label="Max transport ₹ (blank = none)" />
-          <F k="seller_commission_pct" label="Agent commission % (seller)" step="0.001" />
-          <F k="inspection_fee" label="Inspection fee ₹" />
-          <F k="packing_fee" label="Packing fee ₹" />
-          <F k="service_fee_pct" label="Service fee %" step="0.001" />
-          <F k="service_fee_flat" label="Service fee flat ₹" />
-          <label>Service fee payer
+          <F k="rate_per_km" label={t("adm_f_rate_km")} />
+          <F k="rate_per_kg" label={t("adm_f_rate_kg")} />
+          <F k="fixed_pickup_fee" label={t("adm_f_pickup")} />
+          <F k="min_transport_charge" label={t("adm_f_min_transport")} />
+          <F k="max_transport_charge" label={t("adm_f_max_transport")} />
+          <F k="seller_commission_pct" label={t("adm_f_seller_comm")} step="0.001" />
+          <F k="inspection_fee" label={t("adm_f_inspection")} />
+          <F k="packing_fee" label={t("adm_f_packing")} />
+          <F k="service_fee_pct" label={t("adm_f_service_pct")} step="0.001" />
+          <F k="service_fee_flat" label={t("adm_f_service_flat")} />
+          <label>{t("adm_svc_payer")}
             <select value={form.service_fee_payer} onChange={(e) => setF("service_fee_payer", e.target.value)}>
-              <option value="buyer">buyer</option><option value="seller">seller</option>
+              <option value="buyer">{t("adm_payer_buyer")}</option><option value="seller">{t("adm_payer_seller")}</option>
             </select>
           </label>
-          <F k="tax_pct" label="Tax %" step="0.001" />
+          <F k="tax_pct" label={t("adm_f_tax")} step="0.001" />
         </div>
-        <label>Reason / note<input value={form.reason} onChange={(e) => setF("reason", e.target.value)} placeholder="e.g. fuel revision Nov 2026" /></label>
-        <button disabled={busy} style={{ marginTop: 10 }}>Save as draft</button>
+        <label>{t("adm_reason_note")}<input value={form.reason} onChange={(e) => setF("reason", e.target.value)} placeholder={t("adm_reason_ph")} /></label>
+        <button disabled={busy} style={{ marginTop: 10 }}>{t("adm_save_draft")}</button>
       </form>
 
       {/* Simulate a quote against any rule */}
       <div className="card" style={{ marginTop: 10 }}>
-        <b>Simulate a quote</b>
+        <b>{t("adm_simulate_quote")}</b>
         <div className="form-grid" style={{ marginTop: 8 }}>
-          <label>Produce value ₹<input value={sim.product_value} onChange={(e) => setSim((s) => ({ ...s, product_value: e.target.value }))} inputMode="decimal" /></label>
-          <label>Weight (kg)<input value={sim.billable_kg} onChange={(e) => setSim((s) => ({ ...s, billable_kg: e.target.value }))} inputMode="decimal" /></label>
-          <label>Distance (km)<input value={sim.route_km} onChange={(e) => setSim((s) => ({ ...s, route_km: e.target.value }))} inputMode="decimal" /></label>
+          <label>{t("adm_produce_value")}<input value={sim.product_value} onChange={(e) => setSim((s) => ({ ...s, product_value: e.target.value }))} inputMode="decimal" /></label>
+          <label>{t("adm_weight_kg")}<input value={sim.billable_kg} onChange={(e) => setSim((s) => ({ ...s, billable_kg: e.target.value }))} inputMode="decimal" /></label>
+          <label>{t("adm_distance_km")}<input value={sim.route_km} onChange={(e) => setSim((s) => ({ ...s, route_km: e.target.value }))} inputMode="decimal" /></label>
         </div>
         {simOut && (
           <div className="muted" style={{ fontSize: 14, marginTop: 8 }}>
-            Transport (buyer): <b>₹{simOut.transport_charge}</b> · Commission (seller): <b>₹{simOut.seller_commission}</b>
-            {" · "}Buyer pays: <b>₹{simOut.buyer_total}</b> · Seller receives: <b>₹{simOut.seller_payable}</b>
+            {t("adm_transport_buyer")} <b>₹{simOut.transport_charge}</b> · {t("adm_commission_seller")} <b>₹{simOut.seller_commission}</b>
+            {" · "}{t("adm_buyer_pays")} <b>₹{simOut.buyer_total}</b> · {t("adm_seller_receives")} <b>₹{simOut.seller_payable}</b>
           </div>
         )}
       </div>
 
       <div className="table-wrap" style={{ marginTop: 10 }}>
         <table>
-          <thead><tr><th>Ver</th><th>Status</th><th>₹/km</th><th>₹/kg</th><th>Pickup</th><th>Comm %</th><th></th></tr></thead>
+          <thead><tr><th>{t("adm_ver")}</th><th>{t("status")}</th><th>{t("adm_th_per_km")}</th><th>{t("adm_th_per_kg")}</th><th>{t("adm_pickup_th")}</th><th>{t("adm_comm_th")}</th><th></th></tr></thead>
           <tbody>
             {rules.map((r) => (
               <tr key={r.id}>
                 <td>v{r.version}</td>
-                <td><span className={`badge ${r.status === "published" ? "green" : r.status === "draft" ? "amber" : "grey"}`}>{r.status}</span></td>
+                <td><span className={`badge ${r.status === "published" ? "green" : r.status === "draft" ? "amber" : "grey"}`}>{t("prs_" + r.status) || r.status}</span></td>
                 <td>₹{r.rate_per_km}</td><td>₹{r.rate_per_kg}</td><td>₹{r.fixed_pickup_fee}</td><td>{r.seller_commission_pct}%</td>
                 <td>
-                  <button className="ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => simulate(r.id)}>Simulate</button>
+                  <button className="ghost" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => simulate(r.id)}>{t("adm_simulate")}</button>
                   {r.status === "draft" && (
-                    <button style={{ padding: "4px 10px", fontSize: 13, marginLeft: 6 }} disabled={busy} onClick={() => publish(r.id)}>Publish</button>
+                    <button style={{ padding: "4px 10px", fontSize: 13, marginLeft: 6 }} disabled={busy} onClick={() => publish(r.id)}>{t("adm_publish")}</button>
                   )}
                 </td>
               </tr>
@@ -1476,6 +1468,7 @@ function PricingAdmin() {
 const CAT_OPTS = ["vegetable", "fruit", "cereal", "pulse", "oilseed", "spice", "dairy_meat", "other"];
 
 function CatalogManager({ me }) {
+  const { t } = useI18n();
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState({ name: "", category: "vegetable", name_te: "", unit: "kg" });
   const [err, setErr] = useState(null);
@@ -1495,7 +1488,7 @@ function CatalogManager({ me }) {
         name: form.name.trim(), category: form.category,
         name_te: form.name_te.trim() || undefined, unit: form.unit } });
       setForm({ name: "", category: form.category, name_te: "", unit: "kg" });
-      setMsg("Product saved to the catalogue."); load();
+      setMsg(t("adm_product_saved")); load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   async function act(path, body) {
@@ -1503,7 +1496,7 @@ function CatalogManager({ me }) {
     try { await api(path, { method: "POST", body }); load(); } catch (e) { setErr(e.message); }
   }
   function requestDel(c) {
-    const reason = window.prompt(`Why should "${c.name}" be removed from the list?`);
+    const reason = window.prompt(`${t("adm_removal_prompt_pre")} "${c.name}" ${t("adm_removal_prompt_post")}`);
     if (reason && reason.trim()) act(`/catalog/commodities/${c.id}/request-deletion`, { reason: reason.trim() });
   }
 
@@ -1511,28 +1504,27 @@ function CatalogManager({ me }) {
 
   return (
     <>
-      <h2>Catalogue / products</h2>
+      <h2>{t("adm_catalogue")}</h2>
       <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
-        Add products so farmers and buyers can list or request them. To remove one,
-        a field leader/manager requests it and the superadmin approves.
+        {t("adm_catalogue_help")}
       </p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
       <form className="card" onSubmit={add}>
         <div className="form-grid">
-          <label>Product name
+          <label>{t("ag_product_name")}
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </label>
-          <label>Category
+          <label>{t("category_label")}
             <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-              {CAT_OPTS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {CAT_OPTS.map((c) => <option key={c} value={c}>{t("cat_" + c)}</option>)}
             </select>
           </label>
-          <label>Telugu name (optional)
+          <label>{t("ag_telugu_name")}
             <input value={form.name_te} onChange={(e) => setForm((f) => ({ ...f, name_te: e.target.value }))} />
           </label>
-          <label>Unit
+          <label>{t("ag_unit")}
             <select value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
               <option value="kg">kg</option>
               <option value="piece">piece</option>
@@ -1541,24 +1533,24 @@ function CatalogManager({ me }) {
             </select>
           </label>
         </div>
-        <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add product</button>
+        <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>{t("ag_add_product")}</button>
       </form>
 
       {isSuper && pending.length > 0 && (
         <div className="card" style={{ borderLeft: "4px solid var(--amber-600)" }}>
-          <h3 style={{ marginTop: 0 }}>Removal requests awaiting your approval ({pending.length})</h3>
+          <h3 style={{ marginTop: 0 }}>{t("adm_removal_requests")} ({pending.length})</h3>
           {pending.map((c) => (
             <div key={c.id} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
               <div>
                 <b>{c.name}</b> <span className="muted">· {c.category}</span>
                 <div className="muted" style={{ fontSize: 13 }}>
-                  “{c.deletion_reason}” — requested by {c.deletion_requested_by_name || "—"}
-                  {c.listing_count > 0 && <span className="badge amber" style={{ marginLeft: 6 }}>{c.listing_count} listings use it</span>}
+                  “{c.deletion_reason}” — {t("adm_requested_by")} {c.deletion_requested_by_name || "—"}
+                  {c.listing_count > 0 && <span className="badge amber" style={{ marginLeft: 6 }}>{c.listing_count} {t("adm_listings_use")}</span>}
                 </div>
               </div>
               <div className="row" style={{ gap: 6 }}>
-                <button onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: true })}>Approve removal</button>
-                <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: false })}>Reject</button>
+                <button onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: true })}>{t("adm_approve_removal")}</button>
+                <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: false })}>{t("sp_reject")}</button>
               </div>
             </div>
           ))}
@@ -1568,7 +1560,7 @@ function CatalogManager({ me }) {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Product</th><th>Category</th><th>Status</th><th>Listings</th><th></th></tr>
+            <tr><th>{t("adm_product")}</th><th>{t("category_label")}</th><th>{t("status")}</th><th>{t("adm_listings")}</th><th></th></tr>
           </thead>
           <tbody>
             {rows.map((c) => (
@@ -1576,24 +1568,24 @@ function CatalogManager({ me }) {
                 <td>{c.name}</td>
                 <td className="muted">{c.category}</td>
                 <td>
-                  {!c.active ? <span className="badge grey">removed</span>
-                    : c.pending_deletion ? <span className="badge amber" title={c.deletion_reason}>removal requested</span>
-                    : <span className="badge green">active</span>}
+                  {!c.active ? <span className="badge grey">{t("adm_removed")}</span>
+                    : c.pending_deletion ? <span className="badge amber" title={c.deletion_reason}>{t("adm_removal_requested")}</span>
+                    : <span className="badge green">{t("adm_active_status")}</span>}
                 </td>
                 <td className="muted">{c.listing_count}</td>
                 <td>
                   {c.active && !c.pending_deletion && (
-                    <button className="ghost" onClick={() => requestDel(c)}>Request removal</button>
+                    <button className="ghost" onClick={() => requestDel(c)}>{t("adm_request_removal")}</button>
                   )}
-                  {c.pending_deletion && !isSuper && <span className="muted" style={{ fontSize: 12 }}>awaiting superadmin</span>}
+                  {c.pending_deletion && !isSuper && <span className="muted" style={{ fontSize: 12 }}>{t("adm_awaiting_super")}</span>}
                   {c.pending_deletion && isSuper && (
                     <span className="row" style={{ gap: 6 }}>
-                      <button onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: true })}>Approve</button>
-                      <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: false })}>Reject</button>
+                      <button onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: true })}>{t("adm_approve")}</button>
+                      <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/deletion-decision`, { approve: false })}>{t("sp_reject")}</button>
                     </span>
                   )}
                   {!c.active && isSuper && (
-                    <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/restore`)}>Restore</button>
+                    <button className="ghost" onClick={() => act(`/catalog/commodities/${c.id}/restore`)}>{t("adm_restore")}</button>
                   )}
                 </td>
               </tr>
