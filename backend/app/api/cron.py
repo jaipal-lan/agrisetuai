@@ -19,9 +19,13 @@ router = APIRouter(prefix="/cron", tags=["cron"])
 
 
 @router.api_route("/run", methods=["GET", "POST"])
-def run_cron(token: str = Query(default=""), db: Session = Depends(get_db)):
+def run_cron(token: str = Query(default=""),
+             force_prices: bool = Query(default=False),
+             db: Session = Depends(get_db)):
+    """Run the scheduled jobs. Pass force_prices=1 (the daily 6 AM job) to pull
+    fresh mandi prices even if the throttle window hasn't elapsed."""
     if not settings.cron_token:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Cron endpoint is disabled")
     if token != settings.cron_token:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid cron token")
-    return run_scheduled_jobs(db)
+    return run_scheduled_jobs(db, force_prices=force_prices)

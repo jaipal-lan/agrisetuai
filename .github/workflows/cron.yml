@@ -1,26 +1,35 @@
-name: Keep-awake + refresh market prices
+name: Daily market-price refresh (6 AM IST)
 
-# Pings the backend's cron endpoint on a schedule. This both wakes the
-# sleep-when-idle free instance and runs the scheduled jobs (market-price
-# refresh — throttled by PRICES_REFRESH_HOURS — plus digests and reminders).
+# Runs every morning at 06:00 IST: wakes the (sleep-when-idle) backend, then
+# forces a fresh pull of the day's government mandi prices. The refreshed rows
+# are stored in the database, so they stay served even after the web instance
+# sleeps again — no always-on instance needed.
 #
 # Required repo secrets (Settings -> Secrets and variables -> Actions):
 #   BACKEND_URL  e.g. https://agrisetuai-backend.onrender.com
 #   CRON_TOKEN   the SAME value set as CRON_TOKEN on the backend (Render env)
+#
+# Prices only change date-wise once the live feed is ON — set PRICES_PROVIDER=
+# data_gov_in and DATA_GOV_IN_API_KEY on the backend (see MARKET_PRICES_SETUP.md).
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes (UTC)
-  workflow_dispatch: {}       # allow a manual run from the Actions tab
+    - cron: "30 0 * * *"   # 00:30 UTC = 06:00 AM IST, every day
+  workflow_dispatch: {}      # allow a manual run from the Actions tab
 
 jobs:
-  ping:
+  refresh:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger scheduled jobs
+      - name: Wake the backend
+        run: curl -s -o /dev/null --max-time 90 "${{ secrets.BACKEND_URL }}/api/health" || true
+
+      - name: Wait for cold start
+        run: sleep 25
+
+      - name: Force today's price refresh
         run: |
-          code=$(curl -s -o /tmp/out -w "%{http_code}" --max-time 60 \
-            "${{ secrets.BACKEND_URL }}/api/cron/run?token=${{ secrets.CRON_TOKEN }}")
+          code=$(curl -s -o /tmp/out -w "%{http_code}" --max-time 180 \
+            "${{ secrets.BACKEND_URL }}/api/cron/run?token=${{ secrets.CRON_TOKEN }}&force_prices=1")
           echo "HTTP $code"; cat /tmp/out || true
-          # A cold start can exceed the timeout; treat only clear failures as errors.
-          if [ "$code" != "200" ] && [ "$code" != "000" ]; then exit 1; fi
+          if [ "$code" != "200" ]; then exit 1; fi

@@ -72,13 +72,17 @@ def compile_digests(db: Session) -> int:
     return sent
 
 
-def refresh_market_prices(db: Session) -> int:
+def refresh_market_prices(db: Session, *, force: bool = False) -> int:
     """Refresh live mandi prices if the feed is configured AND due (throttled by
-    prices_refresh_hours); no-op otherwise. Never raises (a transient upstream
-    failure must not break the job run)."""
+    prices_refresh_hours); no-op otherwise. With force=True the throttle is
+    bypassed (used by the daily 6 AM job) but the feed must still be configured.
+    Never raises (a transient upstream failure must not break the job run)."""
     from app.services import prices_feed
 
-    if not prices_feed.is_refresh_due(db):
+    if force:
+        if not prices_feed.provider_configured():
+            return 0
+    elif not prices_feed.is_refresh_due(db):
         return 0
     try:
         result = prices_feed.refresh_prices(db)
@@ -164,11 +168,11 @@ def escalate_stale_rfqs(db: Session) -> int:
     return sent
 
 
-def run_scheduled_jobs(db: Session) -> dict:
+def run_scheduled_jobs(db: Session, *, force_prices: bool = False) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
     digests = compile_digests(db)
-    prices = refresh_market_prices(db)
+    prices = refresh_market_prices(db, force=force_prices)
     meeting_reminders = raise_meeting_reminders(db)
     rfq_escalations = escalate_stale_rfqs(db)
     return {"ran_at": utcnow().isoformat(), "digests_sent": digests,

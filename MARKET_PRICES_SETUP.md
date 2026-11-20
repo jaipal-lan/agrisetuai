@@ -32,12 +32,17 @@ Set the same random string in **both** places:
   - `CRON_TOKEN` = the same value
   - `BACKEND_URL` = e.g. `https://agrisetuai-backend.onrender.com`
 
-### 3. The pinger
-`.github/workflows/cron.yml` runs every 30 minutes and calls
-`GET /api/cron/run?token=…`. That wakes the instance and runs the scheduled
-jobs; the price fetch itself is still throttled to `PRICES_REFRESH_HOURS`, so
-frequent pings don't over-fetch. (Any free pinger works — cron-job.org or
-UptimeRobot hitting the same URL is equivalent.)
+### 3. The daily refresh (6 AM IST)
+`.github/workflows/cron.yml` runs every morning at **06:00 IST**: it wakes the
+backend, then calls `GET /api/cron/run?token=…&force_prices=1` to force a fresh
+pull of the day's prices. The rows are stored in the database, so they stay
+served even after the free web instance sleeps again — no always-on instance is
+needed just for prices.
+
+(You can run it any time from the GitHub **Actions tab → Run workflow**, or hit
+the same URL from cron-job.org / UptimeRobot instead. If you also want the site
+itself to respond instantly at all hours, add a separate UptimeRobot monitor on
+`/api/health` every 10 min — optional; not needed for price freshness.)
 
 ## Verify
 - `GET /api/cron/run?token=…` → returns a JSON report incl. `prices_refreshed`.
