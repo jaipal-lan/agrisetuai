@@ -218,7 +218,25 @@ export default function Marketplace() {
       ) : (
         /* ---------------- Curated landing ---------------- */
         <>
-          {/* Trust strip — the three promises that make KissanSetu different */}
+          {/* Marketing hero — first impression for logged-out visitors */}
+          {!me && (
+            <section className="hero">
+              <h1>{t("lp_hero_title")}</h1>
+              <p>{t("lp_hero_sub")}</p>
+              <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+                <a href="#shop" className="btn light">{t("lp_cta_shop")}</a>
+                <Link href="/register" className="btn light-ghost">{t("lp_cta_sell")}</Link>
+              </div>
+              <div className="hero-chips">
+                <span>✅ {t("lp_chip1")}</span>
+                <span>🚚 {t("lp_chip2")}</span>
+                <span>🌾 {t("lp_chip3")}</span>
+              </div>
+            </section>
+          )}
+
+          {/* Trust strip — shown to returning, logged-in buyers (features cover it for visitors) */}
+          {me && (
           <div className="trust-strip">
             <div className="trust-item">
               <span className="trust-ico" aria-hidden="true">✅</span>
@@ -233,6 +251,7 @@ export default function Marketplace() {
               <div><div className="trust-ttl">{t("trust_p_t")}</div><div className="trust-sub">{t("trust_p_s")}</div></div>
             </div>
           </div>
+          )}
 
           {/* Headline stats */}
           {disc.stats?.live_products > 0 && (
@@ -241,6 +260,40 @@ export default function Marketplace() {
               <div><b>{disc.stats.farmers}</b> {t("farmers_selling")}</div>
               <div><b>{disc.stats.places}</b> {t("places")}</div>
             </div>
+          )}
+
+          {/* How it works + Why KissanSetu — visitors only */}
+          {!me && (
+            <>
+              <section className="disc-section">
+                <div className="section-head"><h2>{t("lp_how_title")}</h2></div>
+                <div className="grid steps">
+                  <div className="card"><b>{t("lp_step1_t")}</b><p className="muted" style={{ margin: "6px 0 0" }}>{t("lp_step1_s")}</p></div>
+                  <div className="card"><b>{t("lp_step2_t")}</b><p className="muted" style={{ margin: "6px 0 0" }}>{t("lp_step2_s")}</p></div>
+                  <div className="card"><b>{t("lp_step3_t")}</b><p className="muted" style={{ margin: "6px 0 0" }}>{t("lp_step3_s")}</p></div>
+                </div>
+              </section>
+
+              <section className="disc-section">
+                <div className="section-head"><h2>{t("lp_why_title")}</h2></div>
+                <div className="grid">
+                  {[
+                    ["🌾", "lp_f1_t", "lp_f1_s"],
+                    ["✅", "lp_f2_t", "lp_f2_s"],
+                    ["🚚", "lp_f3_t", "lp_f3_s"],
+                    ["💳", "lp_f4_t", "lp_f4_s"],
+                    ["🗣️", "lp_f5_t", "lp_f5_s"],
+                    ["📈", "lp_f6_t", "lp_f6_s"],
+                  ].map(([ico, tt, ss]) => (
+                    <div className="card" key={tt}>
+                      <div className="feature-icon">{ico}</div>
+                      <h3>{t(tt)}</h3>
+                      <p className="muted" style={{ margin: 0 }}>{t(ss)}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </>
           )}
 
           {/* Shopping-near picker (buyers) */}
@@ -284,6 +337,8 @@ export default function Marketplace() {
             </section>
           )}
 
+          {/* ---- Shop: discovery feed (scroll target for the hero CTA) ---- */}
+          <div id="shop">
           {/* Featured */}
           {disc.featured?.length > 0 && (
             <section className="disc-section">
@@ -314,6 +369,19 @@ export default function Marketplace() {
               <div className="section-head"><h2>🌱 {t("just_listed")}</h2></div>
               <div className="fresh-strip">
                 {disc.fresh.map((f) => <FreshCard key={f.listing_id} f={f} lang={lang} />)}
+              </div>
+            </section>
+          )}
+          </div>
+
+          {/* Closing call-to-action — logged-out visitors */}
+          {!me && (
+            <section className="cta-band">
+              <h2>{t("lp_final_t")}</h2>
+              <p>{t("lp_final_s")}</p>
+              <div className="row" style={{ gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+                <a href="#shop" className="btn light">{t("lp_cta_shop")}</a>
+                <Link href="/register" className="btn light-ghost">{t("lp_cta_sell")}</Link>
               </div>
             </section>
           )}
