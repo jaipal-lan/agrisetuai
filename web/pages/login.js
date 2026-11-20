@@ -56,10 +56,10 @@ export default function Login() {
       <h1>{t("login")}</h1>
       <p className="tagline">{t("tagline")}</p>
       {router.query.registered && (
-        <div className="ok">Account created ✓ Please log in with your phone and password.</div>
+        <div className="ok">{t("auth_acct_created")}</div>
       )}
       {router.query.reset && (
-        <div className="ok">Password updated ✓ Please log in with your new password.</div>
+        <div className="ok">{t("auth_pwd_updated")}</div>
       )}
       {err && <div className="error">{err}</div>}
 
@@ -75,7 +75,7 @@ export default function Login() {
 
         {mode === "password" ? (
           <form onSubmit={loginPassword}>
-            <label>Password / పాస్‌వర్డ్</label>
+            <label>{t("auth_password")}</label>
             <input
               type="password"
               value={password}
@@ -88,10 +88,10 @@ export default function Login() {
               </button>
             </div>
             <div className="between" style={{ marginTop: 12, fontSize: 13 }}>
-              <Link href="/reset-password">Forgot password?</Link>
+              <Link href="/reset-password">{t("auth_forgot")}</Link>
               <a role="button" tabIndex={0} className="linklike"
                  onClick={() => { setMode("otp"); setErr(null); }}>
-                Log in with OTP
+                {t("auth_login_otp")}
               </a>
             </div>
           </form>
@@ -100,7 +100,7 @@ export default function Login() {
             {!sent ? (
               <div style={{ marginTop: 16 }}>
                 <p className="muted" style={{ fontSize: 13 }}>
-                  We’ll text a one-time code to this number.
+                  {t("auth_otp_hint")}
                 </p>
                 <button onClick={sendOtp} disabled={busy || phone.length < 8}>
                   {t("send_otp")}
@@ -124,7 +124,7 @@ export default function Login() {
             <div style={{ marginTop: 12, fontSize: 13 }}>
               <a role="button" tabIndex={0} className="linklike"
                  onClick={() => { setMode("password"); setErr(null); setSent(false); }}>
-                ← Log in with password
+                ← {t("auth_login_password")}
               </a>
             </div>
           </>
@@ -132,7 +132,7 @@ export default function Login() {
       </div>
 
       <div className="card" style={{ textAlign: "center" }}>
-        New here? <Link href="/register"><b>Create an account</b></Link>
+        {t("auth_new_here")} <Link href="/register"><b>{t("auth_create_account")}</b></Link>
       </div>
     </div>
   );

@@ -71,7 +71,7 @@ export default function Onboarding() {
     try {
       const u = await api("/auth/me", { method: "PATCH", body });
       setSession(getToken(), u); // refresh stored session so prompts clear
-      setMsg("Profile submitted. KYC is pending review.");
+      setMsg(t("ob_submitted"));
       setTimeout(() => router.push("/"), 1200);
     } catch (e) {
       setErr(e.message);
@@ -82,72 +82,72 @@ export default function Onboarding() {
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <h1>Complete your profile</h1>
-      <p className="tagline">A few details help us verify you and serve your area.</p>
+      <h1>{t("ob_title")}</h1>
+      <p className="tagline">{t("ob_sub")}</p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
       <div className="card">
-        <label>Name</label>
+        <label>{t("ob_name")}</label>
         <input value={form.name} onChange={(e) => set("name", e.target.value)} />
 
         <div className="form-grid" style={{ marginTop: 8 }}>
-          <label>District<input value={form.district} onChange={(e) => set("district", e.target.value)} /></label>
-          <label>State<input value={form.state} onChange={(e) => set("state", e.target.value)} /></label>
-          <label>PIN code<input value={form.pincode} onChange={(e) => set("pincode", e.target.value)} inputMode="numeric" maxLength={6} /></label>
+          <label>{t("ob_district")}<input value={form.district} onChange={(e) => set("district", e.target.value)} /></label>
+          <label>{t("ob_state")}<input value={form.state} onChange={(e) => set("state", e.target.value)} /></label>
+          <label>{t("ob_pincode")}<input value={form.pincode} onChange={(e) => set("pincode", e.target.value)} inputMode="numeric" maxLength={6} /></label>
         </div>
         <div className="form-grid">
-          <label>Aadhaar (optional)<input value={form.aadhaar} onChange={(e) => set("aadhaar", e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={12} placeholder={me.has_aadhaar ? "•••• on file" : ""} /></label>
-          <label>PAN (optional)<input value={form.pan} onChange={(e) => set("pan", e.target.value.toUpperCase())} maxLength={10} placeholder={me.has_pan ? "•••• on file" : ""} /></label>
+          <label>{t("ob_aadhaar")}<input value={form.aadhaar} onChange={(e) => set("aadhaar", e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={12} placeholder={me.has_aadhaar ? t("ob_on_file") : ""} /></label>
+          <label>{t("ob_pan")}<input value={form.pan} onChange={(e) => set("pan", e.target.value.toUpperCase())} maxLength={10} placeholder={me.has_pan ? t("ob_on_file") : ""} /></label>
         </div>
 
         {isFarmer && (
           <>
-            <label>Village</label>
+            <label>{t("ob_village")}</label>
             <input value={form.village} onChange={(e) => set("village", e.target.value)} />
-            <label>Pickup point (landmark)</label>
+            <label>{t("ob_pickup")}</label>
             <input value={form.pickup_point} onChange={(e) => set("pickup_point", e.target.value)} />
-            <label>Mandal</label>
+            <label>{t("ob_mandal")}</label>
             <select value={form.mandal_id} onChange={(e) => set("mandal_id", e.target.value)}>
               <option value="">—</option>
               {mandals.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
             <div className="form-grid" style={{ marginTop: 8 }}>
-              <label>Farm size (acres)<input value={form.farm_size} onChange={(e) => set("farm_size", e.target.value)} inputMode="decimal" /></label>
-              <label>Experience (years)<input value={form.experience_years} onChange={(e) => set("experience_years", e.target.value)} inputMode="numeric" /></label>
-              <label>Soil type<input value={form.soil_type} onChange={(e) => set("soil_type", e.target.value)} placeholder="e.g. Black cotton" /></label>
-              <label>Irrigation<input value={form.irrigation_type} onChange={(e) => set("irrigation_type", e.target.value)} placeholder="e.g. Canal, Borewell" /></label>
+              <label>{t("ob_farm_size")}<input value={form.farm_size} onChange={(e) => set("farm_size", e.target.value)} inputMode="decimal" /></label>
+              <label>{t("ob_experience")}<input value={form.experience_years} onChange={(e) => set("experience_years", e.target.value)} inputMode="numeric" /></label>
+              <label>{t("ob_soil")}<input value={form.soil_type} onChange={(e) => set("soil_type", e.target.value)} placeholder="e.g. Black cotton" /></label>
+              <label>{t("ob_irrigation")}<input value={form.irrigation_type} onChange={(e) => set("irrigation_type", e.target.value)} placeholder="e.g. Canal, Borewell" /></label>
             </div>
-            <label>Crops grown (comma-separated)</label>
+            <label>{t("ob_crops")}</label>
             <input value={form.crops_grown} onChange={(e) => set("crops_grown", e.target.value)} placeholder="Paddy, Red Chilli, Turmeric" />
           </>
         )}
         {isBuyer && (
           <>
-            <label>Buyer type</label>
+            <label>{t("ob_buyer_type")}</label>
             <select value={form.buyer_type} onChange={(e) => set("buyer_type", e.target.value)}>
-              <option value="household">Household</option>
-              <option value="business">Business (retailer/wholesaler/hotel)</option>
+              <option value="household">{t("ob_household")}</option>
+              <option value="business">{t("ob_business_opt")}</option>
             </select>
           </>
         )}
         {isAgent && (
           <>
-            <label>Expertise / skill level</label>
+            <label>{t("ob_skill")}</label>
             <input value={form.skill_level} onChange={(e) => set("skill_level", e.target.value)}
                    placeholder="e.g. Field Agricultural Advisor" />
-            <label>Languages</label>
+            <label>{t("ob_languages")}</label>
             <input value={form.languages} onChange={(e) => set("languages", e.target.value)} placeholder="te,en" />
           </>
         )}
         {isTransport && (
           <p className="muted" style={{ fontSize: 13 }}>
-            Transport partners are onboarded as couriers by the platform admin (KYC, vehicle classes, service areas).
+            {t("ob_transport_note")}
           </p>
         )}
 
         <div style={{ marginTop: 14 }}>
-          <button onClick={submit}>Submit & request verification</button>
+          <button onClick={submit}>{t("ob_submit")}</button>
         </div>
       </div>
     </div>

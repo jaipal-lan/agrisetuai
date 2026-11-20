@@ -9,13 +9,11 @@ import { useI18n } from "../lib/i18n";
 // Public, role-based sign-up. Steps: verify phone (OTP) -> set password ->
 // choose role -> personal details + address (with GPS auto-fill) -> business
 // details (business buyers only) -> submit -> redirected to login.
+// [value, label-key, description-key] — rendered via t() so they localize.
 const ROLES = [
-  ["farmer", "Farmer — sell & buy", "రైతు — అమ్మకం & కొనుగోలు",
-   "List and sell your produce, and buy inputs/goods too."],
-  ["buyer_household", "Household buyer", "గృహ కొనుగోలుదారు",
-   "Buy fresh produce for your home."],
-  ["buyer_business", "Business buyer", "వ్యాపార కొనుగోలుదారు",
-   "Buy in bulk for a shop, hotel or company (needs business details)."],
+  ["farmer", "role_farmer_opt", "role_farmer_sub"],
+  ["buyer_household", "role_household", "role_household_sub"],
+  ["buyer_business", "role_business", "role_business_sub"],
 ];
 
 export default function Register() {
@@ -82,7 +80,7 @@ export default function Register() {
     try {
       const r = await api("/auth/otp/verify-phone", { method: "POST", body: { phone, code } });
       if (r.exists) {
-        setErr("An account already exists for this number. Please log in instead.");
+        setErr(t("err_acct_exists"));
         return;
       }
       setPhoneToken(r.phone_token);
@@ -92,14 +90,14 @@ export default function Register() {
 
   function nextFromPassword() {
     setErr(null);
-    if (password.length < 6) { setErr("Password must be at least 6 characters."); return; }
-    if (password !== password2) { setErr("Passwords don't match."); return; }
+    if (password.length < 6) { setErr(t("err_pwd_min")); return; }
+    if (password !== password2) { setErr(t("err_pwd_match")); return; }
     setStep(3);
   }
 
   function nextFromDetails() {
     setErr(null);
-    if (!firstName.trim()) { setErr("Please enter your first name."); return; }
+    if (!firstName.trim()) { setErr(t("err_first_name")); return; }
     if (isBusiness) { setStep(5); return; }
     submit(); // stays on step 4 so any error is shown in place
   }
@@ -107,7 +105,7 @@ export default function Register() {
   function useMyLocation() {
     setGeoMsg(null); setErr(null);
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setGeoMsg("Location isn't available on this device.");
+      setGeoMsg(t("geo_unavailable"));
       return;
     }
     setLocating(true);
@@ -119,9 +117,9 @@ export default function Register() {
           const n = await api(`/locations/nearest?lat=${latitude}&lng=${longitude}`);
           if (n?.mandal_id) {
             setMandalId(String(n.mandal_id));
-            setGeoMsg(`Detected: ${n.name}${n.serviceable ? "" : " (not yet serviced)"} · ~${n.distance_km} km away`);
+            setGeoMsg(`${t("geo_detected")} ${n.name}${n.serviceable ? "" : " " + t("geo_not_serviced")} · ~${n.distance_km} ${t("geo_km_away")}`);
           }
-        } catch { setGeoMsg("Location captured."); }
+        } catch { setGeoMsg(t("geo_captured")); }
         // Best-effort street address prefill (OpenStreetMap, free).
         try {
           const res = await fetch(
@@ -133,7 +131,7 @@ export default function Register() {
         } catch {}
         setLocating(false);
       },
-      () => { setGeoMsg("Couldn't get your location. You can pick your area manually."); setLocating(false); },
+      () => { setGeoMsg(t("geo_failed")); setLocating(false); },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   }
@@ -169,20 +167,20 @@ export default function Register() {
 
   function submitBusiness() {
     setErr(null);
-    if (!bizName.trim()) { setErr("Please enter your business name."); return; }
-    if (evidence.length === 0) { setErr("Attach your registration document or organisation PAN."); return; }
+    if (!bizName.trim()) { setErr(t("err_biz_name")); return; }
+    if (evidence.length === 0) { setErr(t("err_biz_evidence")); return; }
     submit();
   }
 
   const Progress = () => (
     <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
-      Step {Math.min(step, lastStep)} of {lastStep}
+      {t("auth_step")} {Math.min(step, lastStep)} {t("word_of")} {lastStep}
     </div>
   );
 
   return (
     <div style={{ maxWidth: 460, margin: "0 auto" }}>
-      <h1>Create your account</h1>
+      <h1>{t("auth_create_your_account")}</h1>
       <p className="tagline">{t("tagline")}</p>
       {err && <div className="error">{err}</div>}
 
@@ -212,7 +210,7 @@ export default function Register() {
             </>
           )}
           <div style={{ marginTop: 14, fontSize: 13 }}>
-            Already have an account? <Link href="/login"><b>Log in</b></Link>
+            {t("auth_have_account")} <Link href="/login"><b>{t("login")}</b></Link>
           </div>
         </div>
       )}
@@ -221,15 +219,15 @@ export default function Register() {
       {step === 2 && (
         <div className="card">
           <Progress />
-          <p className="muted" style={{ fontSize: 13 }}>Phone verified ✓ Now set a password.</p>
-          <label>Password (min 6 characters)</label>
+          <p className="muted" style={{ fontSize: 13 }}>{t("auth_phone_verified_pwd")}</p>
+          <label>{t("auth_password_min")}</label>
           <input type="password" value={password} autoComplete="new-password"
                  onChange={(e) => setPassword(e.target.value)} />
-          <label>Confirm password</label>
+          <label>{t("auth_confirm_password")}</label>
           <input type="password" value={password2} autoComplete="new-password"
                  onChange={(e) => setPassword2(e.target.value)} />
           <div className="row" style={{ marginTop: 14 }}>
-            <button onClick={nextFromPassword} disabled={!password || !password2}>Continue</button>
+            <button onClick={nextFromPassword} disabled={!password || !password2}>{t("auth_continue")}</button>
           </div>
         </div>
       )}
@@ -238,9 +236,9 @@ export default function Register() {
       {step === 3 && (
         <div className="card">
           <Progress />
-          <label>I am a…</label>
+          <label>{t("auth_i_am")}</label>
           <div style={{ display: "grid", gap: 10, marginTop: 6 }}>
-            {ROLES.map(([v, en, te, desc]) => (
+            {ROLES.map(([v, labelKey, descKey]) => (
               <label key={v}
                      className="role-opt"
                      style={{
@@ -248,17 +246,17 @@ export default function Register() {
                        border: `2px solid ${role === v ? "var(--green-600, #16a34a)" : "var(--line, #ddd)"}`,
                      }}>
                 <div className="between">
-                  <b>{lang === "te" ? te : en}</b>
+                  <b>{t(labelKey)}</b>
                   <input type="radio" name="role" checked={role === v}
                          onChange={() => setRole(v)} />
                 </div>
-                <div className="muted" style={{ fontSize: 13 }}>{desc}</div>
+                <div className="muted" style={{ fontSize: 13 }}>{t(descKey)}</div>
               </label>
             ))}
           </div>
           <div className="row" style={{ marginTop: 14 }}>
             <button className="ghost" onClick={() => setStep(2)}>←</button>
-            <button onClick={() => setStep(4)}>Continue</button>
+            <button onClick={() => setStep(4)}>{t("auth_continue")}</button>
           </div>
         </div>
       )}
@@ -268,19 +266,19 @@ export default function Register() {
         <div className="card">
           <Progress />
           <div className="form-grid">
-            <label>First name*
+            <label>{t("auth_first_name")}*
               <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
             </label>
-            <label>Last name
+            <label>{t("auth_last_name")}
               <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
             </label>
-            <label style={{ gridColumn: "1 / -1" }}>Email (optional)
+            <label style={{ gridColumn: "1 / -1" }}>{t("auth_email_opt")}
               <input type="email" value={email} autoComplete="email"
                      onChange={(e) => setEmail(e.target.value)} />
             </label>
           </div>
 
-          <h3 style={{ marginBottom: 4 }}>Your address</h3>
+          <h3 style={{ marginBottom: 4 }}>{t("auth_your_address")}</h3>
           <AddressPicker
             autoLocate
             showServiceability={false}
@@ -295,7 +293,7 @@ export default function Register() {
           <div className="row" style={{ marginTop: 14 }}>
             <button className="ghost" onClick={() => setStep(3)}>←</button>
             <button onClick={nextFromDetails} disabled={busy}>
-              {isBusiness ? "Continue" : (busy ? "Creating…" : "Create account")}
+              {isBusiness ? t("auth_continue") : (busy ? t("auth_creating") : t("auth_create_account_btn"))}
             </button>
           </div>
         </div>
@@ -306,25 +304,24 @@ export default function Register() {
         <div className="card">
           <Progress />
           <p className="muted" style={{ fontSize: 13 }}>
-            Business buyers are verified before trading. Add your business details and
-            attach a registration document or your organisation PAN.
+            {t("auth_biz_intro")}
           </p>
           <div className="form-grid">
-            <label style={{ gridColumn: "1 / -1" }}>Business / organisation name*
+            <label style={{ gridColumn: "1 / -1" }}>{t("auth_biz_name")}*
               <input value={bizName} onChange={(e) => setBizName(e.target.value)} />
             </label>
-            <label>Registration no.
+            <label>{t("auth_reg_no")}
               <input value={bizReg} onChange={(e) => setBizReg(e.target.value)} />
             </label>
-            <label>GSTIN (optional)
+            <label>{t("auth_gstin")}
               <input value={bizGst} onChange={(e) => setBizGst(e.target.value.toUpperCase())} maxLength={15} />
             </label>
-            <label style={{ gridColumn: "1 / -1" }}>Business address
+            <label style={{ gridColumn: "1 / -1" }}>{t("auth_biz_address")}
               <input value={bizAddr} onChange={(e) => setBizAddr(e.target.value)} />
             </label>
           </div>
           <label style={{ display: "block", marginTop: 10 }}>
-            Evidence (registration doc / org PAN)* — PDF or image
+            {t("auth_evidence_label")}
             <input type="file" accept="image/*,application/pdf" multiple
                    onChange={(e) => setEvidence(Array.from(e.target.files || []))} />
           </label>
@@ -336,7 +333,7 @@ export default function Register() {
           <div className="row" style={{ marginTop: 14 }}>
             <button className="ghost" onClick={() => setStep(4)}>←</button>
             <button onClick={submitBusiness} disabled={busy}>
-              {busy ? "Creating…" : "Create account"}
+              {busy ? t("auth_creating") : t("auth_create_account_btn")}
             </button>
           </div>
         </div>

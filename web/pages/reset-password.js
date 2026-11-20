@@ -36,7 +36,7 @@ export default function ResetPassword() {
     try {
       const r = await api("/auth/otp/verify-phone", { method: "POST", body: { phone, code } });
       if (!r.exists) {
-        setErr("No account found for this number. Please register instead.");
+        setErr(t("err_no_account"));
         return;
       }
       setPhoneToken(r.phone_token);
@@ -46,8 +46,8 @@ export default function ResetPassword() {
 
   async function reset() {
     setErr(null);
-    if (password.length < 6) { setErr("Password must be at least 6 characters."); return; }
-    if (password !== password2) { setErr("Passwords don't match."); return; }
+    if (password.length < 6) { setErr(t("err_pwd_min")); return; }
+    if (password !== password2) { setErr(t("err_pwd_match")); return; }
     setBusy(true);
     try {
       await api("/auth/password/reset", { method: "POST", body: { phone_token: phoneToken, new_password: password } });
@@ -57,7 +57,7 @@ export default function ResetPassword() {
 
   return (
     <div style={{ maxWidth: 420, margin: "0 auto" }}>
-      <h1>Reset password</h1>
+      <h1>{t("auth_reset_title")}</h1>
       {err && <div className="error">{err}</div>}
 
       {step === 1 ? (
@@ -81,21 +81,21 @@ export default function ResetPassword() {
             </>
           )}
           <div style={{ marginTop: 14, fontSize: 13 }}>
-            <Link href="/login">← Back to login</Link>
+            <Link href="/login">{t("auth_back_login")}</Link>
           </div>
         </div>
       ) : (
         <div className="card">
-          <p className="muted" style={{ fontSize: 13 }}>Phone verified ✓ Choose a new password.</p>
-          <label>New password (min 6 characters)</label>
+          <p className="muted" style={{ fontSize: 13 }}>{t("auth_phone_verified_new")}</p>
+          <label>{t("auth_new_password_min")}</label>
           <input type="password" value={password} autoComplete="new-password"
                  onChange={(e) => setPassword(e.target.value)} />
-          <label>Confirm new password</label>
+          <label>{t("auth_confirm_new")}</label>
           <input type="password" value={password2} autoComplete="new-password"
                  onChange={(e) => setPassword2(e.target.value)} />
           <div className="row" style={{ marginTop: 14 }}>
             <button onClick={reset} disabled={busy || !password || !password2}>
-              {busy ? "Saving…" : "Set new password"}
+              {busy ? t("auth_saving") : t("auth_set_new_password")}
             </button>
           </div>
         </div>
