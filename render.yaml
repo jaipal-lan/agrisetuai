@@ -42,3 +42,8 @@ services:
         value: "48"
       - key: SCHEDULER_INTERVAL_SECONDS
         value: "3600"
+      - key: CRON_TOKEN
+        sync: false             # set the SAME secret here and in the GitHub Actions
+                                # secret CRON_TOKEN, so the free pinger can refresh
+                                # prices + keep the free instance awake (see
+                                # .github/workflows/cron.yml and MARKET_PRICES_SETUP.md)

@@ -187,8 +187,14 @@ async def _loop(interval: int) -> None:
             db.close()
 
     log.info("digest scheduler started (every %ss)", interval)
+    # Run shortly after boot, THEN on the interval. On a free tier that sleeps
+    # when idle, the long-interval timer rarely survives to fire; running on each
+    # cold start (and throttling the actual price fetch via prices_refresh_hours)
+    # means prices refresh whenever the service wakes, without over-fetching.
+    first = True
     while True:
-        await asyncio.sleep(interval)
+        await asyncio.sleep(15 if first else interval)
+        first = False
         try:
             result = await asyncio.to_thread(_once)
             if any((result["digests_sent"], result["prices_refreshed"],

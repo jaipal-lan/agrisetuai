@@ -137,6 +137,12 @@ class Settings(BaseSettings):
     courier_speed_kmph: float = 25.0
     courier_nearby_km: float = 2.0
 
+    # External cron: a shared secret that lets a free off-box pinger
+    # (GitHub Actions / cron-job.org / UptimeRobot) call GET/POST /api/cron/run
+    # to run the scheduled jobs (refresh prices, digests, reminders) AND keep a
+    # sleep-when-idle free host awake. Empty = the endpoint is disabled.
+    cron_token: str = ""
+
     # Background scheduler (sandboxed): compiles daily digests and raises due
     # follow-up reminders on a timer. 0 disables the in-process loop (the default,
     # so tests and plain dev runs are unaffected); set >0 seconds to enable it.

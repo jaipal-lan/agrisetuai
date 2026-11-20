@@ -8,6 +8,7 @@ from app.api import (
     barcode,
     carriers,
     catalog,
+    cron,
     dashboard,
     listings,
     locations,
@@ -60,7 +61,7 @@ API = "/api"
 for module in (
     auth, locations, catalog, listings, rfqs, offers, orders, agents,
     pricing, admin, prices, lots, media, support, logistics,
-    carriers, transport, reviews, payments, dashboard, team, barcode,
+    carriers, transport, reviews, payments, dashboard, team, barcode, cron,
 ):
     app.include_router(module.router, prefix=API)
 

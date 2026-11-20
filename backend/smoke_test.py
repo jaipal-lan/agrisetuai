@@ -1741,6 +1741,20 @@ def run():
         _wa.send_text = _orig
         _st.whatsapp_enabled, _st.gupshup_api_key, _st.gupshup_source = False, "", ""
 
+    print("\n== External cron endpoint (gated) ==")
+    check("cron endpoint disabled without a token (404)",
+          client.get("/api/cron/run").status_code == 404)
+    from app.core.config import settings as _st2
+    _st2.cron_token = "secret123"
+    try:
+        check("cron rejects a wrong token (403)",
+              client.get("/api/cron/run?token=nope").status_code == 403)
+        r = client.get("/api/cron/run?token=secret123")
+        check("cron runs scheduled jobs with the right token",
+              r.status_code == 200 and "prices_refreshed" in r.json())
+    finally:
+        _st2.cron_token = ""
+
     print(f"\n==== {_checks['pass']} passed, {_checks['fail']} failed ====")
     return _checks["fail"] == 0
 

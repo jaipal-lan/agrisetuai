@@ -1,0 +1,26 @@
+name: Keep-awake + refresh market prices
+
+# Pings the backend's cron endpoint on a schedule. This both wakes the
+# sleep-when-idle free instance and runs the scheduled jobs (market-price
+# refresh — throttled by PRICES_REFRESH_HOURS — plus digests and reminders).
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   BACKEND_URL  e.g. https://agrisetuai-backend.onrender.com
+#   CRON_TOKEN   the SAME value set as CRON_TOKEN on the backend (Render env)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes (UTC)
+  workflow_dispatch: {}       # allow a manual run from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scheduled jobs
+        run: |
+          code=$(curl -s -o /tmp/out -w "%{http_code}" --max-time 60 \
+            "${{ secrets.BACKEND_URL }}/api/cron/run?token=${{ secrets.CRON_TOKEN }}")
+          echo "HTTP $code"; cat /tmp/out || true
+          # A cold start can exceed the timeout; treat only clear failures as errors.
+          if [ "$code" != "200" ] && [ "$code" != "000" ]; then exit 1; fi
