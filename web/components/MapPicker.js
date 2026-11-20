@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useI18n } from "../lib/i18n";
+
 // Draggable map pin (Leaflet + OpenStreetMap tiles). Reports {lat, lng} on drag,
 // click, or "use my location". Leaflet is loaded from cdnjs on demand.
 const LEAFLET_CSS = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
@@ -28,6 +30,7 @@ function ensureLeaflet() {
 }
 
 export default function MapPicker({ value, onChange, height = 240 }) {
+  const { t } = useI18n();
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -67,7 +70,7 @@ export default function MapPicker({ value, onChange, height = 240 }) {
   }, []);
 
   function useMyLocation() {
-    if (!navigator.geolocation) { setErr("Location unavailable"); return; }
+    if (!navigator.geolocation) { setErr(t("geo_unavailable")); return; }
     navigator.geolocation.getCurrentPosition((p) => {
       const ll = { lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6) };
       if (mapRef.current && markerRef.current) {
@@ -75,14 +78,14 @@ export default function MapPicker({ value, onChange, height = 240 }) {
         mapRef.current.setView([ll.lat, ll.lng], 15);
       }
       onChange?.(ll);
-    }, () => setErr("Couldn't get your location"), { enableHighAccuracy: true, timeout: 8000 });
+    }, () => setErr(t("ap_geo_fail")), { enableHighAccuracy: true, timeout: 8000 });
   }
 
   return (
     <div>
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
-        <button type="button" className="ghost" style={{ fontSize: 12 }} onClick={useMyLocation}>📍 Use my location</button>
-        {value?.lat ? <span className="muted" style={{ fontSize: 12 }}>{value.lat}, {value.lng}</span> : <span className="muted" style={{ fontSize: 12 }}>Tap the map to drop a pin</span>}
+        <button type="button" className="ghost" style={{ fontSize: 12 }} onClick={useMyLocation}>{t("ap_use_location")}</button>
+        {value?.lat ? <span className="muted" style={{ fontSize: 12 }}>{value.lat}, {value.lng}</span> : <span className="muted" style={{ fontSize: 12 }}>{t("mp_tap")}</span>}
       </div>
       <div ref={divRef} style={{ height, borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }} />
       {err && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}

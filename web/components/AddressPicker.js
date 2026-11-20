@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 // Zepto/Rapido-style address picker (Leaflet + OpenStreetMap, no API key):
 //  - a map with a FIXED centre pin; the map moves under the pin
@@ -50,6 +51,8 @@ const LABELS = ["Home", "Work", "Other"];
 
 export default function AddressPicker({ value, onChange, autoLocate = false, height = 240,
   showServiceability = true }) {
+  const { t } = useI18n();
+  const LABEL_DISP = { Home: t("ap_home"), Work: t("ap_work"), Other: t("ap_other") };
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const roRef = useRef(null);
@@ -167,12 +170,12 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
   function useMyLocation() {
     setErr(null);
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setErr("Location isn't available on this device."); return;
+      setErr(t("geo_unavailable")); return;
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (p) => { setLocating(false); recenter(+p.coords.latitude.toFixed(6), +p.coords.longitude.toFixed(6)); },
-      () => { setLocating(false); setErr("Couldn't get your location — move the map pin instead."); },
+      () => { setLocating(false); setErr(t("ap_geo_fail")); },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   }
@@ -205,7 +208,7 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
       {/* search */}
       <div style={{ position: "relative", marginBottom: 8 }}>
         <input value={q} onChange={(e) => onSearch(e.target.value)}
-               placeholder="🔍 Search area, street, landmark…" style={{ width: "100%" }} />
+               placeholder={t("ap_search_ph")} style={{ width: "100%" }} />
         {sugs.length > 0 && (
           <div style={{
             position: "absolute", zIndex: 1000, left: 0, right: 0, background: "var(--card, #fff)",
@@ -236,31 +239,31 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
             position: "absolute", right: 10, bottom: 10, zIndex: 600, fontSize: 12,
             background: "var(--card, #fff)", boxShadow: "0 2px 8px rgba(0,0,0,.18)",
           }}>
-          {locating ? "Locating…" : "📍 Use current location"}
+          {locating ? t("ap_locating") : t("ap_use_location")}
         </button>
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-        Move the map to place the pin on your exact door.
+        {t("ap_move_pin")}
       </div>
 
       {/* serviceability banner — only where delivery availability matters
           (checkout). At sign-up/profile we just capture the address. */}
-      {showServiceability && resolving && <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>Finding your area…</div>}
+      {showServiceability && resolving && <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>{t("ap_finding")}</div>}
       {showServiceability && !resolving && status && (
         status.within ? (
           <div style={{
             marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 13,
             background: "rgba(22,163,74,.10)", border: "1px solid rgba(22,163,74,.35)", color: "var(--green-700, #15803d)",
-          }}>✅ We deliver here — <b>{status.mandal}</b></div>
+          }}>{t("ap_deliver_here")} <b>{status.mandal}</b></div>
         ) : (
           <div style={{
             marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 13,
             background: "rgba(217,119,6,.10)", border: "1px solid rgba(217,119,6,.35)", color: "#b45309",
           }}>
-            ⚠️ We don’t deliver here yet.
+            {t("ap_no_deliver")}
             {status.nearest
-              ? <> Nearest serviced area: <b>{status.nearest.name}</b> (~{status.nearest.distance_km} km).</>
-              : <> No serviced area nearby.</>}
+              ? <> {t("ap_nearest")} <b>{status.nearest.name}</b> (~{status.nearest.distance_km} {t("ap_km")}).</>
+              : <> {t("ap_no_nearby")}</>}
           </div>
         )
       )}
@@ -268,31 +271,31 @@ export default function AddressPicker({ value, onChange, autoLocate = false, hei
 
       {/* fields */}
       <div className="form-grid" style={{ marginTop: 10 }}>
-        <label style={{ gridColumn: "1 / -1" }}>Flat / House no. / Floor
+        <label style={{ gridColumn: "1 / -1" }}>{t("ap_flat")}
           <input value={house} onChange={(e) => setHouse(e.target.value)}
-                 placeholder="e.g. Flat 302, Sai Residency" />
+                 placeholder={t("ap_flat_ph")} />
         </label>
-        <label style={{ gridColumn: "1 / -1" }}>Area / Street / Landmark
+        <label style={{ gridColumn: "1 / -1" }}>{t("ap_area_street")}
           <input value={area}
                  onChange={(e) => { editedArea.current = true; setArea(e.target.value); emit({ area: e.target.value }); }}
-                 placeholder="Auto-filled from the map — edit if needed" />
+                 placeholder={t("ap_area_ph")} />
         </label>
       </div>
 
       {/* label chips */}
       <div style={{ marginTop: 8 }}>
-        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Save address as</div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{t("ap_save_as")}</div>
         <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
           {LABELS.map((l) => (
             <button type="button" key={l} onClick={() => setLabel(l)}
               className={label === l ? "" : "ghost"} style={{ fontSize: 13, padding: "4px 12px" }}>
-              {l === "Home" ? "🏠 " : l === "Work" ? "💼 " : "📍 "}{l}
+              {l === "Home" ? "🏠 " : l === "Work" ? "💼 " : "📍 "}{LABEL_DISP[l] || l}
             </button>
           ))}
         </div>
         {label === "Other" && (
           <input value={customLabel} onChange={(e) => setCustomLabel(e.target.value)}
-                 placeholder="Name this address (e.g. Mom's place)" style={{ marginTop: 6, width: "100%" }} />
+                 placeholder={t("ap_name_ph")} style={{ marginTop: 6, width: "100%" }} />
         )}
       </div>
     </div>

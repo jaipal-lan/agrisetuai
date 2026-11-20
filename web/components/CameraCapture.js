@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useI18n } from "../lib/i18n";
+
 // "Take photo" that uses the live webcam when possible (HTTPS or localhost),
 // and otherwise falls back to a capture-enabled file input (phone camera on
 // mobile, file picker on desktop over plain HTTP). Calls onCapture(File).
-export default function CameraCapture({ onCapture, label = "📷 Take photo", className = "btn ghost" }) {
+export default function CameraCapture({ onCapture, label, className = "btn ghost" }) {
+  const { t } = useI18n();
   const [cam, setCam] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -40,7 +43,7 @@ export default function CameraCapture({ onCapture, label = "📷 Take photo", cl
       setCam(true);
       setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 50);
     } catch {
-      setErr("Couldn't open the camera — use “+ Images” to upload instead.");
+      setErr(t("cc_cam_fail"));
       fallbackRef.current?.click();
     }
   }
@@ -76,15 +79,14 @@ export default function CameraCapture({ onCapture, label = "📷 Take photo", cl
   return (
     <>
       <button type="button" className={className} onClick={open} disabled={busy} style={{ cursor: "pointer" }}>
-        {label}
+        {label || t("sl_take_photo")}
       </button>
       <input ref={fallbackRef} type="file" accept="image/*" capture="environment"
              style={{ display: "none" }} onChange={onFile} />
       {err && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}
       {insecure && !err && (
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-          Live camera needs a secure (https://) page — opens a file chooser here. Open the
-          app over <b>https</b> (the deployed link, or <code>npm run dev:https</code>) to shoot a photo directly.
+          {t("cc_insecure")}
         </div>
       )}
       {cam && (
@@ -95,8 +97,8 @@ export default function CameraCapture({ onCapture, label = "📷 Take photo", cl
           <video ref={videoRef} playsInline muted onClick={(e) => e.stopPropagation()}
                  style={{ maxWidth: "92vw", maxHeight: "70vh", borderRadius: 10, background: "#000" }} />
           <div className="row" style={{ gap: 10 }} onClick={(e) => e.stopPropagation()}>
-            <button onClick={snap} disabled={busy}>📸 Capture</button>
-            <button className="ghost" onClick={stopCam} style={{ color: "#fff", borderColor: "#fff" }}>Cancel</button>
+            <button onClick={snap} disabled={busy}>{t("cc_capture")}</button>
+            <button className="ghost" onClick={stopCam} style={{ color: "#fff", borderColor: "#fff" }}>{t("pf_cancel")}</button>
           </div>
         </div>
       )}

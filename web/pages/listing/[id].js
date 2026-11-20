@@ -85,15 +85,15 @@ export default function ListingDetail() {
   return (
     <div style={{ maxWidth: 560 }}>
       <button className="ghost" onClick={() => router.push("/")}>← {t("marketplace")}</button>
-      <h1 style={{ marginTop: 16 }}>{cname || "Listing"}</h1>
+      <h1 style={{ marginTop: 16 }}>{cname || t("ls_listing")}</h1>
       <div className="row" style={{ marginBottom: 12 }}>
-        <span className="badge">{listing.status.replace(/_/g, " ")}</span>
+        <span className="badge">{t("lst_" + listing.status) || listing.status.replace(/_/g, " ")}</span>
         <span className={`badge ${listing.is_organic ? "" : "grey"}`}>
-          {listing.is_organic ? "organic" : listing.claim_status}
+          {listing.is_organic ? t("sl_organic_tag") : t("pr_non_organic")}
         </span>
-        {commodity && <span className="badge grey">{commodity.category}</span>}
-        {listing.agent_verified && <span className="badge">✓ agent verified</span>}
-        {listing.out_of_stock && <span className="badge amber">out of stock</span>}
+        {commodity && <span className="badge grey">{t("cat_" + commodity.category)}</span>}
+        {listing.agent_verified && <span className="badge">{t("ls_agent_verified")}</span>}
+        {listing.out_of_stock && <span className="badge amber">{t("out_of_stock")}</span>}
       </div>
 
       {listing.media && listing.media.length > 0 && (
@@ -113,11 +113,11 @@ export default function ListingDetail() {
         <div className="muted" style={{ fontSize: 14, marginTop: 8 }}>
           {listing.place?.label && <>📍 {listing.place.label} · </>}
           {listing.variety ? `${listing.variety} · ` : ""}
-          Harvest {listing.harvest_year || "—"} · Min order {listing.min_order_qty} {listing.unit}
+          {t("ls_harvest")} {listing.harvest_year || "—"} · {t("ls_min_order")} {listing.min_order_qty} {listing.unit}
         </div>
         {listing.seller_rating != null && (
           <div style={{ fontSize: 14, marginTop: 6 }}>
-            Seller rating: <b style={{ color: "#f59e0b" }}>★ {listing.seller_rating}</b>
+            {t("ls_seller_rating")} <b style={{ color: "#f59e0b" }}>★ {listing.seller_rating}</b>
             <span className="muted"> ({listing.seller_rating_count})</span>
           </div>
         )}
@@ -129,11 +129,11 @@ export default function ListingDetail() {
       {/* Specifications (farmer-declared + grade spec) */}
       {(listing.specifications || (listing.grade && listing.grade.attributes)) && (
         <div className="card" style={{ marginTop: 14 }}>
-          <h3 style={{ fontSize: 16 }}>Specifications</h3>
+          <h3 style={{ fontSize: 16 }}>{t("ls_specifications")}</h3>
           <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-            <span className="pill-tag">{listing.is_organic ? "Organic" : "Non-organic"}</span>
-            {listing.grade && <span className="pill-tag">Grade: {listing.grade.label}</span>}
-            {listing.variety && <span className="pill-tag">Variety: {listing.variety}</span>}
+            <span className="pill-tag">{listing.is_organic ? t("ls_organic_pill") : t("ls_non_organic_pill")}</span>
+            {listing.grade && <span className="pill-tag">{t("ls_grade")} {listing.grade.label}</span>}
+            {listing.variety && <span className="pill-tag">{t("ls_variety")} {listing.variety}</span>}
           </div>
           {listing.specifications && <div style={{ fontSize: 14 }}>{listing.specifications}</div>}
           {listing.grade && listing.grade.attributes && (
@@ -152,8 +152,8 @@ export default function ListingDetail() {
       {listing.agent_verified && (
         <div className="card" style={{ marginTop: 14, borderLeft: "4px solid var(--green-600)" }}>
           <div className="between">
-            <b>✓ Agent verified</b>
-            {listing.verified_by_name && <span className="muted" style={{ fontSize: 13 }}>by {listing.verified_by_name}</span>}
+            <b>{t("ls_agent_verified_card")}</b>
+            {listing.verified_by_name && <span className="muted" style={{ fontSize: 13 }}>{t("ls_by")} {listing.verified_by_name}</span>}
           </div>
           {listing.verification_note && (
             <div style={{ fontSize: 14, marginTop: 6 }}>“{listing.verification_note}”</div>
@@ -168,14 +168,14 @@ export default function ListingDetail() {
 
       {listing.out_of_stock ? (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="badge grey">Out of stock</div>
-          <p className="muted" style={{ marginTop: 8 }}>This lot is sold out. See other farmers offering this product.</p>
+          <div className="badge grey">{t("out_of_stock")}</div>
+          <p className="muted" style={{ marginTop: 8 }}>{t("ls_sold_out_msg")}</p>
           <button className="ghost" onClick={() => router.push(`/product/${listing.commodity_id}`)}>
-            Other offerings
+            {t("ls_other_offerings")}
           </button>
         </div>
       ) : isOwner ? (
-        <div className="ok" style={{ marginTop: 16 }}>This is your listing. Manage it under {t("sell")}.</div>
+        <div className="ok" style={{ marginTop: 16 }}>{t("ls_your_listing")} {t("sell")}.</div>
       ) : isBuyer ? (
         <div className="card" style={{ marginTop: 16 }}>
           {/* One-tap purchase at the asking price (simple path for households) */}
@@ -186,7 +186,7 @@ export default function ListingDetail() {
             </div>
             <div className="price">₹{listing.asking_price}<small> /{listing.unit || "kg"}</small></div>
           </div>
-          <label>{t("quantity")} ({listing.unit}) · min {listing.min_order_qty}</label>
+          <label>{t("quantity")} ({listing.unit}) · {t("pr_min")} {listing.min_order_qty}</label>
           <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal"
                  placeholder={String(listing.min_order_qty)} />
           <div style={{ marginTop: 12 }}>
@@ -217,7 +217,7 @@ export default function ListingDetail() {
         </div>
       ) : (
         <div className="card" style={{ marginTop: 16 }}>
-          <p className="muted">Log in as a buyer to negotiate.</p>
+          <p className="muted">{t("ls_login_buyer")}</p>
           <button onClick={() => router.push("/login")}>{t("login")}</button>
         </div>
       )}

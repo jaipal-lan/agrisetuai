@@ -97,15 +97,15 @@ export default function ProductOfferings() {
       <button className="ghost" onClick={() => router.push("/")}>← {t("marketplace")}</button>
       <h1 style={{ marginTop: 12 }}>{title}</h1>
       <p className="tagline">
-        {data.offering_count} farmer offering{data.offering_count === 1 ? "" : "s"}
-        {data.places.length > 0 && <> · from {data.places.join(", ")}</>}
-        {" "}· minimum order {data.min_order_qty} kg
+        {data.offering_count} {data.offering_count === 1 ? t("pr_offering") : t("pr_offerings")}
+        {data.places.length > 0 && <> · {t("pr_from")} {data.places.join(", ")}</>}
+        {" "}· {t("pr_min_order")} {data.min_order_qty} kg
       </p>
       {data.seller_rating != null && (
         <div className="trust-line">
           <span className="rating-star">★</span> <b>{data.seller_rating}</b>
           <span className="muted">
-            {" "}· {t("rated_by")} {data.seller_rating_count} buyer{data.seller_rating_count === 1 ? "" : "s"}
+            {" "}· {t("rated_by")} {data.seller_rating_count} {data.seller_rating_count === 1 ? t("pr_buyer") : t("pr_buyers")}
             {data.offering_count > 1 ? ` ${t("across_sellers")}` : ""}
           </span>
         </div>
@@ -132,7 +132,7 @@ export default function ProductOfferings() {
               )}
               <div className="between">
                 <h3 style={{ fontSize: 16 }}>{o.place?.label || "—"}</h3>
-                {o.agent_verified && <span className="badge">✓ verified</span>}
+                {o.agent_verified && <span className="badge">{t("sl_verified_tag")}</span>}
               </div>
               <div style={{ fontSize: 13, marginTop: 2 }}>
                 {o.seller_rating != null ? (
@@ -151,10 +151,10 @@ export default function ProductOfferings() {
                 <SellerReviews sellerId={o.seller.id} count={o.seller_rating_count} t={t} />
               )}
               <div className="muted" style={{ fontSize: 13 }}>
-                {o.variety ? `${o.variety} · ` : ""}{o.is_organic ? "organic" : "non-organic"}
-                {o.quality_grade ? ` · Grade ${o.quality_grade}` : ""}
-                {o.defect_pct != null ? ` · ${o.defect_pct}% defects` : ""}
-                {o.harvest_year ? ` · HY ${o.harvest_year}` : ""}
+                {o.variety ? `${o.variety} · ` : ""}{o.is_organic ? t("sl_organic_tag") : t("pr_non_organic")}
+                {o.quality_grade ? ` · ${t("sl_grade_short")} ${o.quality_grade}` : ""}
+                {o.defect_pct != null ? ` · ${o.defect_pct}% ${t("sl_defects_suffix")}` : ""}
+                {o.harvest_year ? ` · ${t("pr_hy")} ${o.harvest_year}` : ""}
               </div>
               {o.defect_notes && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>⚠ {o.defect_notes}</div>}
               {o.video && (
@@ -167,14 +167,14 @@ export default function ProductOfferings() {
               {o.specifications && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{o.specifications}</div>}
               <div className="price" style={{ marginTop: 8 }}>₹{o.asking_price}<small> /{o.unit || "kg"}</small></div>
               {o.out_of_stock ? (
-                <div className="badge grey" style={{ marginTop: 10 }}>Out of stock</div>
+                <div className="badge grey" style={{ marginTop: 10 }}>{t("out_of_stock")}</div>
               ) : (
                 <>
                   <div className="muted" style={{ fontSize: 14, marginTop: 6 }}>
-                    {t("available")}: {o.available_qty} {o.unit} · min {o.min_order_qty}
+                    {t("available")}: {o.available_qty} {o.unit} · {t("pr_min")} {o.min_order_qty}
                   </div>
                   <div style={{ marginTop: 12 }}>
-                    <Link href={`/listing/${o.id}`} className="btn">View & offer</Link>
+                    <Link href={`/listing/${o.id}`} className="btn">{t("pr_view_offer")}</Link>
                   </div>
                 </>
               )}

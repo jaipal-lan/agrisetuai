@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { mediaUrl } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 // Thumbnail strip + full-screen lightbox. Click a thumb to open; arrow keys /
 // on-screen buttons move prev/next; click an image to zoom; videos play inline.
 // `items`: [{ object_key, media_type }]. `video`: optional single video object_key.
 export default function MediaGallery({ items = [], video = null, videoId = null, thumb = 64, onRemove = null }) {
+  const { t } = useI18n();
   // Build a flat list of {id, type:'image'|'video', src}.
   const media = [
     ...items.map((m) => ({
@@ -40,7 +42,7 @@ export default function MediaGallery({ items = [], video = null, videoId = null,
       <div className="row" style={{ gap: 6, margin: "10px 0", flexWrap: "nowrap", overflowX: "auto" }}>
         {media.map((m, i) => (
           <div key={i} style={{ position: "relative", flex: "0 0 auto" }}>
-            <div onClick={() => setOpen(i)} title="Click to view" style={{ cursor: "pointer" }}>
+            <div onClick={() => setOpen(i)} title={t("mg_view")} style={{ cursor: "pointer" }}>
               {m.type === "video" ? (
                 <div style={{
                   width: thumb, height: thumb * 0.78, borderRadius: 6, background: "#111",
@@ -52,8 +54,8 @@ export default function MediaGallery({ items = [], video = null, videoId = null,
               )}
             </div>
             {onRemove && m.id != null && (
-              <button type="button" title="Remove"
-                onClick={(e) => { e.stopPropagation(); if (confirm("Remove this file?")) onRemove(m); }}
+              <button type="button" title={t("pf_remove")}
+                onClick={(e) => { e.stopPropagation(); if (confirm(t("mg_remove"))) onRemove(m); }}
                 style={{
                   position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
                   border: "none", background: "#dc2626", color: "#fff", fontSize: 12, lineHeight: "20px",
