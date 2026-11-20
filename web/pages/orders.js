@@ -56,14 +56,14 @@ export default function Orders() {
       ) : orders.length === 0 ? (
         <div className="empty">
           <span className="emoji">📦</span>
-          <p>No orders yet. Orders appear here once an offer is accepted.</p>
-          {isBuyer && <Link href="/" className="btn">Browse the market</Link>}
+          <p>{t("orders_empty")}</p>
+          {isBuyer && <Link href="/" className="btn">{t("browse_market")}</Link>}
         </div>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Order</th>
+              <th>{t("col_order")}</th>
               <th>{t("price")}</th>
               <th>{t("quantity")}</th>
               <th>{t("status")}</th>
@@ -76,12 +76,12 @@ export default function Orders() {
                 <td><Link href={`/order/${o.id}`}>{o.public_id}</Link></td>
                 <td>₹{o.accepted_terms.price_per_unit}/kg</td>
                 <td>{o.accepted_terms.quantity} {o.accepted_terms.unit}</td>
-                <td><span className="badge grey">{o.status.replace(/_/g, " ")}</span></td>
+                <td><span className="badge grey">{t("st_" + o.status)}</span></td>
                 <td>
-                  <Link href={`/order/${o.id}`}>Open →</Link>
+                  <Link href={`/order/${o.id}`}>{t("open_arrow")}</Link>
                   {isBuyer && ["completed", "settled", "delivered_pending_acceptance"].includes(o.status) && (
                     <> · <a role="button" style={{ cursor: "pointer" }}
-                           onClick={() => reorder(o.id, o.accepted_terms?.commodity_id)}>Reorder</a></>
+                           onClick={() => reorder(o.id, o.accepted_terms?.commodity_id)}>{t("reorder")}</a></>
                   )}
                 </td>
               </tr>
