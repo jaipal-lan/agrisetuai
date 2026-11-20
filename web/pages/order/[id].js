@@ -403,7 +403,7 @@ export default function OrderDetail() {
     <div style={{ maxWidth: 620 }}>
       <button className="ghost" onClick={() => router.push("/orders")}>← {t("my_orders")}</button>
       <h1 style={{ marginTop: 14 }}>{order.public_id}</h1>
-      <span className="badge">{s.replace(/_/g, " ")}</span>
+      <span className="badge">{t("st_" + s)}</span>
 
       {order.packing_video && (isBuyer || isStaff || isAgent) && (
         <div className="card" style={{ marginTop: 14, borderLeft: "4px solid var(--green-600)" }}>
@@ -809,11 +809,11 @@ export default function OrderDetail() {
         <ReviewBox order={order} />
       )}
 
-      <h2>History</h2>
+      <h2>{t("history")}</h2>
       <ul className="timeline">
         {order.history.map((h, i) => (
           <li key={i}>
-            {h.to.replace(/_/g, " ")}
+            {t("st_" + h.to)}
             {h.reason_code ? <span className="muted"> · {h.reason_code}</span> : null}
             <br />
             <small>{new Date(h.at).toLocaleString()}</small>
