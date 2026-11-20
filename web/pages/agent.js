@@ -60,6 +60,7 @@ async function dataUrlToFile(dataUrl, name) {
 }
 
 function InspectForm({ job, onQueued, online }) {
+  const { t } = useI18n();
   const [gross, setGross] = useState("");
   const [tare, setTare] = useState("0");
   const [outcome, setOutcome] = useState("pass");
@@ -77,7 +78,7 @@ function InspectForm({ job, onQueued, online }) {
       try {
         const d = await downscaleToDataUrl(f);
         setPhotos((p) => (p.length >= MAX_PHOTOS ? p : [...p, d]));
-      } catch { setNote({ kind: "muted", text: "Couldn't read that photo." }); }
+      } catch { setNote({ kind: "muted", text: t("ag_couldnt_read_photo") }); }
     }
   }
 
@@ -108,13 +109,13 @@ function InspectForm({ job, onQueued, online }) {
     const q = readQueue();
     q.push(item);
     if (!writeQueue(q)) {
-      setNote({ kind: "muted", text: "Device storage is full — sync now to free space, then retry." });
+      setNote({ kind: "muted", text: t("ag_storage_full") });
       return;
     }
     onQueued(!online);
     setNote(online
-      ? { kind: "ok", text: "Captured — syncing…" }
-      : { kind: "muted", text: "Saved on this device — will sync when back online." });
+      ? { kind: "ok", text: t("ag_captured_syncing") }
+      : { kind: "muted", text: t("ag_saved_offline") });
   }
 
   const inspectable = ["inspection_assigned", "inspection_in_progress", "inspection_hold"].includes(job.status);
@@ -124,35 +125,35 @@ function InspectForm({ job, onQueued, online }) {
     <div className="inspect-form">
       <div className="row">
         <div style={{ flex: 1 }}>
-          <label>Gross weight (kg)</label>
+          <label>{t("ag_gross_weight")}</label>
           <input value={gross} onChange={(e) => setGross(e.target.value)} inputMode="decimal" placeholder="e.g. 505" />
         </div>
         <div style={{ flex: 1 }}>
-          <label>Tare (kg)</label>
+          <label>{t("ag_tare")}</label>
           <input value={tare} onChange={(e) => setTare(e.target.value)} inputMode="decimal" />
         </div>
       </div>
       {net !== null && !Number.isNaN(net) && (
-        <div className="net-weight">Net weight: <b>{net} kg</b>
-          {job.accepted_terms?.quantity && <span className="muted"> · declared {job.accepted_terms.quantity} kg</span>}
+        <div className="net-weight">{t("ag_net_weight")} <b>{net} kg</b>
+          {job.accepted_terms?.quantity && <span className="muted"> · {t("ag_declared")} {job.accepted_terms.quantity} kg</span>}
         </div>
       )}
 
-      <label style={{ marginTop: 10 }}>Quality checklist</label>
+      <label style={{ marginTop: 10 }}>{t("ag_quality_checklist")}</label>
       <div className="check-grid">
-        <div><label className="sub">Moisture %</label>
+        <div><label className="sub">{t("ag_moisture")}</label>
           <input value={cl.moisture} onChange={(e) => setClv("moisture", e.target.value)} inputMode="decimal" /></div>
-        <div><label className="sub">Foreign matter %</label>
+        <div><label className="sub">{t("ag_foreign_matter")}</label>
           <input value={cl.foreign_matter} onChange={(e) => setClv("foreign_matter", e.target.value)} inputMode="decimal" /></div>
-        <div><label className="sub">Damaged %</label>
+        <div><label className="sub">{t("ag_damaged")}</label>
           <input value={cl.damaged} onChange={(e) => setClv("damaged", e.target.value)} inputMode="decimal" /></div>
         <label className="variety-check">
           <input type="checkbox" checked={cl.variety_match} onChange={(e) => setClv("variety_match", e.target.checked)} />
-          Variety matches listing
+          {t("ag_variety_match")}
         </label>
       </div>
 
-      <label style={{ marginTop: 12 }}>Photos ({photos.length}/{MAX_PHOTOS})</label>
+      <label style={{ marginTop: 12 }}>{t("ag_photos")} ({photos.length}/{MAX_PHOTOS})</label>
       <div className="photo-row">
         {photos.map((p, i) => (
           <div key={i} className="photo-thumb">
@@ -162,7 +163,7 @@ function InspectForm({ job, onQueued, online }) {
         ))}
         {photos.length < MAX_PHOTOS && (
           <label className="photo-add">
-            <span>＋<br />Photo</span>
+            <span>＋<br />{t("ag_photo")}</span>
             <input type="file" accept="image/*" capture="environment" multiple
                    onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
                    style={{ display: "none" }} />
@@ -170,18 +171,18 @@ function InspectForm({ job, onQueued, online }) {
         )}
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-        Photos are shrunk and stored on this device, then uploaded on sync — safe to shoot offline.
+        {t("ag_photos_hint")}
       </p>
 
-      <label style={{ marginTop: 12 }}>Outcome</label>
+      <label style={{ marginTop: 12 }}>{t("ag_outcome")}</label>
       <div className="bigseg">
-        {[["pass", "✓ Pass"], ["pass_with_adjustment", "± Adjust"], ["hold", "⏸ Hold"], ["fail", "✕ Fail"]].map(([v, label]) => (
+        {[["pass", t("ag_pass")], ["pass_with_adjustment", t("ag_adjust")], ["hold", t("ag_hold")], ["fail", t("ag_fail")]].map(([v, label]) => (
           <button key={v} type="button" className={outcome === v ? `on ${v}` : ""} onClick={() => setOutcome(v)}>{label}</button>
         ))}
       </div>
 
       <button className="submit-insp" onClick={submit}>
-        {online ? "Submit inspection" : "Save offline"}
+        {online ? t("ag_submit_insp") : t("ag_save_offline")}
       </button>
       {note && <div className={note.kind === "ok" ? "ok" : "muted"} style={{ marginTop: 8 }}>{note.text}</div>}
     </div>
@@ -190,6 +191,7 @@ function InspectForm({ job, onQueued, online }) {
 
 // Targets a leader set for this agent + meetings they're invited to.
 function MyTeam() {
+  const { t } = useI18n();
   const [targets, setTargets] = useState([]);
   const [meetings, setMeetings] = useState([]);
   useEffect(() => {
@@ -202,16 +204,16 @@ function MyTeam() {
     <>
       {targets.length > 0 && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <h3 style={{ marginTop: 0 }}>🎯 Your targets</h3>
+          <h3 style={{ marginTop: 0 }}>{t("ag_your_targets")}</h3>
           {targets.map((tg) => (
             <div key={tg.id} style={{ marginBottom: 10 }}>
               <div className="between" style={{ fontSize: 14 }}>
                 <span>{tg.progress} / {tg.target_value} {tg.metric_label}</span>
-                <span className={`badge ${tg.met ? "green" : "grey"}`}>{tg.met ? "met" : `${tg.pct}%`}</span>
+                <span className={`badge ${tg.met ? "green" : "grey"}`}>{tg.met ? t("ag_met") : `${tg.pct}%`}</span>
               </div>
               <div className="pbar" style={{ marginTop: 4 }}><div className="pbar-fill" style={{ width: `${tg.pct}%` }} /></div>
               <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
-                by {tg.period_end}{tg.note ? ` · ${tg.note}` : ""}
+                {t("ag_by")} {tg.period_end}{tg.note ? ` · ${tg.note}` : ""}
               </div>
             </div>
           ))}
@@ -219,7 +221,7 @@ function MyTeam() {
       )}
       {upcoming.length > 0 && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <h3 style={{ marginTop: 0 }}>📅 Upcoming meetings</h3>
+          <h3 style={{ marginTop: 0 }}>{t("ag_upcoming_meetings")}</h3>
           {upcoming.map((m) => (
             <div key={m.id} style={{ marginBottom: 8, fontSize: 14 }}>
               <b>{m.title}</b>
@@ -353,19 +355,18 @@ export default function AgentJobs() {
   return (
     <div className="agent-page" style={{ maxWidth: 680 }}>
       <div className={`field-status ${online ? "" : "off"}`}>
-        <span className="dot" /> {online ? "Online" : "Offline — working on this device"}
-        {queued > 0 && <> · <b>{queued}</b> waiting to sync</>}
+        <span className="dot" /> {online ? t("ag_online") : t("ag_offline")}
+        {queued > 0 && <> · <b>{queued}</b> {t("ag_waiting_sync")}</>}
         {queued > 0 && (
           <button disabled={busy || !online} onClick={sync} className="sync-btn">
-            {busy ? "Syncing…" : "Sync now"}
+            {busy ? t("ag_syncing") : t("ag_sync_now")}
           </button>
         )}
       </div>
 
       <h1>{t("agent_jobs")}</h1>
       <p className="tagline">
-        Inspections and photos are saved on this device first, so you can work in
-        low-signal fields. They sync automatically when you are back online.
+        {t("ag_intro")}
       </p>
 
       <MyTeam />
@@ -375,24 +376,24 @@ export default function AgentJobs() {
       {/* Inspection drafts captured on this device */}
       {queue.length > 0 && (
         <div className="card draft-panel">
-          <h3 style={{ marginTop: 0 }}>Inspections not yet synced</h3>
+          <h3 style={{ marginTop: 0 }}>{t("ag_not_synced")}</h3>
           {queue.map((it) => (
             <div key={it.id} className="between draft-row">
               <div>
-                <b>{it.public_id}</b> · {it.outcome?.replace(/_/g, " ")}
+                <b>{it.public_id}</b> · {t("oc_" + it.outcome) || it.outcome?.replace(/_/g, " ")}
                 {(it.photos?.length || it.uploaded?.length) ? ` · 📷 ${(it.photos?.length || 0) + (it.uploaded?.length || 0)}` : ""}
                 {it.error && <div className="muted" style={{ fontSize: 12 }}>⚠ {it.error}</div>}
               </div>
-              <button className="ghost" onClick={() => discardDraft(it.id)}>Discard</button>
+              <button className="ghost" onClick={() => discardDraft(it.id)}>{t("ag_discard")}</button>
             </div>
           ))}
         </div>
       )}
 
-      {err && <div className="muted" style={{ marginTop: 8 }}>Showing last saved jobs (offline).</div>}
+      {err && <div className="muted" style={{ marginTop: 8 }}>{t("ag_showing_offline")}</div>}
 
       {jobs.length === 0 ? (
-        <p className="muted">No assigned jobs right now.</p>
+        <p className="muted">{t("ag_no_jobs")}</p>
       ) : (
         jobs.map((j) => {
           const pending = pendingByOrder[j.order_id];
@@ -400,14 +401,14 @@ export default function AgentJobs() {
             <div className="card" key={j.order_id} style={{ marginBottom: 12 }}>
               <div className="between">
                 <Link href={`/order/${j.order_id}`}><b>{j.public_id}</b></Link>
-                <span className="badge grey">{j.status.replace(/_/g, " ")}</span>
+                <span className="badge grey">{t("st_" + j.status)}</span>
               </div>
               <div className="muted" style={{ fontSize: 14 }}>
                 {j.accepted_terms?.quantity} {j.accepted_terms?.unit} · ₹{j.accepted_terms?.price_per_unit}/unit
               </div>
               {pending ? (
                 <div className="captured-note">
-                  ✓ Inspection captured on this device ({pending.length}) — waiting to sync.
+                  ✓ {t("ag_captured_on_device")} ({pending.length}) — {t("ag_waiting_to_sync2")}
                 </div>
               ) : (
                 <InspectForm job={j} online={online} onQueued={onQueued} />
@@ -415,17 +416,17 @@ export default function AgentJobs() {
               {j.status === "paid" && (
                 <div style={{ marginTop: 10 }}>
                   <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
-                    Record a short packing video (≤2 min), then seal the lot for dispatch.
+                    {t("ag_packing_hint")}
                   </p>
                   <label className="btn" style={{ cursor: "pointer", display: "inline-block" }}>
-                    🎥 Record & seal with video
+                    {t("ag_record_seal")}
                     <input type="file" accept="video/*" capture="environment" style={{ display: "none" }}
                            disabled={busy || !online}
                            onChange={(e) => e.target.files[0] && packingComplete(j.order_id, e.target.files[0])} />
                   </label>
                   <button className="ghost" style={{ marginLeft: 8 }} disabled={busy || !online}
                           onClick={() => packingComplete(j.order_id)}>
-                    Seal without video
+                    {t("ag_seal_no_video")}
                   </button>
                 </div>
               )}
@@ -440,6 +441,7 @@ export default function AgentJobs() {
 // Field agents can add a product to the catalogue so farmers/buyers can list or
 // request it. Collapsed by default to keep the inspection page focused.
 function AddProductCard() {
+  const { t } = useI18n();
   const CATS = ["vegetable", "fruit", "cereal", "pulse", "oilseed", "spice", "dairy_meat", "other"];
   const [form, setForm] = useState({ name: "", category: "vegetable", name_te: "", unit: "kg" });
   const [msg, setMsg] = useState(null);
@@ -455,32 +457,32 @@ function AddProductCard() {
         name: form.name.trim(), category: form.category,
         name_te: form.name_te.trim() || undefined, unit: form.unit } });
       setForm({ name: "", category: form.category, name_te: "", unit: "kg" });
-      setMsg(`Added “${c.name}” to the catalogue.`);
+      setMsg(`${t("ag_added_pre")} “${c.name}” ${t("ag_added_post")}`);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
 
   return (
     <details className="card" style={{ marginBottom: 12 }}>
-      <summary style={{ cursor: "pointer", fontWeight: 600 }}>➕ Add a product to the catalogue</summary>
+      <summary style={{ cursor: "pointer", fontWeight: 600 }}>{t("ag_add_product_sum")}</summary>
       <p className="muted" style={{ fontSize: 13 }}>
-        Missing a crop farmers want to sell or buyers want to order? Add it here.
+        {t("ag_add_product_hint")}
       </p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
       <form onSubmit={add}>
         <div className="form-grid">
-          <label>Product name
+          <label>{t("ag_product_name")}
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </label>
-          <label>Category
+          <label>{t("category_label")}
             <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-              {CATS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {CATS.map((c) => <option key={c} value={c}>{t("cat_" + c)}</option>)}
             </select>
           </label>
-          <label>Telugu name (optional)
+          <label>{t("ag_telugu_name")}
             <input value={form.name_te} onChange={(e) => setForm((f) => ({ ...f, name_te: e.target.value }))} />
           </label>
-          <label>Unit
+          <label>{t("ag_unit")}
             <select value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
               <option value="kg">kg</option>
               <option value="piece">piece</option>
@@ -489,7 +491,7 @@ function AddProductCard() {
             </select>
           </label>
         </div>
-        <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>Add product</button>
+        <button type="submit" disabled={busy || !form.name.trim()} style={{ marginTop: 10 }}>{t("ag_add_product")}</button>
       </form>
     </details>
   );
