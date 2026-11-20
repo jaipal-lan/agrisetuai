@@ -10,6 +10,7 @@ import { usePoll } from "../../lib/hooks";
 import { useI18n } from "../../lib/i18n";
 
 function DisputeBox({ orderId, onDone }) {
+  const { t } = useI18n();
   const [issueType, setIssueType] = useState("quality");
   const [description, setDescription] = useState("");
   const [keys, setKeys] = useState([]);
@@ -52,20 +53,20 @@ function DisputeBox({ orderId, onDone }) {
 
   return (
     <div className="card" style={{ marginTop: 16, borderLeft: "4px solid #f59e0b" }}>
-      <h3>Report a problem</h3>
+      <h3>{t("od_report_problem")}</h3>
       {err && <div className="error">{err}</div>}
-      <label>Issue type</label>
+      <label>{t("sp_issue_type")}</label>
       <select value={issueType} onChange={(e) => setIssueType(e.target.value)}>
-        <option value="quality">Quality</option>
-        <option value="quantity">Quantity / weight</option>
-        <option value="delivery">Delivery</option>
-        <option value="payment">Payment</option>
-        <option value="other">Other</option>
+        <option value="quality">{t("it_quality")}</option>
+        <option value="quantity">{t("od_quantity_weight")}</option>
+        <option value="delivery">{t("it_delivery")}</option>
+        <option value="payment">{t("it_payment")}</option>
+        <option value="other">{t("od_other")}</option>
       </select>
-      <label>What went wrong?</label>
+      <label>{t("od_what_wrong")}</label>
       <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe the problem clearly." />
-      <label>Evidence photos (optional, up to 5)</label>
+                placeholder={t("od_describe_ph")} />
+      <label>{t("od_evidence_photos")}</label>
       <input type="file" accept="image/*,application/pdf" multiple
              onChange={(e) => addFiles(e.target.files)} />
       {keys.length > 0 && (
@@ -78,7 +79,7 @@ function DisputeBox({ orderId, onDone }) {
       )}
       <div style={{ marginTop: 12 }}>
         <button className="amber" disabled={busy || !description.trim()} onClick={submit}>
-          Submit dispute
+          {t("od_submit_dispute")}
         </button>
       </div>
     </div>
@@ -86,27 +87,28 @@ function DisputeBox({ orderId, onDone }) {
 }
 
 function Quote({ q }) {
+  const { t } = useI18n();
   if (!q) return null;
   const line = (label, val) => (
     <div className="quote-line"><span>{label}</span><span>₹{val}</span></div>
   );
   return (
     <div className="card" style={{ marginTop: 16 }}>
-      <h3>Itemised quote (rule v{q.rule_version})</h3>
-      {line("Product value", q.product_value)}
-      {line("Packing", q.packing_fee)}
-      {line("Inspection", q.inspection_fee)}
-      {line(q.route_km_source ? `Transport (${q.route_km_source} distance)` : "Transport", q.transport_charge)}
-      {Number(q.service_fee) > 0 && line(`Service fee (${q.service_fee_payer})`, q.service_fee)}
-      {Number(q.tax) > 0 && line("Tax", q.tax)}
-      <div className="quote-line total"><span>Buyer pays</span><span>₹{q.buyer_total}</span></div>
+      <h3>{t("od_itemised")}{q.rule_version})</h3>
+      {line(t("od_product_value"), q.product_value)}
+      {line(t("od_packing"), q.packing_fee)}
+      {line(t("od_inspection"), q.inspection_fee)}
+      {line(q.route_km_source ? `${t("od_transport")} (${q.route_km_source} ${t("od_distance")})` : t("od_transport"), q.transport_charge)}
+      {Number(q.service_fee) > 0 && line(`${t("od_service_fee")} (${q.service_fee_payer})`, q.service_fee)}
+      {Number(q.tax) > 0 && line(t("od_tax"), q.tax)}
+      <div className="quote-line total"><span>{t("od_buyer_pays")}</span><span>₹{q.buyer_total}</span></div>
       {q.seller_commission !== undefined && (
         <div className="quote-line">
-          <span className="muted">Seller commission ({q.seller_commission_pct}%)</span>
+          <span className="muted">{t("od_seller_commission")} ({q.seller_commission_pct}%)</span>
           <span className="muted">− ₹{q.seller_commission}</span>
         </div>
       )}
-      <div className="quote-line"><span className="muted">Seller receives</span><span className="muted">₹{q.seller_payable}</span></div>
+      <div className="quote-line"><span className="muted">{t("od_seller_receives")}</span><span className="muted">₹{q.seller_payable}</span></div>
     </div>
   );
 }
@@ -123,6 +125,7 @@ function Stars({ value, onPick }) {
 }
 
 function ReviewBox({ order }) {
+  const { t } = useI18n();
   const [done, setDone] = useState({});
   const [farmerR, setFarmerR] = useState(0);
   const [courierR, setCourierR] = useState(0);
@@ -141,32 +144,32 @@ function ReviewBox({ order }) {
     setMsg(null);
     try {
       await api("/reviews", { method: "POST", body: { order_id: order.id, subject_type, rating, comment: comment || undefined } });
-      setMsg("Thanks for your rating.");
+      setMsg(t("od_thanks_rating"));
       loadDone();
     } catch (e) { setMsg(e.message); }
   }
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
-      <h3>Rate your experience</h3>
+      <h3>{t("od_rate_exp")}</h3>
       <div style={{ marginTop: 8 }}>
-        <div className="muted" style={{ fontSize: 13 }}>Farmer {done.farmer ? `· you rated ${done.farmer}★` : ""}</div>
+        <div className="muted" style={{ fontSize: 13 }}>{t("od_farmer")} {done.farmer ? `· ${t("od_you_rated")} ${done.farmer}★` : ""}</div>
         <Stars value={done.farmer || farmerR} onPick={done.farmer ? null : setFarmerR} />
         {!done.farmer && (
           <>
-            <input placeholder="Comment (optional)" value={fc} onChange={(e) => setFc(e.target.value)} />
-            <button style={{ marginTop: 8 }} disabled={!farmerR} onClick={() => submit("farmer", farmerR, fc)}>Submit farmer rating</button>
+            <input placeholder={t("od_comment_opt")} value={fc} onChange={(e) => setFc(e.target.value)} />
+            <button style={{ marginTop: 8 }} disabled={!farmerR} onClick={() => submit("farmer", farmerR, fc)}>{t("od_submit_farmer")}</button>
           </>
         )}
       </div>
       {hasCourier && (
         <div style={{ marginTop: 14 }}>
-          <div className="muted" style={{ fontSize: 13 }}>Courier: {order.shipment.courier_name} {done.courier ? `· you rated ${done.courier}★` : ""}</div>
+          <div className="muted" style={{ fontSize: 13 }}>{t("od_courier")} {order.shipment.courier_name} {done.courier ? `· ${t("od_you_rated")} ${done.courier}★` : ""}</div>
           <Stars value={done.courier || courierR} onPick={done.courier ? null : setCourierR} />
           {!done.courier && (
             <>
-              <input placeholder="Comment (optional)" value={cc} onChange={(e) => setCc(e.target.value)} />
-              <button style={{ marginTop: 8 }} disabled={!courierR} onClick={() => submit("courier", courierR, cc)}>Submit courier rating</button>
+              <input placeholder={t("od_comment_opt")} value={cc} onChange={(e) => setCc(e.target.value)} />
+              <button style={{ marginTop: 8 }} disabled={!courierR} onClick={() => submit("courier", courierR, cc)}>{t("od_submit_courier")}</button>
             </>
           )}
         </div>
@@ -177,6 +180,7 @@ function ReviewBox({ order }) {
 }
 
 function Certificate({ orderId }) {
+  const { t } = useI18n();
   const [cert, setCert] = useState(null);
   const [err, setErr] = useState(null);
   useEffect(() => {
@@ -190,7 +194,7 @@ function Certificate({ orderId }) {
   return (
     <div className="card" style={{ marginTop: 16, borderLeft: "4px solid var(--green-600)" }}>
       <div className="between">
-        <h3>✅ KissanSetu Verified Lot</h3>
+        <h3>{t("od_verified_lot")}</h3>
         <span className="pill-tag">{cert.certificate_id}</span>
       </div>
       <div style={{ fontSize: 14 }}>
@@ -198,12 +202,12 @@ function Certificate({ orderId }) {
         {cert.product?.grade ? ` · ${cert.product.grade}` : ""}
         {cert.product?.claim_status ? ` · ${cert.product.claim_status}` : ""}
       </div>
-      <div className="quote-line"><span>Observed outcome</span><span>{(cert.observed?.outcome || "").replace(/_/g, " ")}</span></div>
-      {m.net_qty_kg && <div className="quote-line"><span>Measured net weight</span><span>{m.net_qty_kg} kg</span></div>}
-      {m.gross_weight_kg && <div className="quote-line"><span>Gross / tare</span><span>{m.gross_weight_kg} / {m.tare_weight_kg || 0} kg</span></div>}
-      {m.moisture_pct != null && <div className="quote-line"><span>Moisture</span><span>{m.moisture_pct}%</span></div>}
-      {cert.lot && <div className="quote-line"><span>Lot / seal</span><span>{cert.lot.public_id}</span></div>}
-      <div className="quote-line"><span className="muted">Inspected</span><span className="muted">{cert.inspected_at ? new Date(cert.inspected_at).toLocaleString() : ""}</span></div>
+      <div className="quote-line"><span>{t("od_observed_outcome")}</span><span>{(cert.observed?.outcome || "").replace(/_/g, " ")}</span></div>
+      {m.net_qty_kg && <div className="quote-line"><span>{t("od_measured_net")}</span><span>{m.net_qty_kg} kg</span></div>}
+      {m.gross_weight_kg && <div className="quote-line"><span>{t("od_gross_tare")}</span><span>{m.gross_weight_kg} / {m.tare_weight_kg || 0} kg</span></div>}
+      {m.moisture_pct != null && <div className="quote-line"><span>{t("od_moisture")}</span><span>{m.moisture_pct}%</span></div>}
+      {cert.lot && <div className="quote-line"><span>{t("od_lot_seal")}</span><span>{cert.lot.public_id}</span></div>}
+      <div className="quote-line"><span className="muted">{t("od_inspected")}</span><span className="muted">{cert.inspected_at ? new Date(cert.inspected_at).toLocaleString() : ""}</span></div>
       <div className="disclaimer">{cert.not_tested_note}</div>
     </div>
   );
@@ -229,6 +233,7 @@ function osmEmbed(lat, lng) {
 }
 
 function TrackingTimeline({ orderId, isBuyer }) {
+  const { t } = useI18n();
   const [tr, setTr] = useState(null);
   usePoll(() => { if (orderId) api(`/orders/${orderId}/tracking`).then(setTr).catch(() => {}); }, 12000, [orderId]);
   if (!tr || !tr.steps) return null;
@@ -237,13 +242,13 @@ function TrackingTimeline({ orderId, isBuyer }) {
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <div className="between">
-        <h3 style={{ margin: 0 }}>🚚 Delivery</h3>
+        <h3 style={{ margin: 0 }}>{t("od_delivery")}</h3>
         {tr.shipment?.courier_name && <span className="badge grey">{tr.shipment.status.replace(/_/g, " ")}</span>}
       </div>
 
       {(tr.to_label || tr.to_address_line || tr.to_place) && (
         <div style={{ fontSize: 13, marginTop: 4 }}>
-          📦 <b>Deliver to:</b> {tr.to_label ? `${tr.to_label} — ` : ""}
+          📦 <b>{t("od_deliver_to")}</b> {tr.to_label ? `${tr.to_label} — ` : ""}
           {tr.to_address_line ? `${tr.to_address_line}, ` : ""}{tr.to_place}
         </div>
       )}
@@ -257,14 +262,14 @@ function TrackingTimeline({ orderId, isBuyer }) {
 
       {!delivered && tr.nav_url && (
         <div style={{ marginTop: 10 }}>
-          <a className="btn" href={tr.nav_url} target="_blank" rel="noreferrer">🧭 Navigate the delivery route</a>
+          <a className="btn" href={tr.nav_url} target="_blank" rel="noreferrer">{t("od_navigate")}</a>
         </div>
       )}
 
       {tr.eta && (
         <div className={`eta ${delivered ? "ok" : ""}`} style={{ marginTop: 10 }}>
-          {delivered ? "Delivered " : "Estimated delivery: "}<b>{fmtWhen(tr.eta)}</b>
-          {!delivered && tr.eta_basis === "estimated" ? <span className="muted"> (estimate)</span> : null}
+          {delivered ? t("od_delivered_word") : t("od_est_delivery")}<b>{fmtWhen(tr.eta)}</b>
+          {!delivered && tr.eta_basis === "estimated" ? <span className="muted"> {t("od_estimate")}</span> : null}
         </div>
       )}
 
@@ -273,10 +278,10 @@ function TrackingTimeline({ orderId, isBuyer }) {
         <div style={{ marginTop: 12 }}>
           <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
             {tr.courier_location ? (
-              <>📍 Courier is live{tr.courier_location.distance_km != null ? ` · ~${tr.courier_location.distance_km} km away` : ""}
-                {tr.courier_location.eta_minutes != null ? ` · ~${tr.courier_location.eta_minutes} min away` : ""}
-                {tr.courier_location.at ? ` · updated ${fmtAgo(tr.courier_location.at)}` : ""}</>
-            ) : "Route preview — the courier's live position appears once they start sharing."}
+              <>{t("od_courier_live")}{tr.courier_location.distance_km != null ? ` · ~${tr.courier_location.distance_km} ${t("od_km_away")}` : ""}
+                {tr.courier_location.eta_minutes != null ? ` · ~${tr.courier_location.eta_minutes} ${t("od_min_away")}` : ""}
+                {tr.courier_location.at ? ` · ${t("od_updated")} ${fmtAgo(tr.courier_location.at)}` : ""}</>
+            ) : t("od_route_preview")}
           </div>
           <LiveTrackMap from={tr.from_coord} to={tr.to_coord} courier={tr.courier_location} />
         </div>
@@ -285,7 +290,7 @@ function TrackingTimeline({ orderId, isBuyer }) {
       {/* Buyer's delivery code — shown to the courier at handoff. */}
       {isBuyer && tr.delivery_code && (
         <div className="code-callout" style={{ marginTop: 12 }}>
-          <div className="muted" style={{ fontSize: 12 }}>Give this code to the courier at delivery</div>
+          <div className="muted" style={{ fontSize: 12 }}>{t("od_give_code")}</div>
           <div className="code">{tr.delivery_code}</div>
         </div>
       )}
@@ -302,12 +307,12 @@ function TrackingTimeline({ orderId, isBuyer }) {
 
       {tr.proof && (
         <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-          Proof of delivery:
-          {tr.proof.otp_ok ? " code verified" : ""}
-          {tr.proof.has_photo ? " · photo" : ""}
-          {tr.proof.has_signature ? " · signature" : ""}
+          {t("od_proof")}
+          {tr.proof.otp_ok ? ` ${t("od_code_verified")}` : ""}
+          {tr.proof.has_photo ? ` · ${t("od_photo")}` : ""}
+          {tr.proof.has_signature ? ` · ${t("od_signature")}` : ""}
           {tr.proof.recipient_note ? ` · “${tr.proof.recipient_note}”` : ""}
-          {!tr.proof.otp_ok && !tr.proof.has_photo && !tr.proof.has_signature && !tr.proof.recipient_note ? " recorded" : ""}
+          {!tr.proof.otp_ok && !tr.proof.has_photo && !tr.proof.has_signature && !tr.proof.recipient_note ? ` ${t("od_recorded")}` : ""}
         </div>
       )}
     </div>
@@ -407,9 +412,9 @@ export default function OrderDetail() {
 
       {order.packing_video && (isBuyer || isStaff || isAgent) && (
         <div className="card" style={{ marginTop: 14, borderLeft: "4px solid var(--green-600)" }}>
-          <b>🎥 Packing video</b>
+          <b>{t("od_packing_video")}</b>
           <p className="muted" style={{ fontSize: 13, margin: "4px 0 8px" }}>
-            Recorded when your order was sealed for dispatch.
+            {t("od_packing_video_sub")}
           </p>
           <video src={mediaUrl(order.packing_video)} controls preload="none"
                  style={{ width: "100%", borderRadius: 8, maxHeight: 260 }} />
@@ -431,7 +436,7 @@ export default function OrderDetail() {
               .catch((e) => setErr(e.message))}>
             ⬇ {["paid", "packing", "ready_for_pickup", "picked_up", "in_transit",
                  "out_for_delivery", "delivered_pending_acceptance", "completed", "settled"].includes(s)
-                 ? "Download receipt (PDF)" : "Download invoice (PDF)"}
+                 ? t("od_download_receipt") : t("od_download_invoice")}
           </button>
         </div>
       )}
@@ -442,12 +447,12 @@ export default function OrderDetail() {
       {/* Staff: assign inspection */}
       {isStaff && s === "provisional_agreement" && (
         <Action>
-          <h3>Assign inspection</h3>
-          <label>Field agent user id</label>
+          <h3>{t("od_assign_inspection")}</h3>
+          <label>{t("od_field_agent_id")}</label>
           <input value={agentId} onChange={(e) => setAgentId(e.target.value)} inputMode="numeric" />
           <div style={{ marginTop: 12 }}>
             <button disabled={busy} onClick={() => act(`/orders/${id}/assign-inspection`, { agent_id: Number(agentId) })}>
-              Assign
+              {t("od_assign")}
             </button>
           </div>
         </Action>
@@ -456,39 +461,39 @@ export default function OrderDetail() {
       {/* Agent: submit inspection */}
       {isAgent && ["inspection_assigned", "inspection_in_progress", "inspection_hold"].includes(s) && (
         <Action>
-          <h3>Inspection</h3>
+          <h3>{t("od_inspection_h")}</h3>
           <div className="row">
             <div style={{ flex: 1 }}>
-              <label>Gross weight (kg)</label>
+              <label>{t("ag_gross_weight")}</label>
               <input value={gross} onChange={(e) => setGross(e.target.value)} inputMode="decimal" />
             </div>
             <div style={{ flex: 1 }}>
-              <label>Tare / bags (kg)</label>
+              <label>{t("od_tare_bags")}</label>
               <input value={tare} onChange={(e) => setTare(e.target.value)} inputMode="decimal" placeholder="0" />
             </div>
             <div style={{ flex: 1 }}>
-              <label>Moisture %</label>
+              <label>{t("ag_moisture")}</label>
               <input value={moisture} onChange={(e) => setMoisture(e.target.value)} inputMode="decimal" placeholder="e.g. 12" />
             </div>
           </div>
           <div className="row" style={{ marginTop: 6 }}>
             <label style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}>
               <input type="checkbox" style={{ width: "auto" }} checked={clean} onChange={(e) => setClean(e.target.checked)} />
-              Cleaned & sorted
+              {t("od_cleaned_sorted")}
             </label>
             <label style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}>
               <input type="checkbox" style={{ width: "auto" }} checked={pestFree} onChange={(e) => setPestFree(e.target.checked)} />
-              No pest / damage
+              {t("od_no_pest")}
             </label>
           </div>
-          <label>Outcome</label>
+          <label>{t("ag_outcome")}</label>
           <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-            <option value="pass">Pass</option>
-            <option value="pass_with_adjustment">Pass with adjustment</option>
-            <option value="hold">Hold</option>
-            <option value="fail">Fail</option>
+            <option value="pass">{t("od_pass")}</option>
+            <option value="pass_with_adjustment">{t("od_pass_adj")}</option>
+            <option value="hold">{t("od_hold")}</option>
+            <option value="fail">{t("od_fail")}</option>
           </select>
-          <label>Inspection photos (optional)</label>
+          <label>{t("od_insp_photos")}</label>
           <input type="file" accept="image/*" multiple
                  onChange={async (e) => {
                    const files = Array.from(e.target.files || []).slice(0, 5);
@@ -521,7 +526,7 @@ export default function OrderDetail() {
                 })
               }
             >
-              Submit inspection
+              {t("ag_submit_insp")}
             </button>
           </div>
         </Action>
@@ -530,15 +535,15 @@ export default function OrderDetail() {
       {/* Buyer: approve inspection */}
       {isBuyer && s === "buyer_approval_pending" && (
         <Action>
-          <h3>Review inspection & approve</h3>
-          <button disabled={busy} onClick={() => act(`/orders/${id}/buyer-approve`)}>Approve</button>
+          <h3>{t("od_review_approve")}</h3>
+          <button disabled={busy} onClick={() => act(`/orders/${id}/buyer-approve`)}>{t("od_approve")}</button>
         </Action>
       )}
 
       {/* Buyer: choose delivery address + lock quote (Zepto/Rapido-style) */}
       {isBuyer && s === "confirmed" && (
         <Action>
-          <h3>Deliver to</h3>
+          <h3>{t("od_deliver_to_h")}</h3>
           {/* Saved addresses as selectable cards */}
           {!addingAddr && addresses.length > 0 && (
             <div style={{ display: "grid", gap: 8 }}>
@@ -554,7 +559,7 @@ export default function OrderDetail() {
                            style={{ marginTop: 3 }} />
                     <div>
                       <b>{a.label === "Home" ? "🏠" : a.label === "Work" ? "💼" : "📍"} {a.label}</b>
-                      {a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>default</span>}
+                      {a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>{t("pf_default")}</span>}
                       <div className="muted" style={{ fontSize: 13 }}>
                         {a.address_line ? `${a.address_line} · ` : ""}{a.mandal}
                       </div>
@@ -568,29 +573,29 @@ export default function OrderDetail() {
           {/* Add / deliver elsewhere */}
           {!addingAddr ? (
             <button className="ghost" style={{ marginTop: 10 }} onClick={() => setAddingAddr(true)}>
-              ➕ Deliver to a different address
+              {t("od_deliver_diff")}
             </button>
           ) : (
             <div style={{ marginTop: 6 }}>
               <AddressPicker autoLocate onChange={setNewAddr} />
               <button className="ghost" style={{ marginTop: 8 }}
                       onClick={() => { setAddingAddr(false); setNewAddr(null); }}>
-                ← Use a saved address instead
+                {t("od_use_saved")}
               </button>
             </div>
           )}
 
           {addresses.length === 0 && !addingAddr && (
             <p className="muted" style={{ fontSize: 13 }}>
-              No saved address yet — tap “Deliver to a different address” to set your delivery point on the map.
+              {t("od_no_saved_addr")}
             </p>
           )}
 
           <details style={{ marginTop: 10 }}>
-            <summary className="muted" style={{ fontSize: 13, cursor: "pointer" }}>Advanced: override route distance</summary>
-            <label style={{ marginTop: 6 }}>Route distance (km) — leave blank to compute from location</label>
+            <summary className="muted" style={{ fontSize: 13, cursor: "pointer" }}>{t("od_advanced_override")}</summary>
+            <label style={{ marginTop: 6 }}>{t("od_route_dist_label")}</label>
             <input value={routeKm} onChange={(e) => setRouteKm(e.target.value)} inputMode="decimal"
-                   placeholder="auto" />
+                   placeholder={t("od_auto")} />
           </details>
 
           {/* Payment method choice carried into the quote */}
@@ -630,7 +635,7 @@ export default function OrderDetail() {
                 });
               }}
             >
-              Confirm address &amp; lock quote
+              {t("od_confirm_lock")}
             </button>
           </div>
         </Action>
@@ -649,10 +654,10 @@ export default function OrderDetail() {
           </Action>
         ) : (
           <Action>
-            <h3>Pay ₹{order.buyer_total}</h3>
-            <p className="muted" style={{ fontSize: 13 }}>Mock payment in dev. Posts the double-entry ledger.</p>
+            <h3>{t("od_pay")} ₹{order.buyer_total}</h3>
+            <p className="muted" style={{ fontSize: 13 }}>{t("od_mock_pay")}</p>
             <button disabled={busy} onClick={() => act(`/orders/${id}/pay`, undefined, { "Idempotency-Key": order.public_id })}>
-              Pay now
+              {t("od_pay_now")}
             </button>
           </Action>
         )
@@ -661,8 +666,8 @@ export default function OrderDetail() {
       {/* Agent/staff: packing */}
       {isAgent && s === "paid" && (
         <Action>
-          <h3>Packing</h3>
-          <button disabled={busy} onClick={() => act(`/orders/${id}/packing-complete`)}>Seal lot & complete packing</button>
+          <h3>{t("od_packing_h")}</h3>
+          <button disabled={busy} onClick={() => act(`/orders/${id}/packing-complete`)}>{t("od_seal_complete")}</button>
         </Action>
       )}
 
@@ -675,24 +680,23 @@ export default function OrderDetail() {
       {/* Failed delivery: goods are held at the warehouse (Zepto/Swiggi style). */}
       {s === "delivery_failed" && (
         <Action>
-          <h3 style={{ borderLeft: "4px solid var(--amber-600)", paddingLeft: 10 }}>📦 Held at our warehouse</h3>
+          <h3 style={{ borderLeft: "4px solid var(--amber-600)", paddingLeft: 10 }}>{t("od_warehouse_held")}</h3>
           <p className="muted" style={{ fontSize: 13 }}>
-            We couldn&apos;t complete the delivery. Your order is safe at our warehouse.
-            Update your address to reschedule a delivery, or pick it up.
+            {t("od_warehouse_msg")}
           </p>
 
           {isBuyer && (
             <>
               {!rescheduleAddr ? (
                 <button className="ghost" onClick={() => setRescheduleAddr(true)}>
-                  📍 Deliver to a different address
+                  {t("od_deliver_diff2")}
                 </button>
               ) : (
                 <div style={{ marginTop: 6 }}>
                   <AddressPicker autoLocate onChange={setNewAddr} />
                   <button className="ghost" style={{ marginTop: 8 }}
                           onClick={() => { setRescheduleAddr(false); setNewAddr(null); }}>
-                    ← Keep the original address
+                    {t("od_keep_original")}
                   </button>
                 </div>
               )}
@@ -704,7 +708,7 @@ export default function OrderDetail() {
                           await act(`/orders/${id}/redeliver`, body);
                           setRescheduleAddr(false); setNewAddr(null);
                         }}>
-                  🚚 Reschedule delivery
+                  {t("od_reschedule")}
                 </button>
               </div>
             </>
@@ -713,10 +717,10 @@ export default function OrderDetail() {
           {(isTransport || isStaff || isAgent) && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>
               <button className="ghost" disabled={busy} onClick={() => act(`/orders/${id}/redeliver`, {})}>
-                Send back out for delivery
+                {t("od_send_back_out")}
               </button>
               <button disabled={busy} onClick={() => act(`/orders/${id}/warehouse-pickup`)}>
-                ✅ Buyer collected at warehouse
+                {t("od_buyer_collected")}
               </button>
             </div>
           )}
@@ -724,17 +728,17 @@ export default function OrderDetail() {
       )}
 
       <div className="row" style={{ gap: 8, marginTop: 10 }}>
-        <Link href={`/bags/${id}`} className="btn ghost">🏷️ Bags &amp; labels</Link>
+        <Link href={`/bags/${id}`} className="btn ghost">{t("od_bags_labels")}</Link>
       </div>
 
       {/* Buyer: choose the courier (buyer-paid logistics) */}
       {isBuyer && !order.shipment?.courier_name &&
         ["payment_pending", "paid", "packing", "ready_for_pickup"].includes(s) && (
         <Action>
-          <h3>Choose your delivery courier</h3>
-          <p className="muted" style={{ fontSize: 13 }}>Transport is buyer-paid; pick a verified courier.</p>
+          <h3>{t("od_choose_courier")}</h3>
+          <p className="muted" style={{ fontSize: 13 }}>{t("od_transport_buyer_paid")}</p>
           <select value={courierId} onChange={(e) => setCourierId(e.target.value)}>
-            <option value="">— select courier —</option>
+            <option value="">{t("od_select_courier")}</option>
             {carriers.map((c) => (
               <option key={c.id} value={c.id}>{c.name} ({(c.service_areas || []).join(", ")})</option>
             ))}
@@ -742,7 +746,7 @@ export default function OrderDetail() {
           <div style={{ marginTop: 12 }}>
             <button disabled={busy || !courierId}
                     onClick={() => act(`/orders/${id}/assign-courier`, { courier_id: Number(courierId) })}>
-              Choose courier
+              {t("od_choose_courier_btn")}
             </button>
           </div>
         </Action>
@@ -752,9 +756,9 @@ export default function OrderDetail() {
       {isTransport && !order.shipment?.courier_name &&
         ["paid", "packing", "ready_for_pickup"].includes(s) && (
         <Action>
-          <h3>Assign transport courier</h3>
+          <h3>{t("od_assign_courier")}</h3>
           <select value={courierId} onChange={(e) => setCourierId(e.target.value)}>
-            <option value="">— select courier —</option>
+            <option value="">{t("od_select_courier")}</option>
             {carriers.map((c) => (
               <option key={c.id} value={c.id}>{c.name} ({(c.vehicle_classes || []).join("/")})</option>
             ))}
@@ -762,7 +766,7 @@ export default function OrderDetail() {
           <div style={{ marginTop: 12 }}>
             <button disabled={busy || !courierId}
                     onClick={() => act(`/orders/${id}/assign-courier`, { courier_id: Number(courierId) })}>
-              Assign courier
+              {t("od_assign_courier_btn")}
             </button>
           </div>
         </Action>
@@ -771,24 +775,24 @@ export default function OrderDetail() {
       {/* Transport: shipment milestones */}
       {isTransport && ["ready_for_pickup", "picked_up", "in_transit", "out_for_delivery"].includes(s) && (
         <Action>
-          <h3>Shipment</h3>
+          <h3>{t("od_shipment")}</h3>
           <div className="row">
             {[
-              ["ready_for_pickup", "picked_up", "Mark picked up"],
-              ["picked_up", "in_transit", "Mark in transit"],
-              ["in_transit", "out_for_delivery", "Out for delivery"],
-              ["out_for_delivery", "delivered", "Mark delivered"],
+              ["ready_for_pickup", "picked_up", "tr_mark_picked_up"],
+              ["picked_up", "in_transit", "tr_mark_in_transit"],
+              ["in_transit", "out_for_delivery", "tr_out_for_delivery"],
+              ["out_for_delivery", "delivered", "tr_mark_delivered"],
             ]
               .filter(([from]) => from === s)
               .map(([, ev, label]) => (
                 <button key={ev} disabled={busy} onClick={() => act(`/orders/${id}/shipment/event`, { event: ev })}>
-                  {label}
+                  {t(label)}
                 </button>
               ))}
             {s === "out_for_delivery" && (
               <button className="amber" disabled={busy}
                       onClick={() => act(`/orders/${id}/shipment/event`, { event: "failed_delivery" })}>
-                Delivery failed → warehouse
+                {t("od_delivery_failed_wh")}
               </button>
             )}
           </div>
@@ -798,12 +802,12 @@ export default function OrderDetail() {
       {/* Buyer: acceptance */}
       {isBuyer && s === "delivered_pending_acceptance" && (
         <Action>
-          <h3>Confirm delivery</h3>
-          <button disabled={busy} onClick={() => act(`/orders/${id}/acceptance`)}>Accept delivery</button>
+          <h3>{t("od_confirm_delivery")}</h3>
+          <button disabled={busy} onClick={() => act(`/orders/${id}/acceptance`)}>{t("od_accept_delivery")}</button>
         </Action>
       )}
 
-      {s === "settled" && <div className="ok" style={{ marginTop: 16 }}>Order complete and settled. 🌾</div>}
+      {s === "settled" && <div className="ok" style={{ marginTop: 16 }}>{t("od_order_complete")}</div>}
 
       {isBuyer && ["delivered_pending_acceptance", "completed", "settled", "partially_refunded", "refunded"].includes(s) && (
         <ReviewBox order={order} />
@@ -824,13 +828,13 @@ export default function OrderDetail() {
       <div className="row" style={{ marginTop: 20 }}>
         {(isBuyer || isStaff) && !["settled", "cancelled", "refunded"].includes(s) && (
           <button className="danger" disabled={busy} onClick={() => act(`/orders/${id}/cancel`, { reason_code: "user_cancelled" })}>
-            Cancel order
+            {t("od_cancel_order")}
           </button>
         )}
         {(isBuyer || me.id === order.seller_id) &&
           ["paid", "packing", "ready_for_pickup", "picked_up", "in_transit", "out_for_delivery", "delivered_pending_acceptance"].includes(s) && (
             <button className="ghost" disabled={busy} onClick={() => setShowDispute((v) => !v)}>
-              {showDispute ? "Close" : "Report a problem"}
+              {showDispute ? t("od_close") : t("od_report_problem")}
             </button>
           )}
       </div>
