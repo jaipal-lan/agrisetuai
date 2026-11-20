@@ -71,49 +71,48 @@ export default function Profile() {
           </div>
         </div>
         <div style={{ marginTop: 12 }}>
-          <Row label="Phone">{detail?.phone || "—"}</Row>
-          {detail?.email && <Row label="Email">{detail.email}</Row>}
-          <Row label="Account status">
+          <Row label={t("pf_phone")}>{detail?.phone || "—"}</Row>
+          {detail?.email && <Row label={t("pf_email")}>{detail.email}</Row>}
+          <Row label={t("pf_account_status")}>
             <span className="badge grey">{detail?.status || "active"}</span>
           </Row>
-          {detail?.farmer?.village && <Row label="Village">{detail.farmer.village}</Row>}
+          {detail?.farmer?.village && <Row label={t("pf_village")}>{detail.farmer.village}</Row>}
           {(detail?.district || detail?.state || detail?.pincode) && (
-            <Row label="Area">{[detail.district, detail.state, detail.pincode].filter(Boolean).join(", ")}</Row>
+            <Row label={t("pf_area")}>{[detail.district, detail.state, detail.pincode].filter(Boolean).join(", ")}</Row>
           )}
-          {detail?.farmer?.farm_size && <Row label="Farm size">{detail.farmer.farm_size} acres</Row>}
-          {detail?.farmer?.crops_grown?.length > 0 && <Row label="Crops">{detail.farmer.crops_grown.join(", ")}</Row>}
-          {detail?.farmer?.soil_type && <Row label="Soil">{detail.farmer.soil_type}</Row>}
-          {detail?.farmer?.irrigation_type && <Row label="Irrigation">{detail.farmer.irrigation_type}</Row>}
+          {detail?.farmer?.farm_size && <Row label={t("pf_farm_size")}>{detail.farmer.farm_size} {t("pf_acres")}</Row>}
+          {detail?.farmer?.crops_grown?.length > 0 && <Row label={t("pf_crops")}>{detail.farmer.crops_grown.join(", ")}</Row>}
+          {detail?.farmer?.soil_type && <Row label={t("pf_soil")}>{detail.farmer.soil_type}</Row>}
+          {detail?.farmer?.irrigation_type && <Row label={t("pf_irrigation")}>{detail.farmer.irrigation_type}</Row>}
           {detail?.farmer?.experience_years != null && detail?.farmer?.experience_years !== "" && (
-            <Row label="Experience">{detail.farmer.experience_years} yrs</Row>
+            <Row label={t("pf_experience")}>{detail.farmer.experience_years} {t("pf_yrs")}</Row>
           )}
-          {detail?.aadhaar_masked && <Row label="Aadhaar">{detail.aadhaar_masked}</Row>}
-          {detail?.pan_masked && <Row label="PAN">{detail.pan_masked}</Row>}
-          {detail?.buyer?.buyer_type && <Row label="Buyer type">{detail.buyer.buyer_type}</Row>}
-          {detail?.agent?.skill_level && <Row label="Role level">{detail.agent.skill_level}</Row>}
-          <Row label="Language">{langLabel}</Row>
-          <Row label="Onboarding">
+          {detail?.aadhaar_masked && <Row label={t("pf_aadhaar")}>{detail.aadhaar_masked}</Row>}
+          {detail?.pan_masked && <Row label={t("pf_pan")}>{detail.pan_masked}</Row>}
+          {detail?.buyer?.buyer_type && <Row label={t("pf_buyer_type")}>{detail.buyer.buyer_type}</Row>}
+          {detail?.agent?.skill_level && <Row label={t("pf_role_level")}>{detail.agent.skill_level}</Row>}
+          <Row label={t("pf_language")}>{langLabel}</Row>
+          <Row label={t("pf_onboarding")}>
             {detail?.onboarding_complete === false
-              ? <span className="badge amber">incomplete</span>
-              : <span className="badge">complete</span>}
+              ? <span className="badge amber">{t("pf_incomplete")}</span>
+              : <span className="badge">{t("pf_complete")}</span>}
           </Row>
         </div>
       </div>
 
       {prefs && (
         <>
-          <h2>Notifications</h2>
+          <h2>{t("pf_notifications")}</h2>
           <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
-            Choose how each proactive alert reaches you. <b>Instant</b> pings the bell,
-            <b> Daily</b> batches it into a once-a-day digest, <b>Off</b> silences it.
-            Order updates and account messages are always sent instantly.
+            {t("pf_notif_help")} <b>{t("notif_instant")}</b> {t("pf_notif_help2")}
+            {" "}<b>{t("notif_daily")}</b> {t("pf_notif_help3")} <b>{t("notif_off")}</b> {t("pf_notif_help4")}
           </p>
           <div className="card">
             {prefs.categories.map((c) => (
               <div key={c.key} className="between" style={{ padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
                 <span>{c.label}</span>
-                <div className="seg" aria-label={`Delivery for ${c.label}`}>
-                  {[["instant", "Instant"], ["digest", "Daily"], ["off", "Off"]].map(([m, label]) => (
+                <div className="seg" aria-label={c.label}>
+                  {[["instant", t("notif_instant")], ["digest", t("notif_daily")], ["off", t("notif_off")]].map(([m, label]) => (
                     <button key={m}
                             className={c.mode === m ? "seg-on" : ""}
                             disabled={savingPref === c.key}
@@ -132,7 +131,7 @@ export default function Profile() {
       {["farmer", "buyer_household", "buyer_business"].includes(me?.role) && <AddressesCard />}
       {detail && <IdProofCard detail={detail} onChange={setDetail} />}
 
-      <h2>Language</h2>
+      <h2>{t("pf_language")}</h2>
       <div className="row">
         {[["te", "తెలుగు"], ["en", "English"], ["hi", "हिन्दी"]].map(([code, labelText]) => (
           <button key={code} className={lang === code ? "" : "ghost"} onClick={() => setLang(code)}>
@@ -141,11 +140,11 @@ export default function Profile() {
         ))}
       </div>
 
-      <h2>Account</h2>
+      <h2>{t("account")}</h2>
       <div className="row">
-        <Link href="/onboarding" className="btn ghost">Edit profile</Link>
-        <Link href="/reset-password" className="btn ghost">Change password</Link>
-        <Link href="/dashboard" className="btn ghost">My dashboard</Link>
+        <Link href="/onboarding" className="btn ghost">{t("pf_edit_profile")}</Link>
+        <Link href="/reset-password" className="btn ghost">{t("pf_change_password")}</Link>
+        <Link href="/dashboard" className="btn ghost">{t("pf_my_dashboard")}</Link>
         <button className="danger" onClick={doLogout}>{t("logout")}</button>
       </div>
     </div>
@@ -154,6 +153,7 @@ export default function Profile() {
 
 // Profile photo: upload a file or capture one with the device camera.
 function ProfilePhoto({ detail, onSaved }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [cam, setCam] = useState(false);
@@ -205,7 +205,7 @@ function ProfilePhoto({ detail, onSaved }) {
       streamRef.current = stream;
       setCam(true);
       setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 50);
-    } catch { setErr("Couldn't open the camera. Upload a photo instead."); }
+    } catch { setErr(t("pf_cam_err")); }
   }
 
   function stopCam() {
@@ -242,8 +242,8 @@ function ProfilePhoto({ detail, onSaved }) {
           <video ref={videoRef} playsInline muted
                  style={{ width: 120, height: 120, objectFit: "cover", borderRadius: "50%", background: "#000" }} />
           <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6 }}>
-            <button onClick={capture} disabled={busy}>Capture</button>
-            <button className="ghost" onClick={stopCam}>Cancel</button>
+            <button onClick={capture} disabled={busy}>{t("pf_capture")}</button>
+            <button className="ghost" onClick={stopCam}>{t("pf_cancel")}</button>
           </div>
         </div>
       ) : (
@@ -253,21 +253,21 @@ function ProfilePhoto({ detail, onSaved }) {
             background: "var(--line, #e5e7eb)", display: "flex", alignItems: "center",
             justifyContent: "center", fontSize: 28, margin: "0 auto",
           }}>
-            {src ? <img src={src} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🧑‍🌾"}
+            {src ? <img src={src} alt={t("pf_profile_alt")} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "🧑‍🌾"}
           </div>
           <div className="row" style={{ justifyContent: "center", marginTop: 6, gap: 6, flexWrap: "wrap" }}>
             <label className="btn ghost" style={{ cursor: "pointer", fontSize: 12, padding: "4px 8px" }}>
-              {busy ? "…" : "Upload"}
+              {busy ? "…" : t("pf_upload")}
               <input type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} disabled={busy} />
             </label>
             <button type="button" className="ghost" style={{ fontSize: 12, padding: "4px 8px" }}
                     onClick={takePhoto} disabled={busy}>
-              Take photo
+              {t("pf_take_photo")}
             </button>
             {src && (
               <button type="button" className="ghost" style={{ fontSize: 12, padding: "4px 8px", color: "#dc2626" }}
                       onClick={removePhoto} disabled={busy}>
-                Remove
+                {t("pf_remove")}
               </button>
             )}
             {/* Fallback input used when the live webcam isn't available */}
@@ -276,7 +276,7 @@ function ProfilePhoto({ detail, onSaved }) {
           </div>
           {!webcamOk && !isMobile && (
             <div className="muted" style={{ fontSize: 11, marginTop: 4, maxWidth: 180, marginInline: "auto" }}>
-              Live camera needs HTTPS or localhost — on the LAN link it opens file upload.
+              {t("pf_cam_https")}
             </div>
           )}
           {err && <div className="error" style={{ fontSize: 12, marginTop: 4 }}>{err}</div>}
@@ -287,6 +287,7 @@ function ProfilePhoto({ detail, onSaved }) {
 }
 
 function PayoutCard() {
+  const { t } = useI18n();
   const [acc, setAcc] = useState(null);
   const [form, setForm] = useState({ method: "upi", upi_id: "", account_name: "", account_number: "", ifsc: "" });
   const [msg, setMsg] = useState(null);
@@ -307,56 +308,57 @@ function PayoutCard() {
         ? { method: "upi", upi_id: form.upi_id }
         : { method: "bank", account_name: form.account_name, account_number: form.account_number, ifsc: form.ifsc };
       const r = await api("/auth/payout-account", { method: "PUT", body });
-      setAcc(r.account); setMsg("Payout details saved.");
+      setAcc(r.account); setMsg(t("pf_payout_saved"));
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
 
   return (
     <>
-      <h2>Payout details</h2>
+      <h2>{t("pf_payout_title")}</h2>
       <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
-        Where we send your money. {acc ? (acc.verified ? "Verified." : "Pending verification.") : "Not set up yet."}
+        {t("pf_payout_help")} {acc ? (acc.verified ? t("pf_verified") : t("pf_pending_verify")) : t("pf_not_setup")}
       </p>
       <form className="card" onSubmit={save}>
         {acc && acc.method === "bank" && acc.account_number_masked && (
-          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>On file: bank {acc.account_number_masked} · {acc.ifsc}</div>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>{t("pf_on_file_bank")} {acc.account_number_masked} · {acc.ifsc}</div>
         )}
         {acc && acc.method === "upi" && acc.upi_id && (
-          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>On file: UPI {acc.upi_id}</div>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>{t("pf_on_file_upi")} {acc.upi_id}</div>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-          {[["upi", "UPI"], ["bank", "Bank account"]].map(([m, label]) => (
+          {[["upi", t("pf_upi")], ["bank", t("pf_bank_account")]].map(([m, label]) => (
             <button type="button" key={m} className={form.method === m ? "" : "ghost"}
                     onClick={() => setForm((f) => ({ ...f, method: m }))}>{label}</button>
           ))}
         </div>
         {form.method === "upi" ? (
-          <label className="muted" style={{ fontSize: 13 }}>UPI ID
+          <label className="muted" style={{ fontSize: 13 }}>{t("pf_upi_id")}
             <input value={form.upi_id} placeholder="name@bank"
                    onChange={(e) => setForm((f) => ({ ...f, upi_id: e.target.value }))} />
           </label>
         ) : (
           <div className="form-grid">
-            <label>Account holder
+            <label>{t("pf_account_holder")}
               <input value={form.account_name} onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))} />
             </label>
-            <label>Account number
+            <label>{t("pf_account_number")}
               <input value={form.account_number} onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))} />
             </label>
-            <label>IFSC
+            <label>{t("pf_ifsc")}
               <input value={form.ifsc} maxLength={11} onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value.toUpperCase() }))} />
             </label>
           </div>
         )}
         {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
         {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
-        <button type="submit" disabled={busy} style={{ marginTop: 10 }}>Save payout details</button>
+        <button type="submit" disabled={busy} style={{ marginTop: 10 }}>{t("pf_save_payout")}</button>
       </form>
     </>
   );
 }
 
 function AddressesCard() {
+  const { t } = useI18n();
   const [list, setList] = useState([]);
   const [addr, setAddr] = useState(null);       // from AddressPicker
   const [isDefault, setIsDefault] = useState(false);
@@ -369,7 +371,7 @@ function AddressesCard() {
 
   async function add(e) {
     e.preventDefault(); setErr(null);
-    if (!addr?.mandal_id) { setErr("Move the map to your location so we can find your area."); return; }
+    if (!addr?.mandal_id) { setErr(t("pf_addr_need_loc")); return; }
     setBusy(true);
     try {
       await api("/auth/addresses", { method: "POST", body: {
@@ -390,33 +392,33 @@ function AddressesCard() {
 
   return (
     <>
-      <h2>Delivery addresses</h2>
-      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>Saved addresses speed up ordering and reorders.</p>
+      <h2>{t("pf_addresses_title")}</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>{t("pf_addresses_help")}</p>
       {list.length > 0 && (
         <div className="card" style={{ marginBottom: 10 }}>
           {list.map((a) => (
             <div key={a.id} className="between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 8 }}>
               <div>
-                <b>{labelIcon(a.label)} {a.label}</b>{a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>default</span>}
+                <b>{labelIcon(a.label)} {a.label}</b>{a.is_default && <span className="badge green" style={{ marginLeft: 6 }}>{t("pf_default")}</span>}
                 <div className="muted" style={{ fontSize: 13 }}>{a.address_line ? `${a.address_line} · ` : ""}{a.mandal}</div>
               </div>
-              <button className="ghost" onClick={() => remove(a.id)}>Remove</button>
+              <button className="ghost" onClick={() => remove(a.id)}>{t("pf_remove")}</button>
             </div>
           ))}
         </div>
       )}
       {!adding ? (
-        <button className="ghost" onClick={() => setAdding(true)}>➕ Add a new address</button>
+        <button className="ghost" onClick={() => setAdding(true)}>{t("pf_add_address")}</button>
       ) : (
         <form className="card" onSubmit={add}>
           <AddressPicker autoLocate showServiceability={false} onChange={setAddr} />
           <label className="chk" style={{ marginTop: 10 }}>
-            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> Set as default
+            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> {t("pf_set_default")}
           </label>
           {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
           <div className="row" style={{ marginTop: 10, gap: 8 }}>
-            <button type="submit" disabled={busy}>Save address</button>
-            <button type="button" className="ghost" onClick={() => { setAdding(false); setAddr(null); }}>Cancel</button>
+            <button type="submit" disabled={busy}>{t("pf_save_address")}</button>
+            <button type="button" className="ghost" onClick={() => { setAdding(false); setAddr(null); }}>{t("pf_cancel")}</button>
           </div>
         </form>
       )}
@@ -426,16 +428,20 @@ function AddressesCard() {
 
 // Government photo-ID proof for identity verification: upload / view / remove.
 const ID_TYPES = [
-  ["aadhaar", "Aadhaar card"], ["pan", "PAN card"], ["voter_id", "Voter ID"],
-  ["driving_licence", "Driving licence"], ["passport", "Passport"], ["other", "Other govt ID"],
+  ["aadhaar", "idt_aadhaar"], ["pan", "idt_pan"], ["voter_id", "idt_voter_id"],
+  ["driving_licence", "idt_driving_licence"], ["passport", "idt_passport"], ["other", "idt_other"],
 ];
 
 function IdProofCard({ detail, onChange }) {
+  const { t } = useI18n();
   const [docType, setDocType] = useState("aadhaar");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const docs = detail?.id_documents || [];
-  const typeLabel = (k) => (ID_TYPES.find((t) => t[0] === k)?.[1] || "Govt ID");
+  const typeLabel = (k) => {
+    const found = ID_TYPES.find((x) => x[0] === k);
+    return found ? t(found[1]) : t("idt_govt");
+  };
 
   async function onFile(e) {
     const file = e.target.files?.[0];
@@ -451,7 +457,7 @@ function IdProofCard({ detail, onChange }) {
   }
 
   async function remove(object_key) {
-    if (!confirm("Remove this ID proof?")) return;
+    if (!confirm(t("pf_id_remove_confirm"))) return;
     setErr(null); setBusy(true);
     try {
       const d = await api("/auth/me/id-proof", { method: "DELETE", body: { object_key } });
@@ -461,10 +467,9 @@ function IdProofCard({ detail, onChange }) {
 
   return (
     <>
-      <h2>Identity verification</h2>
+      <h2>{t("pf_id_title")}</h2>
       <p className="muted" style={{ fontSize: 14, marginTop: -8 }}>
-        Submit a government photo ID (Aadhaar, PAN, Voter ID, etc.) so our team can verify you.
-        Your documents are private — visible only to you and the verification team.
+        {t("pf_id_help")}
       </p>
       <div className="card">
         {docs.length > 0 ? (
@@ -476,30 +481,30 @@ function IdProofCard({ detail, onChange }) {
                   <div>
                     <b>{typeLabel(d.doc_type)}</b>
                     <div className="muted" style={{ fontSize: 12 }}>
-                      {d.uploaded_at ? `Uploaded ${new Date(d.uploaded_at).toLocaleDateString()}` : "Uploaded"}
+                      {d.uploaded_at ? `${t("pf_id_uploaded")} ${new Date(d.uploaded_at).toLocaleDateString()}` : t("pf_id_uploaded")}
                     </div>
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
                   {d.url && <a className="btn ghost" href={absUrl(d.url)} target="_blank" rel="noreferrer"
-                               style={{ fontSize: 12, padding: "4px 10px" }}>View</a>}
+                               style={{ fontSize: 12, padding: "4px 10px" }}>{t("pf_id_view")}</a>}
                   <button className="ghost" style={{ fontSize: 12, padding: "4px 10px", color: "#dc2626" }}
-                          onClick={() => remove(d.object_key)} disabled={busy}>Remove</button>
+                          onClick={() => remove(d.object_key)} disabled={busy}>{t("pf_remove")}</button>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="muted" style={{ fontSize: 13 }}>No ID submitted yet.</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t("pf_id_none")}</p>
         )}
         <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <label style={{ flex: "0 1 200px" }}>ID type
+          <label style={{ flex: "0 1 200px" }}>{t("pf_id_type")}
             <select value={docType} onChange={(e) => setDocType(e.target.value)}>
-              {ID_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {ID_TYPES.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
             </select>
           </label>
           <label className="btn ghost" style={{ cursor: "pointer" }}>
-            {busy ? "Uploading…" : "📎 Upload ID photo / PDF"}
+            {busy ? t("pf_id_uploading") : t("pf_id_upload")}
             <input type="file" accept="image/*,application/pdf" style={{ display: "none" }}
                    onChange={onFile} disabled={busy} />
           </label>
