@@ -40,7 +40,7 @@ export default function Inbox() {
   if (!me) {
     return (
       <div>
-        <p className="muted">Log in to see your inbox.</p>
+        <p className="muted">{t("ib_login")}</p>
         <Link href="/login" className="btn">{t("login")}</Link>
       </div>
     );
@@ -57,12 +57,12 @@ export default function Inbox() {
     <div style={{ maxWidth: 760 }}>
       <div className="between">
         <h1>{t("inbox")} {unreadCount > 0 && <span className="badge amber">{unreadCount}</span>}</h1>
-        {unreadCount > 0 && <button className="ghost" onClick={markAllRead}>Mark all read</button>}
+        {unreadCount > 0 && <button className="ghost" onClick={markAllRead}>{t("ib_mark_all_read")}</button>}
       </div>
       {err && <div className="error">{err}</div>}
 
       <div className="row" style={{ gap: 8, marginBottom: 12 }}>
-        {[["all", "All"], ["announcements", "📢 Announcements"], ["unread", "Unread"]].map(([k, label]) => (
+        {[["all", t("ib_all")], ["announcements", t("ib_announcements")], ["unread", t("ib_unread")]].map(([k, label]) => (
           <button key={k} className={filter === k ? "" : "ghost"} onClick={() => setFilter(k)}>{label}</button>
         ))}
       </div>
@@ -70,7 +70,7 @@ export default function Inbox() {
       {shown.length === 0 ? (
         <div className="empty">
           <span className="emoji">📭</span>
-          <p>{filter === "all" ? "No messages yet." : "Nothing in this filter."}</p>
+          <p>{filter === "all" ? t("ib_no_messages") : t("ib_nothing_filter")}</p>
         </div>
       ) : (
         <ul className="timeline">
@@ -85,11 +85,11 @@ export default function Inbox() {
               }}>
                 <div className="between">
                   <b>{isAnn ? "📢 " : ""}{n.title}</b>
-                  {!n.read_at && <span className="badge amber" style={{ fontSize: 11 }}>new</span>}
+                  {!n.read_at && <span className="badge amber" style={{ fontSize: 11 }}>{t("ib_new")}</span>}
                 </div>
                 <div>{n.body}</div>
                 <small className="muted">{n.created_at ? new Date(n.created_at).toLocaleString() : ""}</small>
-                {href && <> · <Link href={href}>Open</Link></>}
+                {href && <> · <Link href={href}>{t("ib_open")}</Link></>}
               </li>
             );
           })}

@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
 
 import { api, getUser } from "../../lib/api";
+import { useI18n } from "../../lib/i18n";
 import { roleGate } from "../../lib/roles";
 
 const STAFF = ["field_agent", "field_leader", "field_manager", "transport", "superadmin"];
@@ -18,6 +19,7 @@ function loadScript(src) {
 }
 
 export default function BagLabels() {
+  const { t } = useI18n();
   const router = useRouter();
   const { orderId } = router.query;
   const [me, setMe] = useState(null);
@@ -79,26 +81,26 @@ export default function BagLabels() {
       }`}</style>
 
       <div className="no-print">
-        <h1>Bag labels</h1>
-        <p className="tagline">Order #{orderId}{meta?.order_public_id ? ` · ${meta.order_public_id}` : ""}</p>
+        <h1>{t("bg_title")}</h1>
+        <p className="tagline">{t("bg_order")} #{orderId}{meta?.order_public_id ? ` · ${meta.order_public_id}` : ""}</p>
         {err && <div className="error">{err}</div>}
         {bags.length === 0 ? (
           CAN_GENERATE.includes(me.role) ? (
             <div className="card">
-              <h3 style={{ marginTop: 0 }}>No bags yet — generate them</h3>
+              <h3 style={{ marginTop: 0 }}>{t("bg_no_bags_gen")}</h3>
               <div className="row" style={{ gap: 6 }}>
-                <label>How many bags?
+                <label>{t("bg_how_many")}
                   <input type="number" min={1} max={200} value={count}
                          onChange={(e) => setCount(e.target.value)} style={{ width: 90 }} />
                 </label>
-                <button disabled={busy} onClick={generate} style={{ alignSelf: "flex-end" }}>Generate bags</button>
+                <button disabled={busy} onClick={generate} style={{ alignSelf: "flex-end" }}>{t("bg_generate")}</button>
               </div>
             </div>
-          ) : <p className="muted">No bags generated for this order yet.</p>
+          ) : <p className="muted">{t("bg_no_bags")}</p>
         ) : (
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-            <button onClick={() => window.print()}>🖨️ Print labels</button>
-            <span className="muted" style={{ alignSelf: "center" }}>{bags.length} bags</span>
+            <button onClick={() => window.print()}>{t("bg_print")}</button>
+            <span className="muted" style={{ alignSelf: "center" }}>{bags.length} {t("bg_bags")}</span>
           </div>
         )}
       </div>
@@ -107,14 +109,14 @@ export default function BagLabels() {
         {bags.map((b) => (
           <div key={b.bag_code} className="bag-label card" style={{ border: "1px solid #000", padding: 12 }}>
             <div className="between">
-              <b style={{ fontSize: 15 }}>{meta?.commodity || "Produce"}{meta?.variety ? ` (${meta.variety})` : ""}</b>
+              <b style={{ fontSize: 15 }}>{meta?.commodity || t("tk_produce")}{meta?.variety ? ` (${meta.variety})` : ""}</b>
               <span>{b.weight ? `${b.weight} kg` : ""}</span>
             </div>
             <div style={{ fontSize: 13, marginTop: 4 }}>
-              <div><b>Farmer:</b> {meta?.farmer_name || "—"}{meta?.farmer_village ? `, ${meta.farmer_village}` : ""}</div>
-              <div><b>Order:</b> {meta?.order_public_id || `#${orderId}`} · Bag {b.bag_no}</div>
-              {meta?.destination && <div><b>Destination:</b> {meta.destination}</div>}
-              <div><b>Date:</b> {today}</div>
+              <div><b>{t("bg_farmer")}</b> {meta?.farmer_name || "—"}{meta?.farmer_village ? `, ${meta.farmer_village}` : ""}</div>
+              <div><b>{t("bg_order_label")}</b> {meta?.order_public_id || `#${orderId}`} · {t("bg_bag")} {b.bag_no}</div>
+              {meta?.destination && <div><b>{t("bg_destination")}</b> {meta.destination}</div>}
+              <div><b>{t("bg_date")}</b> {today}</div>
             </div>
             <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               <div ref={(el) => { if (el) qrRefs.current[b.bag_code] = el; }} />

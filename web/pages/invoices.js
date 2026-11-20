@@ -33,7 +33,7 @@ export default function Invoices() {
     <div>
       <h1>{t("invoices")}</h1>
       <p className="muted" style={{ fontSize: 14 }}>
-        Download a PDF invoice (or receipt, once paid) for any order with a confirmed quote.
+        {t("iv_intro")}
       </p>
       {err && <div className="error">{err}</div>}
       {loading ? (
@@ -41,13 +41,13 @@ export default function Invoices() {
       ) : billable.length === 0 ? (
         <div className="empty">
           <span className="emoji">🧾</span>
-          <p>No invoices yet — they appear once an order’s quote is confirmed.</p>
-          <Link href="/" className="btn">Browse the market</Link>
+          <p>{t("iv_empty")}</p>
+          <Link href="/" className="btn">{t("browse_market")}</Link>
         </div>
       ) : (
         <table>
           <thead>
-            <tr><th>Order</th><th>Amount</th><th>{t("status")}</th><th>Document</th></tr>
+            <tr><th>{t("iv_col_order")}</th><th>{t("iv_col_amount")}</th><th>{t("status")}</th><th>{t("iv_col_document")}</th></tr>
           </thead>
           <tbody>
             {billable.map((o) => {
@@ -56,12 +56,12 @@ export default function Invoices() {
                 <tr key={o.id}>
                   <td><Link href={`/order/${o.id}`}>{o.public_id}</Link></td>
                   <td>₹{o.buyer_total || o.quote.buyer_total}</td>
-                  <td><span className="badge grey">{o.status.replace(/_/g, " ")}</span></td>
+                  <td><span className="badge grey">{t("st_" + o.status)}</span></td>
                   <td>
                     <button className="ghost" onClick={() =>
                       downloadFile(`/orders/${o.id}/invoice.pdf`, `kissansetu-invoice-${o.public_id}.pdf`)
                         .catch((e) => setErr(e.message))}>
-                      ⬇ {paid ? "Receipt" : "Invoice"} (PDF)
+                      ⬇ {paid ? t("iv_receipt") : t("iv_invoice")} (PDF)
                     </button>
                   </td>
                 </tr>

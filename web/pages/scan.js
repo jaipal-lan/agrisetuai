@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, getUser } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import { roleGate } from "../lib/roles";
 
 const SCAN_ROLES = ["field_agent", "field_leader", "field_manager", "transport", "superadmin"];
 
-// Which stages each role may scan (mirrors backend STAGE_ROLES).
+// Which stages each role may scan (mirrors backend STAGE_ROLES). Labels are i18n keys.
 const STAGES_FOR = {
-  field_agent: [["pickup", "Pickup from farmer"]],
-  field_leader: [["pickup", "Pickup from farmer"], ["collection", "Collection centre"]],
-  field_manager: [["pickup", "Pickup from farmer"], ["collection", "Collection centre"],
-                  ["loading", "Loading / in transit"], ["delivery", "Delivery"]],
-  superadmin: [["pickup", "Pickup from farmer"], ["collection", "Collection centre"],
-               ["loading", "Loading / in transit"], ["delivery", "Delivery"]],
-  transport: [["loading", "Loading / in transit"], ["delivery", "Delivery"]],
+  field_agent: [["pickup", "sc_stage_pickup"]],
+  field_leader: [["pickup", "sc_stage_pickup"], ["collection", "sc_stage_collection"]],
+  field_manager: [["pickup", "sc_stage_pickup"], ["collection", "sc_stage_collection"],
+                  ["loading", "sc_stage_loading"], ["delivery", "sc_stage_delivery"]],
+  superadmin: [["pickup", "sc_stage_pickup"], ["collection", "sc_stage_collection"],
+               ["loading", "sc_stage_loading"], ["delivery", "sc_stage_delivery"]],
+  transport: [["loading", "sc_stage_loading"], ["delivery", "sc_stage_delivery"]],
 };
 
 const HTML5_QRCODE = "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js";
@@ -28,6 +29,7 @@ function loadScript(src) {
 }
 
 export default function Scan() {
+  const { t } = useI18n();
   const [me, setMe] = useState(null);
   const [stage, setStage] = useState("");
   const [code, setCode] = useState("");
@@ -76,7 +78,7 @@ export default function Scan() {
     for (const it of q) {
       try {
         await api("/bags/scan", { method: "POST", body: it });
-        addResult(true, `${it.bag_code}: synced (${it.stage})`);
+        addResult(true, `${it.bag_code}: ${t("sc_synced")} (${it.stage})`);
       } catch (e) {
         if (e.status) addResult(false, `${it.bag_code}: ${e.message}`); // server rejected -> drop
         else keep.push(it); // still offline -> keep
@@ -95,11 +97,11 @@ export default function Scan() {
     const item = { bag_code: c, stage, lat: geo?.lat, lng: geo?.lng };
     try {
       const r = await api("/bags/scan", { method: "POST", body: item });
-      addResult(true, r.message || `${c}: scanned`);
+      addResult(true, r.message || `${c}: ${t("sc_scanned")}`);
     } catch (e) {
       if (e.status === undefined) {
         const q = readQ(); q.push(item); writeQ(q);
-        addResult(true, `${c}: saved offline — will sync when online`);
+        addResult(true, `${c}: ${t("sc_saved_offline")}`);
       } else {
         addResult(false, `${c}: ${e.message}`);
       }
@@ -112,7 +114,7 @@ export default function Scan() {
 
   async function startCam() {
     setCamErr(null);
-    if (!webcamOk) { setCamErr("Live camera needs HTTPS or localhost. Use manual entry below."); return; }
+    if (!webcamOk) { setCamErr(t("sc_cam_https")); return; }
     try {
       await loadScript(HTML5_QRCODE);
       const { Html5Qrcode } = window;
@@ -128,7 +130,7 @@ export default function Scan() {
           doScan(decoded);
         }, () => {});
     } catch (e) {
-      setCamErr("Couldn't start the camera. Use manual entry below.");
+      setCamErr(t("sc_cam_fail"));
       setCamOn(false);
     }
   }
@@ -151,32 +153,32 @@ export default function Scan() {
 
   return (
     <div style={{ maxWidth: 520, margin: "0 auto" }}>
-      <h1>Scan bags</h1>
-      <p className="tagline">Scan each bag's barcode/QR to update its status.</p>
+      <h1>{t("sc_title")}</h1>
+      <p className="tagline">{t("sc_intro")}</p>
 
       {pending > 0 && (
         <div className="card" style={{ borderLeft: "4px solid var(--amber-600)" }}>
           <div className="between">
-            <span><b>{pending}</b> scan(s) saved offline, waiting to sync.</span>
-            <button className="ghost" onClick={syncQueue}>Sync now</button>
+            <span><b>{pending}</b> {t("sc_offline_waiting")}</span>
+            <button className="ghost" onClick={syncQueue}>{t("ag_sync_now")}</button>
           </div>
         </div>
       )}
 
       <div className="card">
-        <label>Stage</label>
+        <label>{t("sc_stage")}</label>
         <select value={stage} onChange={(e) => setStage(e.target.value)}>
-          {stages.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          {stages.map(([v, label]) => <option key={v} value={v}>{t(label)}</option>)}
         </select>
 
         <div style={{ marginTop: 12 }}>
           {!camOn ? (
-            <button onClick={startCam} disabled={busy}>📷 Scan with camera</button>
+            <button onClick={startCam} disabled={busy}>{t("sc_scan_camera")}</button>
           ) : (
             <div className="row" style={{ gap: 6 }}>
-              <button className="ghost" onClick={() => torch(true)}>🔦 Torch on</button>
-              <button className="ghost" onClick={() => torch(false)}>Torch off</button>
-              <button className="danger" onClick={stopCam}>Stop camera</button>
+              <button className="ghost" onClick={() => torch(true)}>{t("sc_torch_on")}</button>
+              <button className="ghost" onClick={() => torch(false)}>{t("sc_torch_off")}</button>
+              <button className="danger" onClick={stopCam}>{t("sc_stop_cam")}</button>
             </div>
           )}
           {camErr && <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>{camErr}</div>}
@@ -184,24 +186,24 @@ export default function Scan() {
         </div>
 
         <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-          <label>Or enter the barcode manually</label>
+          <label>{t("sc_manual")}</label>
           <div className="row" style={{ gap: 6 }}>
             <input value={code} onChange={(e) => setCode(e.target.value)}
                    placeholder="AGRI-1023-BAG-01" style={{ flex: 1 }}
                    onKeyDown={(e) => e.key === "Enter" && doScan(code)} />
-            <button disabled={busy || !code.trim()} onClick={() => doScan(code)}>Scan</button>
+            <button disabled={busy || !code.trim()} onClick={() => doScan(code)}>{t("sc_scan")}</button>
           </div>
-          {geo && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>📍 Location captured for this scan.</div>}
+          {geo && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{t("sc_loc_captured")}</div>}
         </div>
       </div>
 
       {results.length > 0 && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Recent scans</h3>
+          <h3 style={{ marginTop: 0 }}>{t("sc_recent")}</h3>
           <div style={{ display: "grid", gap: 6 }}>
             {results.map((r, i) => (
               <div key={i} style={{ fontSize: 14 }}>
-                <span className={`badge ${r.ok ? "green" : "amber"}`}>{r.ok ? "OK" : "!"}</span>{" "}
+                <span className={`badge ${r.ok ? "green" : "amber"}`}>{r.ok ? t("sc_ok") : "!"}</span>{" "}
                 <span className="muted" style={{ fontSize: 12 }}>{r.t}</span> — {r.text}
               </div>
             ))}

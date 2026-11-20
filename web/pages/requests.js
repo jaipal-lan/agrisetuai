@@ -11,6 +11,7 @@ const AGENT_ROLES = ["field_agent", "field_leader", "field_manager", "superadmin
 
 // Inline "offer into this RFQ" form for sellers.
 function SellerOffer({ rfq }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState(rfq.price_max || rfq.target_price || "");
   const [qty, setQty] = useState(rfq.requested_qty);
@@ -29,7 +30,7 @@ function SellerOffer({ rfq }) {
     } catch (e) { setErr(e.message); setBusy(false); }
   }
 
-  if (!open) return <button className="ghost" onClick={() => setOpen(true)}>Offer</button>;
+  if (!open) return <button className="ghost" onClick={() => setOpen(true)}>{t("rq_offer")}</button>;
   return (
     <div style={{ marginTop: 10 }}>
       {err && <div className="error">{err}</div>}
@@ -39,11 +40,11 @@ function SellerOffer({ rfq }) {
           <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
         </div>
         <div style={{ flex: 1 }}>
-          <label>Quantity {rfq.unit}</label>
+          <label>{t("quantity")} {rfq.unit}</label>
           <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" />
         </div>
         <div style={{ alignSelf: "flex-end" }}>
-          <button disabled={busy || !price || !qty} onClick={submit}>Send offer</button>
+          <button disabled={busy || !price || !qty} onClick={submit}>{t("rq_send_offer")}</button>
         </div>
       </div>
     </div>
@@ -52,6 +53,7 @@ function SellerOffer({ rfq }) {
 
 // Shared request activity + comment thread (buyer, farmers, agents).
 function RfqThread({ rfqId }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState(null);
   const [text, setText] = useState("");
@@ -75,13 +77,13 @@ function RfqThread({ rfqId }) {
   return (
     <div style={{ marginTop: 10 }}>
       <button className="ghost" style={{ fontSize: 13, padding: "3px 8px" }} onClick={() => setOpen((o) => !o)}>
-        💬 {open ? "Hide" : "Activity & comments"}
+        💬 {open ? t("rq_hide") : t("rq_activity")}
       </button>
       {open && (
         <div style={{ marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
           {err && <div className="error">{err}</div>}
-          {rows === null ? <p className="muted" style={{ fontSize: 13 }}>Loading…</p> : (
-            rows.length === 0 ? <p className="muted" style={{ fontSize: 13 }}>No activity yet.</p> : (
+          {rows === null ? <p className="muted" style={{ fontSize: 13 }}>{t("loading")}</p> : (
+            rows.length === 0 ? <p className="muted" style={{ fontSize: 13 }}>{t("rq_no_activity")}</p> : (
               <div style={{ display: "grid", gap: 6, maxHeight: 220, overflowY: "auto" }}>
                 {rows.map((c) => (
                   <div key={c.id} style={{ fontSize: 13 }}>
@@ -98,9 +100,9 @@ function RfqThread({ rfqId }) {
             )
           )}
           <div className="row" style={{ gap: 6, marginTop: 8 }}>
-            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment…"
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={t("rq_add_comment_ph")}
                    style={{ flex: 1 }} onKeyDown={(e) => e.key === "Enter" && send()} />
-            <button disabled={busy || !text.trim()} onClick={send}>Post</button>
+            <button disabled={busy || !text.trim()} onClick={send}>{t("rq_post")}</button>
           </div>
         </div>
       )}
@@ -190,7 +192,7 @@ export default function Requests() {
         source_mandal_ids: form.source_mandal_ids.length ? form.source_mandal_ids : undefined,
         note: form.note || undefined,
       } });
-      setMsg("Request posted. Nearby farmers and agents have been alerted.");
+      setMsg(t("rq_posted"));
       setForm({ commodity_id: "", requested_qty: "", unit: "kg", price_min: "", price_max: "", needed_by: "", note: "", source_mandal_ids: [] });
       load(me.role);
     } catch (e) { setErr(e.message); }
@@ -199,6 +201,9 @@ export default function Requests() {
   const gate = roleGate(me, [...GROUPS.shopper, ...AGENT_ROLES], { label: "requests (RFQ)" });
   if (gate) return gate;
 
+  const rfqStatus = (s) => ({ open: t("rqs_open"), closed: t("rqs_closed"), fulfilled: t("rqs_fulfilled"),
+    expired: t("rqs_expired"), cancelled: t("rqs_cancelled") }[s] || s);
+
   const shownMandals = mandals.filter((m) =>
     !areaFilter || m.name.toLowerCase().includes(areaFilter.toLowerCase()));
 
@@ -206,15 +211,14 @@ export default function Requests() {
     <div>
       <h1>{t("requests")}</h1>
       <p className="tagline">
-        {isShopper ? "Post what you need; nearby farmers and agents are alerted and come to you."
-          : "Open buyer requests you can help source."}
+        {isShopper ? t("rq_shopper_tag") : t("rq_agent_tag")}
       </p>
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
       {isShopper && (
         <div className="card">
-          <h3>New request (RFQ)</h3>
+          <h3>{t("rq_new_rfq")}</h3>
           <div className="form-grid">
             <label>{t("commodity")}
               <select value={form.commodity_id} onChange={(e) => set("commodity_id", e.target.value)}>
@@ -227,7 +231,7 @@ export default function Requests() {
             <label>{t("quantity")}
               <input value={form.requested_qty} onChange={(e) => set("requested_qty", e.target.value)} inputMode="decimal" />
             </label>
-            <label>Unit
+            <label>{t("ag_unit")}
               <select value={form.unit} onChange={(e) => set("unit", e.target.value)}>
                 <option value="kg">kg</option>
                 <option value="quintal">quintal</option>
@@ -243,35 +247,35 @@ export default function Requests() {
             <div className="card" style={{ background: "var(--card-alt, #f3f4f6)", margin: "10px 0", padding: 12 }}>
               {marketRef ? (
                 <div style={{ fontSize: 14 }}>
-                  📊 Today's mandi price for <b>{marketRef.name}</b>:{" "}
+                  {t("rq_mandi_pre")} <b>{marketRef.name}</b>:{" "}
                   <b>₹{marketRef.kgMin}–{marketRef.kgMax}/kg</b>{" "}
-                  <span className="muted">(₹{marketRef.qtlMin}–{marketRef.qtlMax}/qtl · AGMARKNET {marketRef.as_of})</span>
+                  <span className="muted">(₹{marketRef.qtlMin}–{marketRef.qtlMax}{t("rq_qtl")} · AGMARKNET {marketRef.as_of})</span>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                    A reference only — set your target band below.
+                    {t("rq_ref_only")}
                   </div>
                 </div>
               ) : (
-                <div className="muted" style={{ fontSize: 13 }}>No government mandi price available for this product today.</div>
+                <div className="muted" style={{ fontSize: 13 }}>{t("rq_no_mandi")}</div>
               )}
             </div>
           )}
 
           <div className="form-grid">
-            <label>Target price min (₹/{form.unit})
+            <label>{t("rq_target_min")} (₹/{form.unit})
               <input value={form.price_min} onChange={(e) => set("price_min", e.target.value)} inputMode="decimal" />
             </label>
-            <label>Target price max (₹/{form.unit})
+            <label>{t("rq_target_max")} (₹/{form.unit})
               <input value={form.price_max} onChange={(e) => set("price_max", e.target.value)} inputMode="decimal" />
             </label>
-            <label>Needed by
+            <label>{t("rq_needed_by")}
               <input type="date" value={form.needed_by} min={new Date().toISOString().slice(0, 10)}
                      onChange={(e) => set("needed_by", e.target.value)} />
             </label>
           </div>
 
-          <label style={{ display: "block", marginTop: 10 }}>Which areas do you want it from? (optional)</label>
+          <label style={{ display: "block", marginTop: 10 }}>{t("rq_areas_q")}</label>
           <input value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}
-                 placeholder="Filter areas…" style={{ maxWidth: 260, marginBottom: 6 }} />
+                 placeholder={t("rq_filter_areas")} style={{ maxWidth: 260, marginBottom: 6 }} />
           <div style={{ maxHeight: 150, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 8 }}>
             <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
               {shownMandals.map((m) => (
@@ -280,16 +284,16 @@ export default function Requests() {
                          onChange={() => toggleArea(m.id)} /> {m.name}
                 </label>
               ))}
-              {shownMandals.length === 0 && <span className="muted" style={{ fontSize: 13 }}>No areas match.</span>}
+              {shownMandals.length === 0 && <span className="muted" style={{ fontSize: 13 }}>{t("rq_no_areas_match")}</span>}
             </div>
           </div>
           {form.source_mandal_ids.length > 0 && (
             <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Selected: {form.source_mandal_ids.map((id) => mmap[id]).filter(Boolean).join(", ")}
+              {t("rq_selected")} {form.source_mandal_ids.map((id) => mmap[id]).filter(Boolean).join(", ")}
             </div>
           )}
           <details style={{ marginTop: 8 }}>
-            <summary style={{ cursor: "pointer", fontSize: 14 }}>📍 Add an area by tapping the map</summary>
+            <summary style={{ cursor: "pointer", fontSize: 14 }}>{t("rq_add_area_map")}</summary>
             <div style={{ marginTop: 8 }}>
               <MapPicker onChange={async (ll) => {
                 try {
@@ -301,20 +305,20 @@ export default function Requests() {
             </div>
           </details>
 
-          <label style={{ display: "block", marginTop: 10 }}>Note (optional)
+          <label style={{ display: "block", marginTop: 10 }}>{t("tm_note_opt")}
             <input value={form.note} onChange={(e) => set("note", e.target.value)}
-                   placeholder="Quality, packing, timing…" />
+                   placeholder={t("rq_note_ph")} />
           </label>
 
           <div style={{ marginTop: 16 }}>
-            <button onClick={createRfq} disabled={!form.commodity_id || !form.requested_qty}>Post request</button>
+            <button onClick={createRfq} disabled={!form.commodity_id || !form.requested_qty}>{t("rq_post_request")}</button>
           </div>
         </div>
       )}
 
-      <h2>{isShopper ? "My requests" : "Open requests"}{isAgent && " to help source"}</h2>
+      <h2>{isShopper ? t("rq_my_requests") : t("rq_open_requests")}{isAgent && t("rq_to_help_source")}</h2>
       {rfqs.length === 0 ? (
-        <p className="muted">None yet.</p>
+        <p className="muted">{t("sl_none_yet")}</p>
       ) : (
         <div className="grid">
           {rfqs.map((r) => {
@@ -329,16 +333,16 @@ export default function Requests() {
                 <div className="between">
                   <h3>{cname(cmap[r.commodity_id])}</h3>
                   <span className="row" style={{ gap: 4 }}>
-                    {r.escalated && <span className="badge amber">escalated</span>}
-                    <span className={`badge ${r.status === "open" ? "" : "grey"}`}>{r.status}</span>
+                    {r.escalated && <span className="badge amber">{t("rq_escalated")}</span>}
+                    <span className={`badge ${r.status === "open" ? "" : "grey"}`}>{rfqStatus(r.status)}</span>
                   </span>
                 </div>
                 <div className="muted" style={{ fontSize: 14 }}>
-                  Wants <b>{r.requested_qty}</b> {r.unit}
-                  {band ? <> · target {band}</> : null}
+                  {t("rq_wants")} <b>{r.requested_qty}</b> {r.unit}
+                  {band ? <> · {t("rq_target")} {band}</> : null}
                 </div>
-                {areas && <div className="muted" style={{ fontSize: 13 }}>From: {areas}</div>}
-                {r.needed_by && <div className="muted" style={{ fontSize: 13 }}>📅 Needed by: {r.needed_by}</div>}
+                {areas && <div className="muted" style={{ fontSize: 13 }}>{t("rq_from")} {areas}</div>}
+                {r.needed_by && <div className="muted" style={{ fontSize: 13 }}>{t("rq_needed_by_label")} {r.needed_by}</div>}
                 {canOffer && r.status === "open" && <SellerOffer rfq={r} />}
                 <RfqThread rfqId={r.id} />
               </div>

@@ -41,7 +41,7 @@ export default function Support() {
     setMsg(null);
     try {
       await api("/tickets", { method: "POST", body: form });
-      setMsg("Ticket submitted.");
+      setMsg(t("sp_ticket_submitted"));
       setForm({ subject: "", body: "", issue_type: "general" });
       load();
     } catch (e) {
@@ -57,7 +57,7 @@ export default function Support() {
         method: "POST",
         body: { decision, refund_amount },
       });
-      setMsg(`Dispute resolved: ${decision.replace(/_/g, " ")}.`);
+      setMsg(`${t("sp_dispute_resolved")} ${decision.replace(/_/g, " ")}.`);
       load();
     } catch (e) {
       setErr(e.message);
@@ -65,7 +65,7 @@ export default function Support() {
   }
 
   async function partialRefund(id) {
-    const amt = window.prompt("Partial refund amount (₹) to the buyer:");
+    const amt = window.prompt(t("sp_partial_prompt"));
     if (amt === null || amt.trim() === "") return;
     decide(id, "partial_refund", Number(amt));
   }
@@ -73,7 +73,7 @@ export default function Support() {
   if (!me) {
     return (
       <div>
-        <p className="muted">Log in to view support.</p>
+        <p className="muted">{t("sp_login")}</p>
         <Link href="/login" className="btn">{t("login")}</Link>
       </div>
     );
@@ -85,9 +85,9 @@ export default function Support() {
       {err && <div className="error">{err}</div>}
       {msg && <div className="ok">{msg}</div>}
 
-      <h2>Notifications</h2>
+      <h2>{t("pf_notifications")}</h2>
       {notes.length === 0 ? (
-        <p className="muted">No notifications.</p>
+        <p className="muted">{t("sp_no_notifications")}</p>
       ) : (
         <ul className="timeline">
           {notes.map((n) => (
@@ -100,33 +100,33 @@ export default function Support() {
         </ul>
       )}
 
-      <h2>{isOps ? "All tickets" : "My tickets"}</h2>
+      <h2>{isOps ? t("sp_all_tickets") : t("sp_my_tickets")}</h2>
       {!isOps && (
         <div className="card">
-          <h3>Raise a ticket</h3>
-          <label>Subject</label>
+          <h3>{t("sp_raise_ticket")}</h3>
+          <label>{t("sp_subject")}</label>
           <input value={form.subject} onChange={(e) => set("subject", e.target.value)} />
-          <label>Issue type</label>
+          <label>{t("sp_issue_type")}</label>
           <select value={form.issue_type} onChange={(e) => set("issue_type", e.target.value)}>
-            <option value="general">General</option>
-            <option value="quantity">Quantity</option>
-            <option value="quality">Quality</option>
-            <option value="payment">Payment</option>
-            <option value="delivery">Delivery</option>
+            <option value="general">{t("it_general")}</option>
+            <option value="quantity">{t("it_quantity")}</option>
+            <option value="quality">{t("it_quality")}</option>
+            <option value="payment">{t("it_payment")}</option>
+            <option value="delivery">{t("it_delivery")}</option>
           </select>
-          <label>Details</label>
+          <label>{t("sp_details")}</label>
           <textarea rows={3} value={form.body} onChange={(e) => set("body", e.target.value)} />
           <div style={{ marginTop: 12 }}>
-            <button onClick={createTicket} disabled={!form.subject || !form.body}>Submit ticket</button>
+            <button onClick={createTicket} disabled={!form.subject || !form.body}>{t("sp_submit_ticket")}</button>
           </div>
         </div>
       )}
       {tickets.length === 0 ? (
-        <p className="muted">No tickets.</p>
+        <p className="muted">{t("sp_no_tickets")}</p>
       ) : (
         <table>
           <thead>
-            <tr><th>#</th><th>Subject</th><th>Type</th><th>{t("status")}</th></tr>
+            <tr><th>#</th><th>{t("sp_subject")}</th><th>{t("sp_col_type")}</th><th>{t("status")}</th></tr>
           </thead>
           <tbody>
             {tickets.map((tk) => (
@@ -141,9 +141,9 @@ export default function Support() {
         </table>
       )}
 
-      <h2>Disputes</h2>
+      <h2>{t("sp_disputes")}</h2>
       {disputes.length === 0 ? (
-        <p className="muted">No disputes.</p>
+        <p className="muted">{t("sp_no_disputes")}</p>
       ) : (
         <div>
           {disputes.map((d) => {
@@ -153,7 +153,7 @@ export default function Support() {
                 <div className="between">
                   <div>
                     <b>{d.public_id}</b> ·{" "}
-                    <Link href={`/order/${d.order_id}`}>order #{d.order_id}</Link>{" "}
+                    <Link href={`/order/${d.order_id}`}>{t("sp_order")} #{d.order_id}</Link>{" "}
                     <span className="pill-tag">{d.issue_type}</span>
                   </div>
                   <div>
@@ -172,15 +172,15 @@ export default function Support() {
                     ))}
                   </div>
                 )}
-                {d.decision_note && <p className="muted" style={{ marginTop: 6 }}>Resolution note: {d.decision_note}</p>}
+                {d.decision_note && <p className="muted" style={{ marginTop: 6 }}>{t("sp_resolution_note")} {d.decision_note}</p>}
                 {isOps && d.status !== "decided" && (
                   <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-                    <button className="ghost" onClick={() => decide(d.id, "uphold")}>Uphold (no refund)</button>
-                    <button className="ghost" onClick={() => decide(d.id, "reject")}>Reject</button>
+                    <button className="ghost" onClick={() => decide(d.id, "uphold")}>{t("sp_uphold")}</button>
+                    <button className="ghost" onClick={() => decide(d.id, "reject")}>{t("sp_reject")}</button>
                     {canRefund && (
                       <>
-                        <button className="amber" onClick={() => partialRefund(d.id)}>Partial refund…</button>
-                        <button className="amber" onClick={() => decide(d.id, "full_refund")}>Full refund</button>
+                        <button className="amber" onClick={() => partialRefund(d.id)}>{t("sp_partial_refund")}</button>
+                        <button className="amber" onClick={() => decide(d.id, "full_refund")}>{t("sp_full_refund")}</button>
                       </>
                     )}
                   </div>
