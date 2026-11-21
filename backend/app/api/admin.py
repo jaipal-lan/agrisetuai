@@ -1068,6 +1068,37 @@ def launch_coverage(user=Depends(require_roles(Role.SUPERADMIN)),
             "regions_loaded": loaded, "deactivated": deactivated}
 
 
+@router.post("/service-areas/preset/open-all")
+def open_all_regions(user=Depends(require_roles(Role.SUPERADMIN)),
+                     db: Session = Depends(get_db)):
+    """Widen the pilot: open the ENTIRE Telangana + Andhra Pradesh coverage menu
+    (metro + wider regions) as serviceable, and flip on any TG/AP mandal already
+    loaded but still inactive. Use once agents/transport cover both states."""
+    from app.core.geo_presets import AP_TG_REGIONS, HYDERABAD_METRO
+    activated = 0
+    for state_name, code, district, mandal, lat, lng in [*HYDERABAD_METRO, *AP_TG_REGIONS]:
+        _ensure_mandal(db, state_name, district, mandal, lat, lng,
+                       serviceable=True, state_code=code)
+        activated += 1
+    # Catch any TG/AP mandal seeded elsewhere that is still non-serviceable.
+    flipped = 0
+    tg_ap = db.scalars(
+        select(Mandal).join(District, Mandal.district_id == District.id)
+        .join(State, District.state_id == State.id)
+        .where(State.code.in_(["TG", "AP"]))
+    )
+    for m in tg_ap:
+        if not m.serviceable:
+            m.serviceable = True
+            flipped += 1
+    audit.record(db, actor_id=user.id, action="service_area.open_all", object_type="system",
+                 object_id="telangana_andhra",
+                 new_values={"activated": activated, "flipped": flipped})
+    db.commit()
+    return {"ok": True, "activated": activated, "flipped_on": flipped,
+            "states": ["Telangana", "Andhra Pradesh"]}
+
+
 @router.get("/audit-logs")
 def audit_logs(limit: int = 100, user=Depends(_staff), db: Session = Depends(get_db)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))

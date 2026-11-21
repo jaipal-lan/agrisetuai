@@ -97,13 +97,32 @@ def _latest_review(db: Session, seller_id: int) -> dict | None:
             "at": r.created_at.isoformat() if r.created_at else None}
 
 
-def _place(db: Session, listing: Listing, seller: User | None) -> dict:
+def _ratings_by_seller(db: Session, ids: list[int]) -> dict[int, tuple]:
+    """Per-seller (avg, count) of farmer reviews in a single grouped query — the
+    batch form of _rating_for_sellers, so a list view avoids one query per row."""
+    ids = [i for i in set(ids) if i is not None]
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(Review.subject_id, func.avg(Review.rating), func.count(Review.id))
+        .where(Review.subject_type == "farmer", Review.subject_id.in_(ids))
+        .group_by(Review.subject_id)
+    ).all()
+    return {sid: (round(float(avg), 2) if avg is not None else None, int(cnt or 0))
+            for sid, avg, cnt in rows}
+
+
+def _place(db: Session, listing: Listing, seller: User | None, cache: dict | None = None) -> dict:
     """Where this produce is: mandal (+district) and the farmer's village."""
-    mandal = db.get(Mandal, listing.mandal_id) if listing.mandal_id else None
-    village = None
-    if seller is not None:
-        fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == seller.id))
-        village = fp.village if fp else None
+    if cache is not None:
+        mandal = cache["mandal"].get(listing.mandal_id) if listing.mandal_id else None
+        village = cache["village"].get(listing.seller_id) if seller is not None else None
+    else:
+        mandal = db.get(Mandal, listing.mandal_id) if listing.mandal_id else None
+        village = None
+        if seller is not None:
+            fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == seller.id))
+            village = fp.village if fp else None
     return {
         "mandal_id": listing.mandal_id,
         "mandal": mandal.name if mandal else None,
@@ -112,7 +131,8 @@ def _place(db: Session, listing: Listing, seller: User | None) -> dict:
     }
 
 
-def _serialize(listing: Listing, seller: User | None = None, db: Session | None = None) -> dict:
+def _serialize(listing: Listing, seller: User | None = None, db: Session | None = None,
+               cache: dict | None = None) -> dict:
     images = [
         {"id": m.id, "object_key": m.object_key, "media_type": m.media_type}
         for m in listing.media if m.media_type == "image"
@@ -160,9 +180,16 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         "media": images,
     }
     if db is not None:
-        commodity = db.get(Commodity, listing.commodity_id)
-        variety = db.get(Variety, listing.variety_id) if listing.variety_id else None
-        grade = db.get(GradeSpec, listing.grade_spec_id) if listing.grade_spec_id else None
+        # When a cache is supplied (bulk list views), every related row is read
+        # from memory instead of one-query-per-listing (avoids the N+1).
+        if cache is not None:
+            commodity = cache["commodity"].get(listing.commodity_id)
+            variety = cache["variety"].get(listing.variety_id) if listing.variety_id else None
+            grade = cache["grade"].get(listing.grade_spec_id) if listing.grade_spec_id else None
+        else:
+            commodity = db.get(Commodity, listing.commodity_id)
+            variety = db.get(Variety, listing.variety_id) if listing.variety_id else None
+            grade = db.get(GradeSpec, listing.grade_spec_id) if listing.grade_spec_id else None
         data["commodity"] = commodity.name if commodity else None
         data["commodity_te"] = commodity.name_te if commodity else None
         # Per-listing unit wins (farmer's choice); fall back to the commodity default.
@@ -171,15 +198,52 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         data["grade"] = None if grade is None else {
             "code": grade.code, "label": grade.label, "attributes": grade.attributes,
         }
-        data["place"] = _place(db, listing, seller)
+        data["place"] = _place(db, listing, seller, cache)
         if listing.agent_verified and listing.verified_by:
-            vb = db.get(User, listing.verified_by)
+            vb = cache["user"].get(listing.verified_by) if cache is not None else db.get(User, listing.verified_by)
             data["verified_by_name"] = vb.name if vb else None
         # Seller's rating from buyer reviews.
-        data["seller_rating"], data["seller_rating_count"] = _rating_for_sellers(
-            db, [listing.seller_id]
-        )
+        if cache is not None:
+            data["seller_rating"], data["seller_rating_count"] = cache["rating"].get(
+                listing.seller_id, (None, 0))
+        else:
+            data["seller_rating"], data["seller_rating_count"] = _rating_for_sellers(
+                db, [listing.seller_id]
+            )
     return data
+
+
+def _serialize_many(db: Session, listings: list[Listing]) -> list[dict]:
+    """Serialize many listings with all related rows bulk-loaded once, so a large
+    discovery/list response issues a handful of queries instead of ~8 per row."""
+    if not listings:
+        return []
+
+    def gather(attr):
+        return [getattr(l, attr) for l in listings if getattr(l, attr) is not None]
+
+    seller_ids = list({l.seller_id for l in listings})
+    commodity_ids = set(gather("commodity_id"))
+    variety_ids = set(gather("variety_id"))
+    grade_ids = set(gather("grade_spec_id"))
+    mandal_ids = set(gather("mandal_id"))
+    verifier_ids = set(l.verified_by for l in listings if l.agent_verified and l.verified_by)
+    user_ids = set(seller_ids) | verifier_ids
+
+    sellers = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids)))} if user_ids else {}
+    cache = {
+        "commodity": {c.id: c for c in db.scalars(select(Commodity).where(Commodity.id.in_(commodity_ids)))} if commodity_ids else {},
+        "variety": {v.id: v for v in db.scalars(select(Variety).where(Variety.id.in_(variety_ids)))} if variety_ids else {},
+        "grade": {g.id: g for g in db.scalars(select(GradeSpec).where(GradeSpec.id.in_(grade_ids)))} if grade_ids else {},
+        "mandal": {m.id: m for m in db.scalars(select(Mandal).where(Mandal.id.in_(mandal_ids)))} if mandal_ids else {},
+        "user": sellers,
+        "rating": _ratings_by_seller(db, seller_ids),
+        "village": {},
+    }
+    if seller_ids:
+        for fp in db.scalars(select(FarmerProfile).where(FarmerProfile.user_id.in_(seller_ids))):
+            cache["village"][fp.user_id] = fp.village
+    return [_serialize(l, sellers.get(l.seller_id), db, cache=cache) for l in listings]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -256,13 +320,9 @@ def search_listings(
     if max_price is not None:
         stmt = stmt.where(Listing.asking_price <= max_price)
     rows = list(db.scalars(stmt.order_by(Listing.created_at.desc())))
-    out = []
-    for listing in rows:
-        if min_qty is not None and float(listing.available_qty) < min_qty:
-            continue
-        seller = db.get(User, listing.seller_id)
-        out.append(_serialize(listing, seller, db))
-    return out
+    if min_qty is not None:
+        rows = [l for l in rows if float(l.available_qty) >= min_qty]
+    return _serialize_many(db, rows)
 
 
 @router.get("/mine")

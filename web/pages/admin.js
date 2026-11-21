@@ -1239,6 +1239,15 @@ function ServiceAreasAdmin({ me }) {
       load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
+  async function openAllRegions() {
+    if (!confirm(t("adm_open_all_confirm"))) return;
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const r = await api("/admin/service-areas/preset/open-all", { method: "POST" });
+      setMsg(`${t("adm_open_all_done")} (${r.activated} ${t("adm_mandals_word")}${r.flipped_on ? ` · +${r.flipped_on}` : ""})`);
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
   async function addMandal(e) {
     e.preventDefault(); setErr(null); setMsg(null);
     if (!form.state.trim() || !form.district.trim() || !form.name.trim()) return;
@@ -1274,9 +1283,11 @@ function ServiceAreasAdmin({ me }) {
             </div>
             <button disabled={busy} onClick={launchHyderabadOnly}>{t("adm_set_hyd_launch")}</button>
           </div>
-          <div className="row" style={{ gap: 8, marginTop: 10 }}>
+          <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <button className="ghost" disabled={busy} onClick={addHyderabad}>{t("adm_add_hyd_metro")}</button>
+            <button disabled={busy} onClick={openAllRegions}>{t("adm_open_all")}</button>
           </div>
+          <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>{t("adm_open_all_help")}</div>
         </div>
       )}
 
