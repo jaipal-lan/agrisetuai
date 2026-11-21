@@ -7,6 +7,24 @@ import { usePoll } from "../lib/hooks";
 import { useI18n } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
+// Shared sanity check for a pricing draft — keeps a superadmin from saving
+// negative fees, an out-of-range percentage, or a cap below the floor, any of
+// which would mis-price every order the rule touches. Mirrors the server guard.
+function pricingError(b, t) {
+  const nonNeg = ["rate_per_kg", "rate_per_km", "fixed_pickup_fee", "min_transport_charge",
+                  "service_fee_flat", "inspection_fee", "packing_fee"];
+  for (const k of nonNeg) {
+    if (b[k] != null && b[k] !== "" && Number(b[k]) < 0) return t("adm_err_negative");
+  }
+  for (const k of ["seller_commission_pct", "service_fee_pct", "tax_pct"]) {
+    const v = b[k];
+    if (v != null && v !== "" && (Number.isNaN(Number(v)) || Number(v) < 0 || Number(v) > 100)) return t("adm_err_pct");
+  }
+  if (b.max_transport_charge != null && b.max_transport_charge !== ""
+      && Number(b.max_transport_charge) < Number(b.min_transport_charge || 0)) return t("adm_err_minmax");
+  return null;
+}
+
 export default function Admin() {
   const { t } = useI18n();
   const [me, setMe] = useState(null);
@@ -301,8 +319,11 @@ export default function Admin() {
 
   async function createDraft() {
     setErr(null);
+    const b = body();
+    const ve = pricingError(b, t);
+    if (ve) { setErr(ve); return; }
     try {
-      const r = await api("/admin/pricing-rules/draft", { method: "POST", body: body() });
+      const r = await api("/admin/pricing-rules/draft", { method: "POST", body: b });
       setLastDraftId(r.id);
       load();
     } catch (e) {
@@ -965,8 +986,11 @@ function MoqRow({ c, onSave }) {
       <td>{c.name}</td>
       <td className="muted">{c.category}</td>
       <td>
-        <input value={val} onChange={(e) => setVal(e.target.value)} inputMode="decimal"
-               style={{ width: 90 }} />
+        <div className="row" style={{ gap: 6, alignItems: "center" }}>
+          <input value={val} onChange={(e) => setVal(e.target.value)} inputMode="decimal"
+                 style={{ width: 90 }} />
+          <span className="muted" style={{ fontSize: 13 }}>{c.unit || "kg"}</span>
+        </div>
       </td>
       <td>
         <button className="ghost" disabled={!changed} onClick={() => onSave(c.id, val)}>{t("adm_save")}</button>
@@ -1345,6 +1369,8 @@ function PricingAdmin() {
         service_fee_pct: num(form.service_fee_pct), service_fee_flat: num(form.service_fee_flat),
         service_fee_payer: form.service_fee_payer, tax_pct: num(form.tax_pct), reason: form.reason || null,
       };
+      const ve = pricingError(body, t);
+      if (ve) { setErr(ve); setBusy(false); return; }
       const r = await api("/admin/pricing-rules/draft", { method: "POST", body });
       setMsg(`${t("adm_draft_saved_pre")}${r.version} ${t("adm_draft_saved_post")}`); load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,34 @@ class RuleDraft(BaseModel):
     surcharges: dict | None = None
     reason: str | None = None
     requires_second_approval: bool = False
+
+    @model_validator(mode="after")
+    def _check(self):
+        # A published rule prices every order, so reject values that would
+        # produce a nonsensical quote (negative fees, impossible percentages,
+        # a cap below the floor).
+        non_negative = {
+            "rate_per_kg": self.rate_per_kg, "rate_per_km": self.rate_per_km,
+            "fixed_pickup_fee": self.fixed_pickup_fee,
+            "min_transport_charge": self.min_transport_charge,
+            "service_fee_flat": self.service_fee_flat,
+            "inspection_fee": self.inspection_fee, "packing_fee": self.packing_fee,
+        }
+        for name, val in non_negative.items():
+            if val is not None and val < 0:
+                raise ValueError(f"{name} cannot be negative.")
+        for name in ("seller_commission_pct", "service_fee_pct", "tax_pct"):
+            val = getattr(self, name)
+            if val is not None and not (0 <= val <= 100):
+                raise ValueError(f"{name} must be between 0 and 100.")
+        if self.max_transport_charge is not None:
+            if self.max_transport_charge < 0:
+                raise ValueError("max_transport_charge cannot be negative.")
+            if self.max_transport_charge < self.min_transport_charge:
+                raise ValueError("Maximum transport charge cannot be below the minimum.")
+        if self.service_fee_payer not in ("buyer", "seller"):
+            raise ValueError("Service fee payer must be buyer or seller.")
+        return self
 
 
 class SimulateInput(BaseModel):

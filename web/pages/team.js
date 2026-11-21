@@ -59,6 +59,8 @@ export default function Team() {
   async function createTarget(e) {
     e.preventDefault(); setErr(null);
     if (!tf.agent_id || !tf.target_value) { setErr(t("tm_pick_agent_target")); return; }
+    if (!(Number(tf.target_value) > 0)) { setErr(t("tm_target_pos")); return; }
+    if (tf.period_start && tf.period_end && tf.period_end < tf.period_start) { setErr(t("tm_date_order")); return; }
     setBusy("target");
     try {
       await api("/team/targets", { method: "POST", body: {

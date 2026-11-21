@@ -840,6 +840,17 @@ def run():
     r = client.post(f"/api/admin/pricing-rules/{draft_id}/publish", headers=hdr(superadmin))
     check("rule published", r.json()["status"] == "published")
 
+    # Pricing drafts with impossible values are rejected before they can price orders.
+    r = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin),
+                    json={"rate_per_kg": -1})
+    check("pricing draft rejects a negative rate (422)", r.status_code == 422)
+    r = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin),
+                    json={"seller_commission_pct": 150})
+    check("pricing draft rejects commission over 100% (422)", r.status_code == 422)
+    r = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin),
+                    json={"min_transport_charge": 300, "max_transport_charge": 100})
+    check("pricing draft rejects a cap below the floor (422)", r.status_code == 422)
+
     print("\n== Guardrails ==")
     # Non-superadmin cannot create pricing rules.
     r = client.post("/api/admin/pricing-rules/draft", headers=hdr(buyer), json={"rate_per_kg": 1})
