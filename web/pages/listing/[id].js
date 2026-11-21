@@ -93,6 +93,7 @@ export default function ListingDetail() {
         </span>
         {commodity && <span className="badge grey">{t("cat_" + commodity.category)}</span>}
         {listing.agent_verified && <span className="badge">{t("ls_agent_verified")}</span>}
+        {!listing.negotiable && <span className="badge grey">{t("ls_fixed_price")}</span>}
         {listing.out_of_stock && <span className="badge amber">{t("out_of_stock")}</span>}
       </div>
 
@@ -115,6 +116,11 @@ export default function ListingDetail() {
           {listing.variety ? `${listing.variety} · ` : ""}
           {t("ls_harvest")} {listing.harvest_year || "—"} · {t("ls_min_order")} {listing.min_order_qty} {listing.unit}
         </div>
+        {listing.available_from && (
+          <div className="muted" style={{ fontSize: 14, marginTop: 4 }}>
+            🗓️ {t("ls_available_from")} {new Date(listing.available_from).toLocaleDateString()}
+          </div>
+        )}
         {listing.seller_rating != null && (
           <div style={{ fontSize: 14, marginTop: 6 }}>
             {t("ls_seller_rating")} <b style={{ color: "#f59e0b" }}>★ {listing.seller_rating}</b>
@@ -195,7 +201,8 @@ export default function ListingDetail() {
             </button>
           </div>
 
-          {/* Negotiation stays available for bulk/business buyers */}
+          {/* Negotiation stays available for bulk/business buyers — when the farmer allows it */}
+          {listing.negotiable && (
           <div className="ack-box" style={{ marginTop: 16 }}>
             <h3 style={{ fontSize: 15, margin: "2px 0 8px" }}>{t("or_negotiate")}</h3>
             <div className="row">
@@ -214,6 +221,7 @@ export default function ListingDetail() {
               </button>
             </div>
           </div>
+          )}
         </div>
       ) : (
         <div className="card" style={{ marginTop: 16 }}>

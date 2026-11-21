@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -34,7 +34,7 @@ class ListingCreate(BaseModel):
     available_from: date | None = None
     unit: str = "kg"
     total_qty: float = Field(gt=0)
-    min_order_qty: float = 0
+    min_order_qty: float = Field(default=0, ge=0)
     asking_price: float = Field(gt=0)
     negotiable: bool = True
     claim_status: ClaimStatus = ClaimStatus.CONVENTIONAL
@@ -47,6 +47,19 @@ class ListingCreate(BaseModel):
     quality_grade: str | None = None   # A | B | C
     defect_pct: float | None = None
     defect_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        # The minimum a buyer must order can't be larger than the whole lot.
+        if self.min_order_qty and self.min_order_qty > self.total_qty:
+            raise ValueError("Minimum order cannot exceed the total quantity.")
+        if self.defect_pct is not None and not (0 <= self.defect_pct <= 100):
+            raise ValueError("Defects % must be between 0 and 100.")
+        if self.quality_grade is not None and self.quality_grade not in ("A", "B", "C"):
+            raise ValueError("Quality grade must be A, B or C.")
+        if self.harvest_year is not None and not (1990 <= self.harvest_year <= date.today().year + 1):
+            raise ValueError("Harvest year is out of range.")
+        return self
 
 
 def _can_manage(listing: Listing, user: User, db: Session) -> bool:
@@ -116,6 +129,7 @@ def _serialize(listing: Listing, seller: User | None = None, db: Session | None 
         "variety_id": listing.variety_id,
         "grade_spec_id": listing.grade_spec_id,
         "harvest_year": listing.harvest_year,
+        "available_from": listing.available_from.isoformat() if listing.available_from else None,
         "unit": listing.unit,
         "total_qty": str(qty(listing.total_qty)),
         "reserved_qty": str(qty(listing.reserved_qty)),
@@ -180,6 +194,14 @@ def create_listing(
             "Organic claim requires evidence; use 'in_conversion' or attach certification.",
         )
     seller_id = user.id
+    # Fall back to the farmer's own mandal so every listing has a place buyers can
+    # find it by (powers "near you", place labels and place counts) even if the
+    # form didn't send one.
+    mandal_id = body.mandal_id
+    if mandal_id is None:
+        fp = db.scalar(select(FarmerProfile).where(FarmerProfile.user_id == user.id))
+        if fp and fp.mandal_id:
+            mandal_id = fp.mandal_id
     listing = Listing(
         seller_id=seller_id,
         commodity_id=body.commodity_id,
@@ -194,7 +216,7 @@ def create_listing(
         negotiable=body.negotiable,
         claim_status=str(claim),
         claim_evidence=body.claim_evidence,
-        mandal_id=body.mandal_id,
+        mandal_id=mandal_id,
         latitude=body.latitude,
         longitude=body.longitude,
         pickup_terms=body.pickup_terms,

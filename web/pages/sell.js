@@ -33,12 +33,17 @@ export default function Sell() {
   const [listings, setListings] = useState([]);
   const [form, setForm] = useState({
     commodity_id: "",
+    variety_id: "",
     grade_spec_id: "",
     unit: "kg",
     total_qty: "",
     min_order_qty: "",
     asking_price: "",
     harvest_year: new Date().getFullYear(),
+    available_from: "",
+    negotiable: true,
+    mandal_id: "",
+    pickup_terms: "",
     claim_status: "conventional",
     specifications: "",
     quality_grade: "A",
@@ -47,6 +52,8 @@ export default function Sell() {
     latitude: null,
     longitude: null,
   });
+  const [varieties, setVarieties] = useState([]);
+  const [mandals, setMandals] = useState([]);
   const [newProduct, setNewProduct] = useState("");
   const [orgCert, setOrgCert] = useState(null); // organic certificate file
   const [err, setErr] = useState(null);
@@ -87,6 +94,7 @@ export default function Sell() {
   useEffect(() => {
     setUser(getUser());
     api("/catalog/commodities").then(setCommodities).catch(() => {});
+    api("/locations/mandals").then(setMandals).catch(() => {});
   }, []);
 
   // Auto-refresh my listings (status, verification, image counts) in the
@@ -94,9 +102,28 @@ export default function Sell() {
   usePoll(loadMine, 20000, []);
 
   useEffect(() => {
-    if (!form.commodity_id) return setGrades([]);
+    if (!form.commodity_id || form.commodity_id === "__other") { setGrades([]); setVarieties([]); return; }
     api(`/catalog/commodities/${form.commodity_id}/grades`).then(setGrades).catch(() => {});
+    api(`/catalog/commodities/${form.commodity_id}/varieties`).then(setVarieties).catch(() => {});
+    // Reset dependent picks when the product changes.
+    setForm((f) => ({ ...f, grade_spec_id: "", variety_id: "" }));
   }, [form.commodity_id]);
+
+  // Client-side checks that mirror the server rules, with friendly messages so a
+  // farmer fixes the field before the request round-trips.
+  function validate() {
+    const totalQ = Number(form.total_qty);
+    const moq = Number(form.min_order_qty || 0);
+    const price = Number(form.asking_price);
+    const yr = Number(form.harvest_year);
+    const defect = form.defect_pct === "" ? null : Number(form.defect_pct);
+    if (!(totalQ > 0)) return t("sl_err_qty");
+    if (!(price > 0)) return t("sl_err_price");
+    if (moq < 0 || moq > totalQ) return t("sl_err_moq");
+    if (defect != null && (isNaN(defect) || defect < 0 || defect > 100)) return t("sl_err_defect");
+    if (form.harvest_year && (isNaN(yr) || yr < 1990 || yr > new Date().getFullYear() + 1)) return t("sl_err_year");
+    return null;
+  }
 
   async function create() {
     setErr(null);
@@ -106,6 +133,8 @@ export default function Sell() {
       setErr(t("sl_organic_needs_cert"));
       return;
     }
+    const invalid = validate();
+    if (invalid) { setErr(invalid); return; }
     setBusy(true);
     try {
       let claim_evidence;
@@ -116,12 +145,17 @@ export default function Sell() {
       }
       const body = {
         commodity_id: Number(form.commodity_id),
+        variety_id: form.variety_id ? Number(form.variety_id) : undefined,
         grade_spec_id: form.grade_spec_id ? Number(form.grade_spec_id) : undefined,
         unit: form.unit || "kg",
         total_qty: Number(form.total_qty),
         min_order_qty: Number(form.min_order_qty || 0),
         asking_price: Number(form.asking_price),
         harvest_year: Number(form.harvest_year),
+        available_from: form.available_from || undefined,
+        negotiable: form.negotiable,
+        mandal_id: form.mandal_id ? Number(form.mandal_id) : undefined,
+        pickup_terms: form.pickup_terms || undefined,
         latitude: form.latitude ?? undefined,
         longitude: form.longitude ?? undefined,
         claim_status: form.claim_status,
@@ -215,6 +249,16 @@ export default function Sell() {
             )}
           </div>
           <div style={{ flex: 1, minWidth: 140 }}>
+            <label>{t("sl_variety")}</label>
+            <select value={form.variety_id} onChange={(e) => set("variety_id", e.target.value)}
+                    disabled={!varieties.length}>
+              <option value="">{t("sl_variety_any")}</option>
+              {varieties.map((v) => (
+                <option key={v.id} value={v.id}>{lang === "te" && v.name_te ? v.name_te : v.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1, minWidth: 140 }}>
             <label>{t("sl_grade")}</label>
             <select value={form.grade_spec_id} onChange={(e) => set("grade_spec_id", e.target.value)}>
               <option value="">—</option>
@@ -258,6 +302,28 @@ export default function Sell() {
             </select>
           </div>
         </div>
+        <div className="row">
+          <div style={{ flex: "1 1 220px" }}>
+            <label>{t("sl_location")}</label>
+            <select value={form.mandal_id} onChange={(e) => set("mandal_id", e.target.value)}>
+              <option value="">{t("sl_select_location")}</option>
+              {mandals.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{t("sl_location_help")}</div>
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label>{t("sl_available_from")}</label>
+            <input type="date" value={form.available_from} onChange={(e) => set("available_from", e.target.value)} />
+            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{t("sl_available_help")}</div>
+          </div>
+        </div>
+        <label className="rating-filter" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", marginTop: 6 }}>
+          <input type="checkbox" checked={form.negotiable} onChange={(e) => set("negotiable", e.target.checked)} />
+          <span>{t("sl_negotiable")} <span className="muted" style={{ fontWeight: 400 }}>— {t("sl_negotiable_help")}</span></span>
+        </label>
+        <label>{t("sl_pickup_terms")}</label>
+        <input value={form.pickup_terms} onChange={(e) => set("pickup_terms", e.target.value)}
+               placeholder={t("sl_pickup_terms_ph")} />
         {form.claim_status === "organic" && (
           <div className="card" style={{ background: "rgba(22,163,74,.06)", borderColor: "rgba(22,163,74,.3)", marginTop: 8 }}>
             <label style={{ fontWeight: 600 }}>{t("sl_org_cert_req")}</label>
@@ -330,10 +396,17 @@ export default function Sell() {
                   </span>
                 </div>
                 <div className="muted" style={{ fontSize: 13 }}>
-                  ₹{l.asking_price}/kg · {l.available_qty}/{l.total_qty} {l.unit}
+                  ₹{l.asking_price}/{l.unit} · {l.available_qty}/{l.total_qty} {l.unit}
                   {l.is_organic ? ` · ${t("sl_organic_tag")}` : ""}
                   {l.agent_verified ? ` · ${t("sl_verified_tag")}` : ""}
                 </div>
+                {(l.place?.label || l.variety || !l.negotiable) && (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {l.place?.label ? `📍 ${l.place.label}` : ""}
+                    {l.variety ? `${l.place?.label ? " · " : ""}${l.variety}` : ""}
+                    {!l.negotiable ? `${l.place?.label || l.variety ? " · " : ""}${t("sl_fixed_price")}` : ""}
+                  </div>
+                )}
                 <MediaGallery items={imgs} video={l.video} videoId={l.video_id}
                               onRemove={(m) => removeMedia(l.id, m.id)} />
                 <div className="muted" style={{ fontSize: 12 }}>

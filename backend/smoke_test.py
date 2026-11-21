@@ -218,6 +218,36 @@ def run():
         "unit": "piece", "latitude": 16.24, "longitude": 80.64})
     check("listing honours a per-listing unit + geo pin",
           pl.status_code == 201 and pl.json()["unit"] == "piece" and pl.json()["latitude"] == 16.24)
+    # New farmer-declared fields buyers rely on: variety, availability date,
+    # negotiable flag, and a pickup/handover note.
+    pvars = client.get(f"/api/catalog/commodities/{paddy['id']}/varieties").json()
+    var_id = pvars[0]["id"] if pvars else None
+    fl = client.post("/api/listings", headers=hdr(farmer), json={
+        "commodity_id": paddy["id"], "grade_spec_id": grade_id, "total_qty": 500,
+        "min_order_qty": 10, "asking_price": 28, "mandal_id": mandal_id, "harvest_year": 2026,
+        "variety_id": var_id, "available_from": "2026-12-01", "negotiable": False,
+        "pickup_terms": "Farm-gate pickup, mornings"})
+    flj = fl.json()
+    check("listing honours variety / availability / negotiable / pickup",
+          fl.status_code == 201 and flj["negotiable"] is False
+          and flj["available_from"] == "2026-12-01"
+          and flj["pickup_terms"] == "Farm-gate pickup, mornings"
+          and (var_id is None or flj["variety_id"] == var_id))
+    # Server-side guards mirror the form validation (invalid input -> 422).
+    check("min order above total is rejected",
+          client.post("/api/listings", headers=hdr(farmer), json={
+              "commodity_id": paddy["id"], "total_qty": 10, "min_order_qty": 50,
+              "asking_price": 5, "mandal_id": mandal_id}).status_code == 422)
+    check("defects over 100% is rejected",
+          client.post("/api/listings", headers=hdr(farmer), json={
+              "commodity_id": paddy["id"], "total_qty": 10, "min_order_qty": 1,
+              "asking_price": 5, "defect_pct": 150, "mandal_id": mandal_id}).status_code == 422)
+    # Location defaults to the farmer's own mandal when the form omits it, so the
+    # listing still appears under "near you" and shows a place.
+    dl = client.post("/api/listings", headers=hdr(farmer), json={
+        "commodity_id": paddy["id"], "total_qty": 20, "min_order_qty": 1, "asking_price": 9})
+    check("listing location defaults to the farmer's mandal",
+          dl.status_code == 201 and dl.json()["mandal_id"] is not None)
     from app.services.pricing_engine import billable_kg_for as _bkg
     check("transport billable-kg converts quintal to 100kg",
           str(_bkg("quintal", 2)) == "200.000" and str(_bkg("kg", 5)) == "5.000")
