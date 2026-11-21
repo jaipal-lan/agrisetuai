@@ -181,6 +181,10 @@ export default function Requests() {
 
   async function createRfq() {
     setErr(null); setMsg(null);
+    if (!(Number(form.requested_qty) > 0)) { setErr(t("bz_qty_pos")); return; }
+    if (form.price_min && form.price_max && Number(form.price_min) > Number(form.price_max)) {
+      setErr(t("bz_price_order")); return;
+    }
     try {
       await api("/rfqs", { method: "POST", body: {
         commodity_id: Number(form.commodity_id),

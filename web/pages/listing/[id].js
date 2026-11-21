@@ -37,15 +37,30 @@ export default function ListingDetail() {
       .catch(() => {});
   }, [listing]);
 
+  // Quantity must clear the minimum order and stay within what's available —
+  // checked here so the buyer gets a clear message before the request.
+  function checkQty(q) {
+    const min = Number(listing.min_order_qty) || 0;
+    const avail = Number(listing.available_qty);
+    if (!(q > 0)) return t("bz_qty_pos");
+    if (min && q < min) return `${t("bz_min_order")} ${listing.min_order_qty} ${listing.unit}`;
+    if (!isNaN(avail) && q > avail) return `${t("bz_max_avail")} ${listing.available_qty} ${listing.unit}`;
+    return null;
+  }
+
   async function makeOffer() {
     setErr(null);
+    const pr = Number(price);
+    if (!(pr > 0)) { setErr(t("bz_price_pos")); return; }
+    const qErr = checkQty(Number(qty));
+    if (qErr) { setErr(qErr); return; }
     setBusy(true);
     try {
       const offer = await api("/offers", {
         method: "POST",
         body: {
           listing_id: Number(id),
-          price_per_unit: Number(price),
+          price_per_unit: pr,
           quantity: Number(qty),
         },
       });
@@ -59,9 +74,11 @@ export default function ListingDetail() {
 
   async function buyNow() {
     setErr(null);
+    const q = Number(qty) || Number(listing.min_order_qty);
+    const qErr = checkQty(q);
+    if (qErr) { setErr(qErr); return; }
     setBusy(true);
     try {
-      const q = Number(qty) || Number(listing.min_order_qty);
       const res = await api("/offers/buy-now", {
         method: "POST",
         body: { listing_id: Number(id), quantity: q },

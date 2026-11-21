@@ -105,18 +105,18 @@ function OfferCard({ offer, me, now, onChange }) {
       <div className="row" style={{ gap: 18, marginTop: 12, flexWrap: "wrap" }}>
         <div>
           <div className="muted" style={{ fontSize: 12 }}>{latest.proposer_role === myRole ? t("your_terms") : t("their_terms")}</div>
-          <div className="price" style={{ fontSize: 20 }}>₹{latest.price_per_unit}<small> /kg × {latest.quantity} kg</small></div>
+          <div className="price" style={{ fontSize: 20 }}>₹{latest.price_per_unit}<small> /{latest.unit} × {latest.quantity} {latest.unit}</small></div>
         </div>
         {myLast && myLast.id !== latest.id && (
           <div>
             <div className="muted" style={{ fontSize: 12 }}>{t("your_last")}</div>
-            <div style={{ fontSize: 16 }}>₹{myLast.price_per_unit} <small className="muted">/kg × {myLast.quantity}</small></div>
+            <div style={{ fontSize: 16 }}>₹{myLast.price_per_unit} <small className="muted">/{myLast.unit} × {myLast.quantity}</small></div>
           </div>
         )}
         {p && p.asking_price && (
           <div>
             <div className="muted" style={{ fontSize: 12 }}>{t("listed_at")}</div>
-            <div style={{ fontSize: 16 }}>₹{p.asking_price} <small className="muted">· {p.available_qty} {t("kg_left")}</small></div>
+            <div style={{ fontSize: 16 }}>₹{p.asking_price} <small className="muted">· {p.available_qty} {latest.unit} {t("word_left")}</small></div>
           </div>
         )}
       </div>
@@ -128,7 +128,7 @@ function OfferCard({ offer, me, now, onChange }) {
         <ul className="timeline" style={{ marginTop: 8 }}>
           {offer.versions.map((v) => (
             <li key={v.id}>
-              <b>v{v.version_no}</b> — {v.proposer_role} · ₹{v.price_per_unit}/kg × {v.quantity} kg
+              <b>v{v.version_no}</b> — {t("role_" + v.proposer_role)} · ₹{v.price_per_unit}/{v.unit} × {v.quantity} {v.unit}
             </li>
           ))}
         </ul>
@@ -149,7 +149,7 @@ function OfferCard({ offer, me, now, onChange }) {
         <>
           <div className="row" style={{ marginTop: 8 }}>
             <button disabled={busy} onClick={() => call(`/offers/${offer.id}/accept`)}>
-              {t("accept")} ₹{latest.price_per_unit}/kg
+              {t("accept")} ₹{latest.price_per_unit}/{latest.unit}
             </button>
             <button className="ghost" disabled={busy} onClick={openCounter}>{t("counter")}</button>
             <button className="danger" disabled={busy} onClick={() => call(`/offers/${offer.id}/reject`)}>{t("reject")}</button>
@@ -174,12 +174,20 @@ function OfferCard({ offer, me, now, onChange }) {
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label>{t("qty_kg")}</label>
+                  <label>{t("quantity")} ({latest.unit})</label>
                   <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" />
                 </div>
                 <div>
                   <button disabled={busy || !price || !qty}
-                          onClick={() => call(`/offers/${offer.id}/counter`, { price_per_unit: Number(price), quantity: Number(qty) })}>
+                          onClick={() => {
+                            const pr = Number(price), q = Number(qty);
+                            if (!(pr > 0)) { setErr(t("bz_price_pos")); return; }
+                            if (!(q > 0)) { setErr(t("bz_qty_pos")); return; }
+                            if (p?.available_qty != null && q > Number(p.available_qty)) {
+                              setErr(`${t("bz_max_avail")} ${p.available_qty} ${latest.unit}`); return;
+                            }
+                            call(`/offers/${offer.id}/counter`, { price_per_unit: pr, quantity: q });
+                          }}>
                     {t("send_counter")}
                   </button>
                 </div>

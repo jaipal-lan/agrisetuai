@@ -423,7 +423,7 @@ export default function OrderDetail() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="between">
-          <div><b>₹{order.accepted_terms.price_per_unit}</b>/kg</div>
+          <div><b>₹{order.accepted_terms.price_per_unit}</b>/{order.accepted_terms.unit || "kg"}</div>
           <div>{order.accepted_terms.quantity} {order.accepted_terms.unit}</div>
         </div>
       </div>
