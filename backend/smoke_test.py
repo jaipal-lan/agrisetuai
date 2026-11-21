@@ -442,6 +442,14 @@ def run():
         "checklist": {"foreign_matter": "low"},
         "evidence": ["priv:kyc/x.jpg"],
     }
+    # Inspection sanity checks: tare over gross, and out-of-range percentages,
+    # are rejected before they can advance the order.
+    rbad = client.post(f"/api/agent/orders/{order_id}/inspection", headers=hdr(agent),
+                       json={"gross_weight": 100, "tare_weight": 120, "outcome": "pass"})
+    check("inspection rejects tare above gross (422)", rbad.status_code == 422)
+    rbad = client.post(f"/api/agent/orders/{order_id}/inspection", headers=hdr(agent),
+                       json={"gross_weight": 100, "outcome": "pass", "checklist": {"moisture_pct": 150}})
+    check("inspection rejects a percentage over 100 (422)", rbad.status_code == 422)
     r = client.post(f"/api/agent/orders/{order_id}/inspection", headers=hdr(agent), json=insp_body)
     check("agent submits pass", r.json()["order_status"] == "buyer_approval_pending")
     r2 = client.post(f"/api/agent/orders/{order_id}/inspection", headers=hdr(agent), json=insp_body)

@@ -152,7 +152,7 @@ export default function Transport() {
                       <td>{tp.commodity || "—"}</td>
                       <td>{tp.quantity} {tp.unit}</td>
                       <td>₹{tp.amount}</td>
-                      <td><span className={`badge ${tp.status === "paid" ? "green" : "grey"}`}>{tp.status === "paid" ? t("tr_paid") : tp.status}</span></td>
+                      <td><span className={`badge ${tp.status === "paid" ? "green" : "grey"}`}>{tp.status === "paid" ? t("tr_paid") : t("tr_awaiting_payout")}</span></td>
                     </tr>
                   ))}
                 </tbody>

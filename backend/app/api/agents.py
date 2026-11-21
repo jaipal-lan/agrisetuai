@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -62,6 +62,28 @@ class InspectionSubmit(BaseModel):
     evidence: list[str] | None = None  # media refs
     outcome: InspectionOutcome
     reason_codes: dict | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.gross_weight is not None and self.gross_weight < 0:
+            raise ValueError("Gross weight cannot be negative.")
+        if self.tare_weight is not None and self.tare_weight < 0:
+            raise ValueError("Tare weight cannot be negative.")
+        if (self.gross_weight is not None and self.tare_weight is not None
+                and self.tare_weight > self.gross_weight):
+            raise ValueError("Tare weight cannot exceed gross weight.")
+        if self.checklist:
+            for k in ("moisture_pct", "foreign_matter_pct", "damaged_pct"):
+                v = self.checklist.get(k)
+                if v is None:
+                    continue
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    raise ValueError(f"{k} must be a number.")
+                if not (0 <= fv <= 100):
+                    raise ValueError("Checklist percentages must be between 0 and 100.")
+        return self
 
 
 @router.post("/orders/{order_id}/inspection")

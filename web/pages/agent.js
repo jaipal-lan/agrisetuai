@@ -93,6 +93,21 @@ function InspectForm({ job, onQueued, online }) {
 
   function submit() {
     setNote(null);
+    // Mirror the server's sanity checks so the agent catches the problem in the
+    // field — before a draft is queued (possibly offline) and synced later.
+    if (net !== null && !Number.isNaN(net) && net < 0) {
+      setNote({ kind: "error", text: t("ag_err_tare") }); return;
+    }
+    for (const v of [cl.moisture, cl.foreign_matter, cl.damaged]) {
+      if (v !== "" && (Number.isNaN(Number(v)) || Number(v) < 0 || Number(v) > 100)) {
+        setNote({ kind: "error", text: t("ag_err_pct") }); return;
+      }
+    }
+    // A "pass with adjustment" proposes the weighed net as the new quantity, so a
+    // gross weight is required or the adjustment would silently do nothing.
+    if (outcome === "pass_with_adjustment" && !(Number(gross) > 0)) {
+      setNote({ kind: "error", text: t("ag_err_adjust_needs_weight") }); return;
+    }
     const draftId = newDraftId();
     const body = {
       client_draft_id: draftId,
@@ -135,7 +150,7 @@ function InspectForm({ job, onQueued, online }) {
       </div>
       {net !== null && !Number.isNaN(net) && (
         <div className="net-weight">{t("ag_net_weight")} <b>{net} kg</b>
-          {job.accepted_terms?.quantity && <span className="muted"> · {t("ag_declared")} {job.accepted_terms.quantity} kg</span>}
+          {job.accepted_terms?.quantity && <span className="muted"> · {t("ag_declared")} {job.accepted_terms.quantity} {job.accepted_terms.unit || "kg"}</span>}
         </div>
       )}
 
@@ -184,7 +199,7 @@ function InspectForm({ job, onQueued, online }) {
       <button className="submit-insp" onClick={submit}>
         {online ? t("ag_submit_insp") : t("ag_save_offline")}
       </button>
-      {note && <div className={note.kind === "ok" ? "ok" : "muted"} style={{ marginTop: 8 }}>{note.text}</div>}
+      {note && <div className={note.kind === "ok" ? "ok" : note.kind === "error" ? "error" : "muted"} style={{ marginTop: 8 }}>{note.text}</div>}
     </div>
   );
 }
@@ -404,7 +419,7 @@ export default function AgentJobs() {
                 <span className="badge grey">{t("st_" + j.status)}</span>
               </div>
               <div className="muted" style={{ fontSize: 14 }}>
-                {j.accepted_terms?.quantity} {j.accepted_terms?.unit} · ₹{j.accepted_terms?.price_per_unit}/unit
+                {j.accepted_terms?.quantity} {j.accepted_terms?.unit} · ₹{j.accepted_terms?.price_per_unit}/{j.accepted_terms?.unit || "kg"}
               </div>
               {pending ? (
                 <div className="captured-note">
