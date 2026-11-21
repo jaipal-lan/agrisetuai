@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, downloadFile, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
-import { useI18n } from "../lib/i18n";
+import { useI18n, tEnum } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
 const NEXT = {
@@ -106,7 +106,7 @@ export default function Transport() {
                 <span className="badge grey">{t("st_" + j.status)}</span>
               </div>
               <div className="muted" style={{ fontSize: 14 }}>
-                {j.quantity} {j.unit} · 🚚 {j.courier_name || t("tr_unassigned")}{j.vehicle_class ? ` · ${j.vehicle_class}` : ""}
+                {j.quantity} {j.unit} · 🚚 {j.courier_name || t("tr_unassigned")}{j.vehicle_class ? ` · ${tEnum(t, "vc_", j.vehicle_class)}` : ""}
               </div>
               <div className="price" style={{ fontSize: 18, marginTop: 6 }}>₹{j.transport_charge}<small> {t("tr_trip_earning")}</small></div>
               <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>

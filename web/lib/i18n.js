@@ -65,6 +65,12 @@ const STRINGS = {
     da_admin_console: "అడ్మిన్ కన్సోల్", da_disputes: "వివాదాలు & రీఫండ్లు", da_delivery_jobs: "డెలివరీ పనులు", da_my_earnings: "నా సంపాదన",
     role_farmer: "రైతు", role_household: "గృహ కొనుగోలుదారు", role_business: "వ్యాపార కొనుగోలుదారు", role_field_agent: "ఫీల్డ్ ఏజెంట్",
     role_field_leader: "ఫీల్డ్ లీడర్", role_field_manager: "ఫీల్డ్ మేనేజర్", role_transport: "రవాణా భాగస్వామి", role_superadmin: "సూపర్ అడ్మిన్",
+    role_buyer_household: "గృహ కొనుగోలుదారు", role_buyer_business: "వ్యాపార కొనుగోలుదారు",
+    vc_bike: "బైక్", vc_auto: "ఆటో", vc_mini_truck: "మినీ ట్రక్", vc_truck: "ట్రక్",
+    cks_pending: "పెండింగ్‌లో", cks_verified: "ధృవీకరించబడింది", cks_suspended: "నిలిపివేయబడింది",
+    ps_processed: "చెల్లించబడింది", ps_pending: "పెండింగ్‌లో",
+    do_uphold: "సమర్థించబడింది", do_reject: "తిరస్కరించబడింది", do_partial_refund: "పాక్షిక వాపసు", do_full_refund: "పూర్తి వాపసు", do_close: "మూసివేయబడింది",
+    acct_agent_fee_payable: "ఏజెంట్ ఫీజు చెల్లించాల్సినది", acct_cash_clearing: "నగదు క్లియరింగ్", acct_cod_receivable: "COD స్వీకరించాల్సినది", acct_packing_revenue: "ప్యాకింగ్ ఆదాయం", acct_platform_revenue: "ప్లాట్‌ఫారం ఆదాయం", acct_seller_clearing: "అమ్మకందారు క్లియరింగ్", acct_seller_payable: "అమ్మకందారుకు చెల్లించాల్సినది", acct_tax_payable: "పన్ను చెల్లించాల్సినది", acct_transport_clearing: "రవాణా క్లియరింగ్", acct_transport_payable: "రవాణాకు చెల్లించాల్సినది",
     quick_actions: "త్వరిత చర్యలు", login_see_dashboard: "మీ డాష్‌బోర్డ్ చూడటానికి లాగిన్ అవ్వండి.",
     finish_profile: "మీ ప్రొఫైల్ పూర్తి చేయండి", finish_profile_sub: "మిమ్మల్ని బాగా సరిపోల్చడానికి మీ వివరాలు జోడించండి.", complete_profile: "ప్రొఫైల్ పూర్తి చేయండి",
     auth_acct_created: "ఖాతా సృష్టించబడింది ✓ మీ ఫోన్ & పాస్‌వర్డ్‌తో లాగిన్ అవ్వండి.",
@@ -601,6 +607,12 @@ const STRINGS = {
     da_admin_console: "Admin console", da_disputes: "Disputes & refunds", da_delivery_jobs: "Delivery jobs", da_my_earnings: "My earnings",
     role_farmer: "Farmer", role_household: "Household buyer", role_business: "Business buyer", role_field_agent: "Field agent",
     role_field_leader: "Field leader", role_field_manager: "Field manager", role_transport: "Transport partner", role_superadmin: "Superadmin",
+    role_buyer_household: "Household buyer", role_buyer_business: "Business buyer",
+    vc_bike: "Bike", vc_auto: "Auto", vc_mini_truck: "Mini truck", vc_truck: "Truck",
+    cks_pending: "Pending", cks_verified: "Verified", cks_suspended: "Suspended",
+    ps_processed: "Paid", ps_pending: "Pending",
+    do_uphold: "Upheld", do_reject: "Rejected", do_partial_refund: "Partial refund", do_full_refund: "Full refund", do_close: "Closed",
+    acct_agent_fee_payable: "Agent fee payable", acct_cash_clearing: "Cash clearing", acct_cod_receivable: "COD receivable", acct_packing_revenue: "Packing revenue", acct_platform_revenue: "Platform revenue", acct_seller_clearing: "Seller clearing", acct_seller_payable: "Seller payable", acct_tax_payable: "Tax payable", acct_transport_clearing: "Transport clearing", acct_transport_payable: "Transport payable",
     quick_actions: "Quick actions", login_see_dashboard: "Log in to see your dashboard.",
     finish_profile: "Finish setting up your profile", finish_profile_sub: "Add your details so we can match you better.", complete_profile: "Complete profile",
     auth_acct_created: "Account created ✓ Please log in with your phone and password.",
@@ -1137,6 +1149,12 @@ const STRINGS = {
     da_admin_console: "एडमिन कंसोल", da_disputes: "विवाद & रिफंड", da_delivery_jobs: "डिलीवरी कार्य", da_my_earnings: "मेरी कमाई",
     role_farmer: "किसान", role_household: "घरेलू खरीदार", role_business: "व्यापारिक खरीदार", role_field_agent: "फील्ड एजेंट",
     role_field_leader: "फील्ड लीडर", role_field_manager: "फील्ड मैनेजर", role_transport: "परिवहन साझेदार", role_superadmin: "सुपर एडमिन",
+    role_buyer_household: "घरेलू खरीदार", role_buyer_business: "व्यापारिक खरीदार",
+    vc_bike: "बाइक", vc_auto: "ऑटो", vc_mini_truck: "मिनी ट्रक", vc_truck: "ट्रक",
+    cks_pending: "लंबित", cks_verified: "सत्यापित", cks_suspended: "निलंबित",
+    ps_processed: "भुगतान", ps_pending: "लंबित",
+    do_uphold: "बरकरार", do_reject: "अस्वीकृत", do_partial_refund: "आंशिक वापसी", do_full_refund: "पूर्ण वापसी", do_close: "बंद",
+    acct_agent_fee_payable: "एजेंट शुल्क देय", acct_cash_clearing: "नकद क्लियरिंग", acct_cod_receivable: "COD प्राप्य", acct_packing_revenue: "पैकिंग राजस्व", acct_platform_revenue: "प्लेटफ़ॉर्म राजस्व", acct_seller_clearing: "विक्रेता क्लियरिंग", acct_seller_payable: "विक्रेता देय", acct_tax_payable: "कर देय", acct_transport_clearing: "परिवहन क्लियरिंग", acct_transport_payable: "परिवहन देय",
     quick_actions: "त्वरित क्रियाएँ", login_see_dashboard: "अपना डैशबोर्ड देखने के लिए लॉगिन करें।",
     finish_profile: "अपनी प्रोफ़ाइल पूरी करें", finish_profile_sub: "बेहतर मिलान के लिए अपनी जानकारी जोड़ें।", complete_profile: "प्रोफ़ाइल पूरी करें",
     auth_acct_created: "खाता बन गया ✓ अपने फ़ोन और पासवर्ड से लॉगिन करें।",
@@ -1637,3 +1655,13 @@ export function I18nProvider({ children }) {
 }
 
 export const useI18n = () => useContext(I18nContext);
+
+// Localize a backend enum value as `${prefix}${value}` (e.g. tEnum(t, "role_",
+// "field_agent")). Falls back to a humanized form when no translation exists, so
+// a new backend value stays readable instead of leaking a raw snake_case token.
+export function tEnum(t, prefix, value) {
+  if (value == null || value === "") return "—";
+  const key = prefix + value;
+  const out = t(key);
+  return out === key ? String(value).replace(/_/g, " ") : out;
+}

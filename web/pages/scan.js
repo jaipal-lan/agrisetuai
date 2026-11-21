@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, getUser } from "../lib/api";
-import { useI18n } from "../lib/i18n";
+import { useI18n, tEnum } from "../lib/i18n";
 import { roleGate } from "../lib/roles";
 
 const SCAN_ROLES = ["field_agent", "field_leader", "field_manager", "transport", "superadmin"];
@@ -78,7 +78,7 @@ export default function Scan() {
     for (const it of q) {
       try {
         await api("/bags/scan", { method: "POST", body: it });
-        addResult(true, `${it.bag_code}: ${t("sc_synced")} (${it.stage})`);
+        addResult(true, `${it.bag_code}: ${t("sc_synced")} (${tEnum(t, "sc_stage_", it.stage)})`);
       } catch (e) {
         if (e.status) addResult(false, `${it.bag_code}: ${e.message}`); // server rejected -> drop
         else keep.push(it); // still offline -> keep

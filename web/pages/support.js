@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api, getUser, mediaUrl } from "../lib/api";
 import { usePoll } from "../lib/hooks";
-import { useI18n } from "../lib/i18n";
+import { useI18n, tEnum } from "../lib/i18n";
 
 export default function Support() {
   const { t } = useI18n();
@@ -57,7 +57,7 @@ export default function Support() {
         method: "POST",
         body: { decision, refund_amount },
       });
-      setMsg(`${t("sp_dispute_resolved")} ${decision.replace(/_/g, " ")}.`);
+      setMsg(`${t("sp_dispute_resolved")} ${tEnum(t, "do_", decision)}.`);
       load();
     } catch (e) {
       setErr(e.message);
@@ -158,7 +158,7 @@ export default function Support() {
                   </div>
                   <div>
                     <span className="badge grey">{d.status}</span>
-                    {d.decision && <span className="pill-tag" style={{ marginLeft: 6 }}>{d.decision.replace(/_/g, " ")}</span>}
+                    {d.decision && <span className="pill-tag" style={{ marginLeft: 6 }}>{tEnum(t, "do_", d.decision)}</span>}
                   </div>
                 </div>
                 {d.description && <p style={{ marginTop: 8 }}>{d.description}</p>}

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, downloadCsv, getUser } from "../lib/api";
 import { GROUPS, roleGate } from "../lib/roles";
 import { usePoll } from "../lib/hooks";
-import { useI18n } from "../lib/i18n";
+import { useI18n, tEnum } from "../lib/i18n";
 
 // Farmer cash-out: shows withdrawable balance and lets them request a payout to
 // their verified account; finance approves (disburses) or rejects.
@@ -138,7 +138,7 @@ export default function Earnings() {
                     <td>₹{o.gross}</td>
                     <td>−₹{o.commission}</td>
                     <td><b>₹{o.net}</b></td>
-                    <td><span className={`badge ${o.payout_status === "processed" ? "" : "grey"}`}>{o.payout_status}</span></td>
+                    <td><span className={`badge ${o.payout_status === "processed" ? "" : "grey"}`}>{tEnum(t, "ps_", o.payout_status)}</span></td>
                   </tr>
                 ))}
               </tbody>

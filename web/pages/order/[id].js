@@ -7,7 +7,7 @@ import AddressPicker from "../../components/AddressPicker";
 
 import { api, downloadFile, getUser, mediaUrl, uploadMedia } from "../../lib/api";
 import { usePoll } from "../../lib/hooks";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, tEnum } from "../../lib/i18n";
 
 function DisputeBox({ orderId, onDone }) {
   const { t } = useI18n();
@@ -99,7 +99,7 @@ function Quote({ q }) {
       {line(t("od_packing"), q.packing_fee)}
       {line(t("od_inspection"), q.inspection_fee)}
       {line(q.route_km_source ? `${t("od_transport")} (${q.route_km_source} ${t("od_distance")})` : t("od_transport"), q.transport_charge)}
-      {Number(q.service_fee) > 0 && line(`${t("od_service_fee")} (${q.service_fee_payer})`, q.service_fee)}
+      {Number(q.service_fee) > 0 && line(`${t("od_service_fee")} (${tEnum(t, "role_", q.service_fee_payer)})`, q.service_fee)}
       {Number(q.tax) > 0 && line(t("od_tax"), q.tax)}
       <div className="quote-line total"><span>{t("od_buyer_pays")}</span><span>₹{q.buyer_total}</span></div>
       {q.seller_commission !== undefined && (
@@ -202,7 +202,7 @@ function Certificate({ orderId }) {
         {cert.product?.grade ? ` · ${cert.product.grade}` : ""}
         {cert.product?.claim_status ? ` · ${cert.product.claim_status}` : ""}
       </div>
-      <div className="quote-line"><span>{t("od_observed_outcome")}</span><span>{(cert.observed?.outcome || "").replace(/_/g, " ")}</span></div>
+      <div className="quote-line"><span>{t("od_observed_outcome")}</span><span>{tEnum(t, "oc_", cert.observed?.outcome)}</span></div>
       {m.net_qty_kg && <div className="quote-line"><span>{t("od_measured_net")}</span><span>{m.net_qty_kg} kg</span></div>}
       {m.gross_weight_kg && <div className="quote-line"><span>{t("od_gross_tare")}</span><span>{m.gross_weight_kg} / {m.tare_weight_kg || 0} kg</span></div>}
       {m.moisture_pct != null && <div className="quote-line"><span>{t("od_moisture")}</span><span>{m.moisture_pct}%</span></div>}
@@ -243,7 +243,7 @@ function TrackingTimeline({ orderId, isBuyer }) {
     <div className="card" style={{ marginTop: 16 }}>
       <div className="between">
         <h3 style={{ margin: 0 }}>{t("od_delivery")}</h3>
-        {tr.shipment?.courier_name && <span className="badge grey">{tr.shipment.status.replace(/_/g, " ")}</span>}
+        {tr.shipment?.courier_name && <span className="badge grey">{tEnum(t, "st_", tr.shipment.status)}</span>}
       </div>
 
       {(tr.to_label || tr.to_address_line || tr.to_place) && (
@@ -255,7 +255,7 @@ function TrackingTimeline({ orderId, isBuyer }) {
 
       {tr.shipment?.courier_name && (
         <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-          {tr.shipment.courier_name}{tr.shipment.vehicle_class ? ` · ${tr.shipment.vehicle_class}` : ""}
+          {tr.shipment.courier_name}{tr.shipment.vehicle_class ? ` · ${tEnum(t, "vc_", tr.shipment.vehicle_class)}` : ""}
           {tr.from_place ? ` · ${tr.from_place}` : ""}{tr.to_place ? ` → ${tr.to_place}` : ""}
         </div>
       )}
@@ -760,7 +760,7 @@ export default function OrderDetail() {
           <select value={courierId} onChange={(e) => setCourierId(e.target.value)}>
             <option value="">{t("od_select_courier")}</option>
             {carriers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} ({(c.vehicle_classes || []).join("/")})</option>
+              <option key={c.id} value={c.id}>{c.name} ({(c.vehicle_classes || []).map((v) => tEnum(t, "vc_", v)).join("/")})</option>
             ))}
           </select>
           <div style={{ marginTop: 12 }}>

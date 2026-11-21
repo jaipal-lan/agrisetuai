@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import MapPicker from "../components/MapPicker";
 import { api, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
-import { useI18n } from "../lib/i18n";
+import { useI18n, tEnum } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
 const AGENT_ROLES = ["field_agent", "field_leader", "field_manager", "superadmin"];
@@ -91,7 +91,7 @@ function RfqThread({ rfqId }) {
                       <span className="muted">• {c.body}</span>
                     ) : (
                       <span><b>{c.author_name}</b>
-                        {c.author_role ? <span className="muted"> ({c.author_role.replace(/_/g, " ")})</span> : null}
+                        {c.author_role ? <span className="muted"> ({tEnum(t, "role_", c.author_role)})</span> : null}
                         : {c.body}</span>
                     )}
                   </div>

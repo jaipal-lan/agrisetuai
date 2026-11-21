@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import MapView from "../components/MapView";
 import { absUrl, api, downloadCsv, getUser } from "../lib/api";
 import { usePoll } from "../lib/hooks";
-import { useI18n } from "../lib/i18n";
+import { useI18n, tEnum } from "../lib/i18n";
 import { GROUPS, roleGate } from "../lib/roles";
 
 // Shared sanity check for a pricing draft — keeps a superadmin from saving
@@ -392,7 +392,7 @@ export default function Admin() {
           </div>
           {Object.entries(ledger.accounts).map(([acct, bal]) => (
             <div className="quote-line" key={acct}>
-              <span>{acct.replace(/_/g, " ")}</span><span>₹{bal}</span>
+              <span>{tEnum(t, "acct_", acct)}</span><span>₹{bal}</span>
             </div>
           ))}
         </div>
@@ -530,7 +530,7 @@ export default function Admin() {
               </div>
               {Object.entries(ops.disputes.by_outcome).map(([k, v]) => (
                 <div className="quote-line" key={k}>
-                  <span className="muted">{k.replace(/_/g, " ")}</span><span className="muted">{v}</span>
+                  <span className="muted">{tEnum(t, "do_", k)}</span><span className="muted">{v}</span>
                 </div>
               ))}
             </div>
@@ -592,7 +592,7 @@ export default function Admin() {
                 {payoutAccts.map((a) => (
                   <tr key={a.user_id}>
                     <td>{a.name}{a.phone ? <div className="muted" style={{ fontSize: 12 }}>{a.phone}</div> : null}</td>
-                    <td><span className="badge grey">{(a.role || "").replace(/_/g, " ")}</span></td>
+                    <td><span className="badge grey">{tEnum(t, "role_", a.role)}</span></td>
                     <td>{a.method === "upi" ? t("pf_upi") : t("adm_bank")}</td>
                     <td className="muted" style={{ fontSize: 13 }}>
                       {a.method === "upi"
@@ -766,7 +766,7 @@ export default function Admin() {
               <div className="between" style={{ gap: 8, flexWrap: "wrap" }}>
                 <div>
                   <b>{u.name || "—"}</b>{" "}
-                  <span className="badge grey">{(u.role || u.kind || "").replace(/_/g, " ")}</span>
+                  <span className="badge grey">{tEnum(t, "role_", u.role || u.kind)}</span>
                   <div className="muted" style={{ fontSize: 13 }}>
                     {u.phone}{u.village ? ` · ${u.village}` : ""}{u.buyer_type ? ` · ${u.buyer_type}` : ""}
                   </div>
@@ -870,7 +870,7 @@ export default function Admin() {
               <option value="">{t("adm_all_roles")}</option>
               {["farmer", "buyer_household", "buyer_business", "field_agent",
                 "field_leader", "field_manager", "transport", "superadmin"]
-                .map((r) => <option key={r} value={r}>{r}</option>)}
+                .map((r) => <option key={r} value={r}>{tEnum(t, "role_", r)}</option>)}
             </select>
           </div>
         </div>
@@ -887,7 +887,7 @@ export default function Admin() {
               <tr key={u.id}>
                 <td>{u.name || "—"}</td>
                 <td>{u.phone}</td>
-                <td>{u.role}</td>
+                <td>{tEnum(t, "role_", u.role)}</td>
                 <td><span className={`badge ${u.status === "active" ? "" : "amber"}`}>{u.status === "active" ? t("adm_us_active") : t("adm_us_suspended")}</span></td>
                 {me.role === "superadmin" && (
                   <td>
@@ -915,7 +915,7 @@ export default function Admin() {
               <td>{c.name}</td>
               <td>{c.code}</td>
               <td className="muted">{(c.service_areas || []).join(", ") || "—"}</td>
-              <td><span className={`badge ${c.kyc_status === "verified" ? "" : "amber"}`}>{c.kyc_status === "verified" ? t("adm_verified") : c.kyc_status}</span></td>
+              <td><span className={`badge ${c.kyc_status === "verified" ? "" : "amber"}`}>{tEnum(t, "cks_", c.kyc_status)}</span></td>
               <td>{c.active ? t("adm_yes") : t("adm_no_word")}</td>
               <td>
                 {c.kyc_status !== "verified" && (
@@ -1162,9 +1162,9 @@ function BarcodeTracking({ me }) {
               <tbody>
                 {bag.scans.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.stage}{s.corrected ? " ✏️" : ""}</td>
+                    <td>{tEnum(t, "sc_stage_", s.stage)}{s.corrected ? " ✏️" : ""}</td>
                     <td>{s.status_label}</td>
-                    <td className="muted">{s.scanned_by_name || "—"}{s.role ? ` (${s.role.replace(/_/g, " ")})` : ""}</td>
+                    <td className="muted">{s.scanned_by_name || "—"}{s.role ? ` (${tEnum(t, "role_", s.role)})` : ""}</td>
                     <td className="muted">{s.created_at ? new Date(s.created_at).toLocaleString("en-IN") : "—"}</td>
                     <td className="muted">{s.lat != null ? `${s.lat.toFixed(3)}, ${s.lng?.toFixed(3)}` : "—"}</td>
                   </tr>
