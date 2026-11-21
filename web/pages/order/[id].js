@@ -283,7 +283,9 @@ function TrackingTimeline({ orderId, isBuyer }) {
                 {tr.courier_location.at ? ` · ${t("od_updated")} ${fmtAgo(tr.courier_location.at)}` : ""}</>
             ) : t("od_route_preview")}
           </div>
-          <LiveTrackMap from={tr.from_coord} to={tr.to_coord} courier={tr.courier_location} />
+          <LiveTrackMap from={tr.from_coord} to={tr.to_coord} courier={tr.courier_location}
+            labels={{ pickup: t("map_pickup"), delivery: t("map_delivery"), courier: t("map_courier"),
+                      km_away: t("od_km_away"), min: t("od_min_away") }} />
         </div>
       )}
 

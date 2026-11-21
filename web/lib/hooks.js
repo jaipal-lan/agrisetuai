@@ -12,7 +12,15 @@ export function usePoll(fn, ms = 15000, deps = []) {
     };
     tick();
     const id = setInterval(tick, ms);
-    return () => { alive = false; clearInterval(id); };
+    // Refresh at once when the tab becomes visible again, so a user returning
+    // after a while sees current data instead of waiting out the interval.
+    const onVis = () => { if (typeof document !== "undefined" && !document.hidden) tick(); };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ms, ...deps]);
 }

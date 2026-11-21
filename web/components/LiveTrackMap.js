@@ -23,7 +23,9 @@ function ensureLeaflet() {
 
 const dot = (color) => ({ radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1 });
 
-export default function LiveTrackMap({ from, to, courier, height = 260 }) {
+export default function LiveTrackMap({ from, to, courier, height = 260, labels = {} }) {
+  const L10N = { pickup: "Pickup", delivery: "Delivery", courier: "Courier",
+    km_away: "km away", min: "min", ...labels };
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
@@ -56,10 +58,10 @@ export default function LiveTrackMap({ from, to, courier, height = 260 }) {
     if (!layer || !map) return;
     layer.clearLayers();
     const pts = [];
-    if (from?.lat != null) { L.circleMarker([from.lat, from.lng], dot("#16a34a")).bindPopup("Pickup").addTo(layer); pts.push([from.lat, from.lng]); }
-    if (to?.lat != null) { L.circleMarker([to.lat, to.lng], dot("#dc2626")).bindPopup("Delivery").addTo(layer); pts.push([to.lat, to.lng]); }
+    if (from?.lat != null) { L.circleMarker([from.lat, from.lng], dot("#16a34a")).bindPopup(L10N.pickup).addTo(layer); pts.push([from.lat, from.lng]); }
+    if (to?.lat != null) { L.circleMarker([to.lat, to.lng], dot("#dc2626")).bindPopup(L10N.delivery).addTo(layer); pts.push([to.lat, to.lng]); }
     if (courier?.lat != null) {
-      const label = `🚚 Courier${courier.distance_km != null ? ` · ${courier.distance_km} km away` : ""}${courier.eta_minutes != null ? ` · ~${courier.eta_minutes} min` : ""}`;
+      const label = `🚚 ${L10N.courier}${courier.distance_km != null ? ` · ${courier.distance_km} ${L10N.km_away}` : ""}${courier.eta_minutes != null ? ` · ~${courier.eta_minutes} ${L10N.min}` : ""}`;
       L.circleMarker([courier.lat, courier.lng], dot("#2563eb")).bindPopup(label).addTo(layer);
       pts.push([courier.lat, courier.lng]);
     }

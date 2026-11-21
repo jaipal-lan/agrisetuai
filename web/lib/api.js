@@ -72,6 +72,46 @@ export function logout() {
   } catch {}
 }
 
+// Pull a human message out of an error body. FastAPI 422 returns `detail` as an
+// array of {msg,...} — surface the first message (minus Pydantic's "Value error,"
+// prefix) so a user sees "Tare cannot exceed gross", not a generic failure.
+function errMessage(data, res) {
+  const d = data && data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d) && d.length) {
+    const msg = d[0] && (d[0].msg || d[0].message);
+    if (msg) return String(msg).replace(/^Value error,\s*/i, "");
+  }
+  return res.statusText || "Request failed";
+}
+
+// A stale/expired token should return the user to login rather than surfacing a
+// raw 401 on every panel. Clears the session and redirects once (no loop).
+function handleUnauthorized(res) {
+  if (res.status !== 401 || typeof window === "undefined") return;
+  const had = getToken();
+  logout();
+  if (had && !window.location.pathname.startsWith("/login")) {
+    window.location.href = "/login";
+  }
+}
+
+// fetch with an abort-based timeout so a hung request on a weak field network
+// fails fast instead of leaving the UI spinning. Uploads pass a longer budget.
+async function fetchT(url, opts = {}, ms = 20000) {
+  if (typeof AbortController === "undefined") return fetch(url, opts);
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("Request timed out — check your connection.");
+    throw e;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // Upload a single file (image/pdf) as multipart; returns { object_key, ... }.
 // Pass { private: true } for KYC / ID docs so the file is stored privately and
 // is only reachable through a signed view-link (never the public media route).
@@ -80,15 +120,17 @@ export async function uploadMedia(file, { private: isPrivate = false } = {}) {
   const fd = new FormData();
   fd.append("file", file);
   if (isPrivate) fd.append("private", "true");
-  const res = await fetch(`${BASE}/media/upload`, {
+  // Media (photos, packing videos) can be large on a slow link — allow 2 min.
+  const res = await fetchT(`${BASE}/media/upload`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
-  });
+  }, 120000);
   if (!res.ok) {
-    let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(typeof detail === "string" ? detail : "Upload failed");
+    handleUnauthorized(res);
+    let data = null;
+    try { data = await res.json(); } catch {}
+    throw new Error(errMessage(data, res));
   }
   return res.json();
 }
@@ -97,17 +139,17 @@ export async function uploadMedia(file, { private: isPrivate = false } = {}) {
 // auth token when present but works unauthenticated too (public sign-up).
 export async function apiForm(path, formData) {
   const token = getToken();
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchT(`${BASE}${path}`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
-  });
+  }, 120000);
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
-    const detail = (data && data.detail) || res.statusText;
-    const err = new Error(typeof detail === "string" ? detail : "Request failed");
+    handleUnauthorized(res);
+    const err = new Error(errMessage(data, res));
     err.status = res.status;
     err.data = data;
     throw err;
@@ -119,10 +161,10 @@ export async function apiForm(path, formData) {
 // (works for any content type: CSV, PDF, …).
 export async function downloadFile(path, filename) {
   const token = getToken();
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchT(`${BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error("Download failed");
+  }, 60000);
+  if (!res.ok) { handleUnauthorized(res); throw new Error("Download failed"); }
   const blob = await res.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -141,7 +183,7 @@ export async function api(path, { method = "GET", body, headers = {} } = {}) {
   const token = getToken();
   const h = { "Content-Type": "application/json", ...headers };
   if (token) h["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchT(`${BASE}${path}`, {
     method,
     headers: h,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -154,8 +196,8 @@ export async function api(path, { method = "GET", body, headers = {} } = {}) {
     data = text;
   }
   if (!res.ok) {
-    const detail = (data && data.detail) || res.statusText;
-    const err = new Error(typeof detail === "string" ? detail : "Request failed");
+    handleUnauthorized(res);
+    const err = new Error(errMessage(data, res));
     err.status = res.status;
     err.data = data;
     throw err;
