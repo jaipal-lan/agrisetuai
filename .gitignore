@@ -29,6 +29,12 @@ web/.next/
 web/out/
 npm-debug.log*
 
+# Playwright E2E
+web/playwright-report/
+web/test-results/
+web/blob-report/
+web/.playwright/
+
 # OS / editor
 .DS_Store
 Thumbs.db
