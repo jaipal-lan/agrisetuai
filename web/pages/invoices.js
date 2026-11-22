@@ -47,19 +47,21 @@ export default function Invoices() {
       ) : (
         <table>
           <thead>
-            <tr><th>{t("iv_col_order")}</th><th>{t("iv_col_amount")}</th><th>{t("status")}</th><th>{t("iv_col_document")}</th></tr>
+            <tr><th>{t("iv_col_order")}</th><th>{t("iv_col_number")}</th><th>{t("iv_col_amount")}</th><th>{t("status")}</th><th>{t("iv_col_document")}</th></tr>
           </thead>
           <tbody>
             {billable.map((o) => {
               const paid = PAID.includes(o.status);
+              const fname = `kissansetu-invoice-${(o.invoice_number || o.public_id).replace(/\//g, "-")}.pdf`;
               return (
                 <tr key={o.id}>
                   <td><Link href={`/order/${o.id}`}>{o.public_id}</Link></td>
+                  <td style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{o.invoice_number || "—"}</td>
                   <td>₹{o.buyer_total || o.quote.buyer_total}</td>
                   <td><span className="badge grey">{t("st_" + o.status)}</span></td>
                   <td>
                     <button className="ghost" onClick={() =>
-                      downloadFile(`/orders/${o.id}/invoice.pdf`, `kissansetu-invoice-${o.public_id}.pdf`)
+                      downloadFile(`/orders/${o.id}/invoice.pdf`, fname)
                         .catch((e) => setErr(e.message))}>
                       ⬇ {paid ? t("iv_receipt") : t("iv_invoice")} (PDF)
                     </button>

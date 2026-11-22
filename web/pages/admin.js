@@ -1432,6 +1432,30 @@ function PricingAdmin() {
     }));
     setMsg(t("adm_gst_preset_msg"));
   }
+  // One-click service-fee preset: clone the live rule and set a buyer-paid
+  // platform service fee (default 3% of produce value). Edit the % in the form
+  // before saving; then Save draft -> Publish.
+  function serviceFeePreset() {
+    const b = published || {};
+    setErr(null);
+    setForm((f) => ({
+      ...f,
+      rate_per_km: b.rate_per_km ?? f.rate_per_km,
+      rate_per_kg: b.rate_per_kg ?? f.rate_per_kg,
+      fixed_pickup_fee: b.fixed_pickup_fee ?? f.fixed_pickup_fee,
+      min_transport_charge: b.min_transport_charge ?? f.min_transport_charge,
+      max_transport_charge: b.max_transport_charge ?? "",
+      seller_commission_pct: b.seller_commission_pct ?? f.seller_commission_pct,
+      inspection_fee: b.inspection_fee ?? f.inspection_fee,
+      packing_fee: b.packing_fee ?? f.packing_fee,
+      service_fee_pct: 3,
+      service_fee_flat: b.service_fee_flat ?? f.service_fee_flat,
+      service_fee_payer: "buyer",
+      tax_pct: b.tax_pct ?? f.tax_pct,
+      reason: t("adm_svcfee_preset_reason"),
+    }));
+    setMsg(t("adm_svcfee_preset_msg"));
+  }
 
   const F = ({ k, label, step = "0.01" }) => (
     <label>{label}
@@ -1462,6 +1486,7 @@ function PricingAdmin() {
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
         <button type="button" className="ghost" onClick={gstPreset}>{t("adm_gst_preset_btn")}</button>
+        <button type="button" className="ghost" onClick={serviceFeePreset}>{t("adm_svcfee_preset_btn")}</button>
       </div>
 
       <form onSubmit={saveDraft} className="card">

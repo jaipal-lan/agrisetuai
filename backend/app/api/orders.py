@@ -65,7 +65,7 @@ def _require_party(order: Order, user, *, buyer=False, seller=False, transport=F
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted for this order")
 
 
-def _order_json(order: Order, db: Session, viewer=None) -> dict:
+def _order_json(order: Order, db: Session, viewer=None, invoice_number=None) -> dict:
     inspections = db.scalars(
         select(Inspection).where(Inspection.order_id == order.id).order_by(Inspection.id)
     )
@@ -82,6 +82,7 @@ def _order_json(order: Order, db: Session, viewer=None) -> dict:
         "packing_video": order.packing_video,
         "buyer_total": None if order.buyer_total is None else str(order.buyer_total),
         "seller_payable": None if order.seller_payable is None else str(order.seller_payable),
+        "invoice_number": invoice_number,
         "inspections": [
             {
                 "id": i.id,
@@ -132,18 +133,29 @@ def _safe_transition(db, order, to, **kw):
 
 @router.get("")
 def my_orders(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.scalars(
+    rows = list(db.scalars(
         select(Order).where(or_(Order.buyer_id == user.id, Order.seller_id == user.id))
         .order_by(Order.created_at.desc())
-    )
-    return [_order_json(o, db, user) for o in rows]
+    ))
+    from app.models.finance import Invoice
+    nums: dict[int, str] = {}
+    if rows:
+        ids = [o.id for o in rows]
+        for oid, number in db.execute(
+            select(Invoice.order_id, Invoice.number).where(Invoice.order_id.in_(ids))
+        ):
+            nums[oid] = number
+    return [_order_json(o, db, user, nums.get(o.id)) for o in rows]
 
 
 @router.get("/{order_id}")
 def get_order(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.finance import Invoice
+
     order = _get_order(order_id, db)
     _require_party(order, user, transport=True)
-    return _order_json(order, db, user)
+    number = db.scalar(select(Invoice.number).where(Invoice.order_id == order.id))
+    return _order_json(order, db, user, number)
 
 
 @router.post("/{order_id}/reorder")

@@ -433,8 +433,14 @@ export default function OrderDetail() {
       <Quote q={order.quote} />
       {order.quote && (
         <div style={{ marginTop: 12 }}>
+          {order.invoice_number && (
+            <div className="muted" style={{ fontSize: 13, marginBottom: 6, fontVariantNumeric: "tabular-nums" }}>
+              {t("od_invoice_no")} <b>{order.invoice_number}</b>
+            </div>
+          )}
           <button className="ghost" onClick={() =>
-            downloadFile(`/orders/${id}/invoice.pdf`, `kissansetu-invoice-${order.public_id}.pdf`)
+            downloadFile(`/orders/${id}/invoice.pdf`,
+              `kissansetu-invoice-${(order.invoice_number || order.public_id).replace(/\//g, "-")}.pdf`)
               .catch((e) => setErr(e.message))}>
             ⬇ {["paid", "packing", "ready_for_pickup", "picked_up", "in_transit",
                  "out_for_delivery", "delivered_pending_acceptance", "completed", "settled"].includes(s)
