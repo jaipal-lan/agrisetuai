@@ -805,6 +805,16 @@ def set_user_status(user_id: int, body: UserStatus,
     return {"user_id": target.id, "status": target.status}
 
 
+@router.get("/whatsapp/outbox")
+def whatsapp_outbox(user=Depends(require_roles(Role.SUPERADMIN))):
+    """Recent WhatsApp messages. With the dummy ('mock') provider these are the
+    messages the system would have sent — so the flow can be demoed before a real
+    BSP is connected. Empty on the real ('gupshup') provider (sends go to Gupshup)."""
+    from app.core.config import settings as _s
+    from app.services import whatsapp
+    return {"provider": _s.whatsapp_provider, "messages": whatsapp.outbox()}
+
+
 @router.post("/scheduler/run")
 def run_scheduler(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = Depends(get_db)):
     """Run the sandboxed scheduled jobs once: raise due follow-up reminders and

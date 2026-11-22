@@ -86,8 +86,10 @@ def compute(rule: PricingRule, inp: QuoteInput) -> Quote:
     effective_pct = base_pct * (Decimal("100") - discount) / Decimal("100")
     seller_commission = money(product_value * effective_pct / Decimal("100"))
 
-    # Tax applies to platform-charged services the buyer pays for.
-    taxable = transport + inspection + packing
+    # GST applies to the platform's taxable services (inspection, packing and the
+    # service fee the buyer pays). Transport of agricultural produce is exempt, so
+    # it is excluded from the taxable base (per the approved tax blueprint).
+    taxable = inspection + packing
     if payer == "buyer":
         taxable += service_fee
     tax = money(taxable * Decimal(str(rule.tax_pct)) / Decimal("100"))

@@ -475,12 +475,14 @@ def run():
     # product = 24 * 500 = 12000; transport = max(300, 500*0.8 + 40*12 + 150)=max(300,1030)=1030
     check("product value 12000.00", q["product_value"] == "12000.00")
     check("transport 1030.00", q["transport_charge"] == "1030.00")
-    # Locked rules: buyer pays logistics, no buyer service fee; platform takes a
-    # 0.7% seller commission from the seller's proceeds.
-    check("no buyer service fee", q["service_fee"] == "0.00")
+    # Approved tariff: buyer pays logistics + a 3% service fee; GST 18% on platform
+    # services (produce transport exempt); platform takes a 0.7% seller commission.
+    check("buyer service fee 3% = 360.00", q["service_fee"] == "360.00")
     check("seller commission 0.7% = 84.00", q["seller_commission"] == "84.00")
-    # buyer_total = 12000 + 500 (packing) + 300 (inspection) + 1030 (transport) = 13830
-    check("buyer total 13830.00", q["buyer_total"] == "13830.00")
+    # GST 18% on inspection 300 + packing 500 + service fee 360 = 1160 -> 208.80
+    check("GST 18% on services = 208.80", q["tax"] == "208.80")
+    # buyer_total = 12000 + 500 + 300 + 1030 + 208.80 (GST) + 360 (service fee) = 14398.80
+    check("buyer total 14398.80", q["buyer_total"] == "14398.80")
     # seller receives 12000 - 84 commission = 11916
     check("seller payable 11916.00", q["seller_payable"] == "11916.00")
     check("explicit route_km recorded as override", q.get("route_km_source") == "override")
@@ -512,8 +514,9 @@ def run():
     check("ledger balanced after payment", acct["balanced"] is True)
     # Seller proceeds net of the 0.7% commission (12000 - 84).
     check("seller_payable credited 11916", acct["accounts"].get("seller_payable") == "11916.00")
-    # Platform earns the commission (84) — no buyer service fee in the pilot.
-    check("platform_revenue = commission 84", acct["accounts"].get("platform_revenue") == "84.00")
+    # Platform earns the 0.7% commission (84) + the 3% service fee (360) = 444.
+    check("platform_revenue = commission + service fee = 444",
+          acct["accounts"].get("platform_revenue") == "444.00")
 
     print("\n== Packing, shipment, delivery, settlement ==")
     r = client.post(f"/api/orders/{order_id}/packing-complete", headers=hdr(agent),
@@ -1769,26 +1772,30 @@ def run():
     check("pricing draft publishes to live",
           client.post(f"/api/admin/pricing-rules/{rid}/publish", headers=hdr(superadmin)).json()["status"] == "published")
 
-    print("\n== WhatsApp transactional alerts (gated, Gupshup) ==")
+    print("\n== WhatsApp transactional alerts (mock provider + gating) ==")
     from app.core.config import settings as _st
     from app.services import whatsapp as _wa
-    check("whatsapp disabled by default is a no-op",
+    _prev_provider = _st.whatsapp_provider
+    # The real (gupshup) provider stays a no-op without credentials.
+    _st.whatsapp_provider = "gupshup"
+    _st.whatsapp_enabled, _st.gupshup_api_key, _st.gupshup_source = False, "", ""
+    check("whatsapp (gupshup) is a no-op without credentials",
           _wa.enabled() is False and _wa.send_text("919999999999", "hi") is False)
-    _sent, _orig = [], _wa.send_text
-    _wa.send_text = lambda phone, body: (_sent.append((phone, body)) or True)
-    _st.whatsapp_enabled, _st.gupshup_api_key, _st.gupshup_source = True, "test-key", "919999999999"
+    # The dummy (mock) provider records messages to the outbox, no network.
+    _st.whatsapp_provider = "mock"
+    _wa.outbox_clear()
     try:
+        check("mock provider is enabled", _wa.enabled() is True)
         bn2 = client.post("/api/offers/buy-now", headers=hdr(buyer),
                           json={"listing_id": listing["id"], "quantity": 100})
-        check("an order event pushes WhatsApp when enabled",
-              bn2.status_code == 200 and len(_sent) >= 1)
-        before = len(_sent)
+        check("an order event records a WhatsApp message (mock)",
+              bn2.status_code == 200 and len(_wa.outbox()) >= 1)
+        before = len(_wa.outbox())
         client.post("/api/offers", headers=hdr(buyer),
                     json={"listing_id": listing["id"], "price_per_unit": 20.0, "quantity": 100})
-        check("a proactive offer alert does NOT hit WhatsApp", len(_sent) == before)
+        check("a proactive offer alert does NOT hit WhatsApp", len(_wa.outbox()) == before)
     finally:
-        _wa.send_text = _orig
-        _st.whatsapp_enabled, _st.gupshup_api_key, _st.gupshup_source = False, "", ""
+        _st.whatsapp_provider = _prev_provider
 
     print("\n== External cron endpoint (gated) ==")
     check("cron endpoint disabled without a token (404)",

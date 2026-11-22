@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     gupshup_api_key: str = ""
     gupshup_source: str = ""
     gupshup_src_name: str = ""
+    # Delivery provider: "mock" (dummy — records messages to an in-app outbox, no
+    # network; for demo/dev so the WhatsApp flow works end to end without a BSP)
+    # or "gupshup" (real BSP; also needs whatsapp_enabled + the keys above).
+    # Switch to "gupshup" once real WhatsApp Business credentials are in place.
+    whatsapp_provider: str = "mock"
 
     # --- Brand & operating entity (appears on every invoice/receipt) ----------
     # KissanSetu is the application/brand; Lanciere Technologies is the company

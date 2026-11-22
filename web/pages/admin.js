@@ -950,6 +950,7 @@ export default function Admin() {
       <ServiceAreasAdmin me={me} />
 
       {me?.role === "superadmin" && <PricingAdmin me={me} />}
+      {me?.role === "superadmin" && <WhatsAppOutbox />}
 
       <CatalogManager me={me} />
 
@@ -1348,6 +1349,45 @@ function ServiceAreasAdmin({ me }) {
 // Superadmin pricing: transport (buyer-paid, by km + weight) + agent commission
 // (seller-paid, % of value). Draft -> simulate -> publish; versions are
 // immutable and a confirmed order keeps the version it was priced on.
+// Superadmin view of the dummy ("mock") WhatsApp outbox — the messages the
+// system would have sent, so the flow is demoable before a real BSP is wired.
+function WhatsAppOutbox() {
+  const { t } = useI18n();
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  function load() { api("/admin/whatsapp/outbox").then(setData).catch((e) => setErr(e.message)); }
+  useEffect(() => { load(); }, []);
+  const msgs = data?.messages || [];
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h2>{t("adm_wa_title")}</h2>
+      <p className="muted" style={{ fontSize: 14, marginTop: -8, maxWidth: 640 }}>
+        {t("adm_wa_help")}{data?.provider ? ` — ${data.provider}` : ""}
+      </p>
+      {err && <div className="error">{err}</div>}
+      <button className="ghost" onClick={load} style={{ marginBottom: 8 }}>↻ {t("adm_wa_refresh")}</button>
+      {msgs.length === 0 ? (
+        <p className="muted">{t("adm_wa_empty")}</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>{t("adm_wa_to")}</th><th>{t("adm_wa_kind")}</th><th>{t("adm_wa_message")}</th></tr></thead>
+            <tbody>
+              {msgs.map((m, i) => (
+                <tr key={i}>
+                  <td style={{ whiteSpace: "nowrap" }}>{m.phone}</td>
+                  <td>{m.kind}</td>
+                  <td>{m.body}{m.meta?.filename ? ` · ${m.meta.filename}` : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PricingAdmin() {
   const { t } = useI18n();
   const [rules, setRules] = useState([]);

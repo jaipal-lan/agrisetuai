@@ -365,10 +365,10 @@ def seed_pricing(db: Session) -> None:
     rule = PricingRule(
         version=1, status="published", handling_class=None, currency="INR",
         rate_per_kg=0.80, rate_per_km=12.0, fixed_pickup_fee=150, min_transport_charge=300,
-        max_transport_charge=None, seller_commission_pct=0.7, service_fee_pct=0.0,
+        max_transport_charge=None, seller_commission_pct=0.7, service_fee_pct=3.0,
         service_fee_flat=0, service_fee_payer="buyer", inspection_fee=300, packing_fee=500,
-        tax_pct=0, effective_from=utcnow(),
-        reason="Pilot tariff — 0.7% seller commission, buyer-paid logistics",
+        tax_pct=18.0, effective_from=utcnow(),
+        reason="Approved tariff — 0.7% seller commission, 3% buyer service fee, 18% GST on platform services (produce transport exempt)",
     )
     db.add(rule)
 
