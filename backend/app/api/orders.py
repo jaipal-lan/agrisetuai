@@ -271,36 +271,105 @@ def verified_lot_certificate(order_id: int, user=Depends(get_current_user), db: 
     }
 
 
-@router.get("/{order_id}/invoice.pdf")
-def order_invoice_pdf(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """A4 tax-invoice / receipt PDF for the order's parties (and staff)."""
-    from fastapi.responses import Response
+_PAID_STATES = (S.PAID, S.PACKING, S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT,
+                S.OUT_FOR_DELIVERY, S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED)
 
+
+def _invoice_filename(number: str) -> str:
+    safe = number.replace("/", "-").replace(" ", "")
+    return f"kissansetu-invoice-{safe}.pdf"
+
+
+def _render_order_invoice(order: Order, db: Session, *, invoice_number: str) -> bytes:
     from app.models.catalog import Commodity
     from app.models.user import User
     from app.services.invoice_pdf import build_invoice_pdf
+
+    terms = order.accepted_terms or {}
+    commodity = db.get(Commodity, terms.get("commodity_id")) if terms.get("commodity_id") else None
+    buyer = db.get(User, order.buyer_id)
+    seller = db.get(User, order.seller_id)
+    return build_invoice_pdf(
+        order=order,
+        buyer_name=(buyer.name if buyer else None) or (buyer.phone if buyer else ""),
+        seller_name=(seller.name if seller else None) or (seller.phone if seller else ""),
+        commodity_name=commodity.name if commodity else "Produce",
+        paid=order.status in _PAID_STATES,
+        invoice_number=invoice_number,
+    )
+
+
+def _notify_invoice_ready(db: Session, order: Order, inv) -> None:
+    """In-app + (gated) WhatsApp 'invoice ready' with download link.
+
+    Best-effort on the messaging side: it must never break the payment that
+    triggered it. object_type='invoice' keeps this off notify's WhatsApp text
+    mirror, so the WhatsApp message here (a document link) isn't duplicated.
+    """
+    from app.core.config import settings
+    from app.models.user import User
+    from app.services import notify, whatsapp
+
+    body = f"Invoice {inv.number} for order {order.public_id} - Rs. {order.buyer_total}"
+    notify.send(db, user_id=order.buyer_id, title="Invoice ready", body=body,
+                object_type="invoice", object_id=order.public_id)
+    try:
+        if not whatsapp.enabled():
+            return
+        buyer = db.get(User, order.buyer_id)
+        phone = buyer.phone if buyer else None
+        if not phone:
+            return
+        caption = f"{settings.brand_name}: invoice {inv.number} for order {order.public_id}."
+        if settings.public_base_url:
+            from app.core.security import issue_invoice_token
+            token = issue_invoice_token(inv.number)
+            link = f"{settings.public_base_url.rstrip('/')}/api/orders/invoice/{token}"
+            whatsapp.send_document(phone, link, _invoice_filename(inv.number), caption)
+        else:
+            whatsapp.send_text(phone, caption)
+    except Exception:
+        pass
+
+
+@router.get("/{order_id}/invoice.pdf")
+def order_invoice_pdf(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """A4 invoice / receipt PDF (KissanSetu, operated by Lanciere Technologies)."""
+    from fastapi.responses import Response
+
+    from app.services.invoicing import get_or_create_order_invoice
 
     order = _get_order(order_id, db)
     _require_party(order, user)
     if order.quote is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Invoice unavailable until the quote is confirmed")
 
-    terms = order.accepted_terms or {}
-    commodity = db.get(Commodity, terms.get("commodity_id")) if terms.get("commodity_id") else None
-    buyer = db.get(User, order.buyer_id)
-    seller = db.get(User, order.seller_id)
-    paid_states = (S.PAID, S.PACKING, S.READY_FOR_PICKUP, S.PICKED_UP, S.IN_TRANSIT,
-                   S.OUT_FOR_DELIVERY, S.DELIVERED_PENDING_ACCEPTANCE, S.COMPLETED, S.SETTLED)
-    pdf = build_invoice_pdf(
-        order=order,
-        buyer_name=(buyer.name if buyer else None) or (buyer.phone if buyer else ""),
-        seller_name=(seller.name if seller else None) or (seller.phone if seller else ""),
-        commodity_name=commodity.name if commodity else "Produce",
-        paid=order.status in paid_states,
-    )
-    filename = f"kissansetu-invoice-{order.public_id}.pdf"
+    inv = get_or_create_order_invoice(db, order)
+    db.commit()
+    pdf = _render_order_invoice(order, db, invoice_number=inv.number)
     return Response(content=pdf, media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                    headers={"Content-Disposition": f'attachment; filename="{_invoice_filename(inv.number)}"'})
+
+
+@router.get("/invoice/{token}", include_in_schema=False)
+def public_invoice_pdf(token: str, db: Session = Depends(get_db)):
+    """Public, signed invoice download for WhatsApp delivery. No login — the
+    short-lived token is bound to one invoice number and nothing else."""
+    from fastapi.responses import Response
+
+    from app.core.security import verify_invoice_token
+    from app.models.finance import Invoice
+
+    number = verify_invoice_token(token)
+    if not number:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Link expired or invalid")
+    inv = db.scalar(select(Invoice).where(Invoice.number == number))
+    if inv is None or inv.order_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
+    order = _get_order(inv.order_id, db)
+    pdf = _render_order_invoice(order, db, invoice_number=inv.number)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_invoice_filename(inv.number)}"'})
 
 
 # --- Inspection assignment & buyer approval ------------------------------
@@ -577,6 +646,11 @@ def capture_order_payment(db: Session, order: Order, *, idempotency_key: str,
     _safe_transition(db, order, S.PAID, actor_id=actor_id, reason_code="payment_captured")
     audit.record(db, actor_id=actor_id, action="order.pay", object_type="order",
                  object_id=order.public_id, new_values={"amount": str(buyer_total), "provider": provider})
+    # Finalise the invoice (assign its permanent KS/LAN number) and let the buyer
+    # know in-app + on WhatsApp (gated: a no-op until WhatsApp is configured).
+    from app.services.invoicing import get_or_create_order_invoice
+    inv = get_or_create_order_invoice(db, order)
+    _notify_invoice_ready(db, order, inv)
     return True
 
 

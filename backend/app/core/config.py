@@ -97,6 +97,31 @@ class Settings(BaseSettings):
     gupshup_source: str = ""
     gupshup_src_name: str = ""
 
+    # --- Brand & operating entity (appears on every invoice/receipt) ----------
+    # KissanSetu is the application/brand; Lanciere Technologies is the company
+    # that develops, deploys, runs and manages it, and is the operating entity
+    # named on documents. Fill the placeholders (address/PAN/GSTIN/contact) via
+    # env before go-live; blanks are simply omitted from the PDF.
+    brand_name: str = "KissanSetu"
+    operator_name: str = "Lanciere Technologies"
+    operator_tagline: str = "Developed, deployed & managed by Lanciere Technologies"
+    operator_address: str = ""          # e.g. "Plot 12, HiTec City"
+    operator_city: str = ""             # e.g. "Hyderabad, Telangana - 500081"
+    operator_pan: str = ""
+    operator_gstin: str = ""
+    support_phone: str = ""
+    support_email: str = ""
+    # Invoice numbering: one continuous, gap-free series shared by every document
+    # type. Number = "<prefix>/<FY>/<seq>", e.g. KS/LAN/2026-27/200000000001.
+    invoice_number_prefix: str = "KS/LAN"
+    invoice_seq_start: int = 200000000001
+    # GST rate on the platform/service fee (shown when GST mode is on). 0 = off.
+    service_gst_rate: float = 0.0
+    # Public base URL of the API (e.g. https://api.kissansetu.in) used to build a
+    # signed, tokenised invoice link for WhatsApp document delivery. Empty = no
+    # link is sent (download stays in-app only).
+    public_base_url: str = ""
+
     # A GPS point counts as "inside the delivery footprint" when the nearest
     # serviceable mandal is within this many km (else the UI says "not serviced
     # here yet" instead of snapping to a far-away mandal).

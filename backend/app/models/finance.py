@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import BigInteger, JSON, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -97,6 +97,43 @@ class PayoutBatch(Base, TimestampMixin):
     provider_ref: Mapped[str | None] = mapped_column(String(120))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     note: Mapped[str | None] = mapped_column(Text)
+
+
+class InvoiceCounter(Base):
+    """Single-row, gap-free sequence for invoice numbers.
+
+    One continuous series shared by every document type (key="ALL"), so numbers
+    are globally unique and never reused. `last_seq` holds the last allocated
+    value; the next invoice gets `last_seq + 1`. Allocated under a row lock
+    (SELECT ... FOR UPDATE on Postgres; a no-op but safe on SQLite/tests).
+    """
+
+    __tablename__ = "invoice_counters"
+
+    key: Mapped[str] = mapped_column(String(16), primary_key=True)
+    last_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class Invoice(Base, TimestampMixin):
+    """A finalised, immutable invoice/receipt record.
+
+    The number (e.g. KS/LAN/2026-27/200000000001) is assigned once, on finalise
+    (payment), and never changes. One invoice per order for order receipts
+    (order_id is unique); `kind` leaves room for service-fee / transport /
+    value-pack documents on the same series.
+    """
+
+    __tablename__ = "invoices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    seq: Mapped[int] = mapped_column(BigInteger, index=True)
+    fy: Mapped[str] = mapped_column(String(9))  # Indian financial year, e.g. 2026-27
+    kind: Mapped[str] = mapped_column(String(24), default="order")  # order|service_fee|transport|value_pack
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), unique=True, index=True)
+    buyer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+    amount: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    meta: Mapped[dict | None] = mapped_column(JSON)
 
 
 class Refund(Base, TimestampMixin):

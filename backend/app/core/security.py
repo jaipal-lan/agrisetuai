@@ -138,6 +138,28 @@ def verify_media_token(token: str, object_key: str) -> bool:
     return hmac.compare_digest(str(payload.get("mk", "")), _key_digest(object_key))
 
 
+# --- Short-lived signed invoice link (for WhatsApp document delivery) -------
+# A public, login-less invoice download link carries one of these tokens. It is
+# bound to a single invoice number and expires; the signature prevents forging or
+# swapping the number. Purpose-scoped ("iv") so it can't act as an auth token.
+def issue_invoice_token(number: str, ttl_seconds: int | None = None) -> str:
+    ttl = ttl_seconds if ttl_seconds is not None else 7 * 24 * 3600
+    payload = {
+        "num": number,
+        "pur": "iv",
+        "exp": int(time.time()) + int(ttl),
+    }
+    payload_b64 = _b64e(json.dumps(payload, separators=(",", ":")).encode())
+    return f"{payload_b64}.{_sign(payload_b64)}"
+
+
+def verify_invoice_token(token: str) -> str | None:
+    payload = decode_token(token)  # validates signature + expiry
+    if not payload or payload.get("pur") != "iv":
+        return None
+    return payload.get("num")
+
+
 # --- OTP store ------------------------------------------------------------
 # phone -> (code, expires_at)
 _otp: dict[str, tuple[str, float]] = {}

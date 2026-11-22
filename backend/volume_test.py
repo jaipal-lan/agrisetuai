@@ -287,6 +287,26 @@ def run():
     acct = client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()
     check("ledger balanced after all settlements", acct.get("balanced") is True)
 
+    print("\n== Invoices under volume ==")
+    from app.core.config import settings as _st
+    from app.core.database import SessionLocal
+    from app.models.finance import Invoice
+    with SessionLocal() as _s:
+        invs = _s.query(Invoice).order_by(Invoice.seq).all()
+    check("an invoice exists per settled order", len(invs) >= settled)
+    nums = [i.number for i in invs]
+    check("invoice numbers are unique", len(set(nums)) == len(nums))
+    check("invoice numbers use the KS/LAN FY series",
+          bool(nums) and all(n.startswith(_st.invoice_number_prefix + "/") for n in nums))
+    if invs:
+        seqs = [int(i.seq) for i in invs]
+        check("sequence starts in the billions range", seqs[0] >= _st.invoice_seq_start)
+        check("sequence is gap-free (no reused/missing numbers)",
+              seqs == list(range(seqs[0], seqs[0] + len(seqs))))
+        r = client.get(f"/api/orders/{invs[0].order_id}/invoice.pdf", headers=hdr(superadmin))
+        check("branded invoice PDF downloads (%PDF)",
+              r.status_code == 200 and r.content[:4] == b"%PDF")
+
     print("\n== KPI / reporting under volume ==")
     kpis = timed("admin_kpis", lambda: client.get("/api/admin/kpis", headers=hdr(superadmin)).json())
     check("admin KPIs computed under volume", "total_orders" in kpis and kpis["total_orders"] >= settled)
