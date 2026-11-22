@@ -1408,6 +1408,30 @@ function PricingAdmin() {
       service_fee_payer: r.service_fee_payer, tax_pct: r.tax_pct, reason: "",
     });
   }
+  // One-click GST preset: clone the live rule into the draft form and set tax to
+  // 18%, then let the superadmin review + Save draft + Publish as usual (so the
+  // audit, versioning and CA check on the taxable base all stay intact).
+  function gstPreset() {
+    const b = published || {};
+    setErr(null);
+    setForm((f) => ({
+      ...f,
+      rate_per_km: b.rate_per_km ?? f.rate_per_km,
+      rate_per_kg: b.rate_per_kg ?? f.rate_per_kg,
+      fixed_pickup_fee: b.fixed_pickup_fee ?? f.fixed_pickup_fee,
+      min_transport_charge: b.min_transport_charge ?? f.min_transport_charge,
+      max_transport_charge: b.max_transport_charge ?? "",
+      seller_commission_pct: b.seller_commission_pct ?? f.seller_commission_pct,
+      inspection_fee: b.inspection_fee ?? f.inspection_fee,
+      packing_fee: b.packing_fee ?? f.packing_fee,
+      service_fee_pct: b.service_fee_pct ?? f.service_fee_pct,
+      service_fee_flat: b.service_fee_flat ?? f.service_fee_flat,
+      service_fee_payer: b.service_fee_payer ?? f.service_fee_payer,
+      tax_pct: 18,
+      reason: t("adm_gst_preset_reason"),
+    }));
+    setMsg(t("adm_gst_preset_msg"));
+  }
 
   const F = ({ k, label, step = "0.01" }) => (
     <label>{label}
@@ -1435,6 +1459,10 @@ function PricingAdmin() {
           <button className="ghost" style={{ marginTop: 8 }} onClick={() => prefill(published)}>{t("adm_edit_copy")}</button>
         </div>
       )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 10px" }}>
+        <button type="button" className="ghost" onClick={gstPreset}>{t("adm_gst_preset_btn")}</button>
+      </div>
 
       <form onSubmit={saveDraft} className="card">
         <b>{t("adm_new_pricing_version")}</b>
