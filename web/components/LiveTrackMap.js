@@ -38,9 +38,13 @@ export default function LiveTrackMap({ from, to, courier, height = 260, labels =
       const map = L.map(divRef.current, { zoomControl: true });
       mapRef.current = map;
       map.setView([(from?.lat ?? to?.lat ?? 16.5), (from?.lng ?? to?.lng ?? 80.6)], 10);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19, attribution: "© OpenStreetMap",
-      }).addTo(map);
+      // Tile source is configurable: set NEXT_PUBLIC_MAP_TILE_URL (and matching
+      // attribution) to a provider with an SLA + API key before scale. Defaults to
+      // the public OSM community server, which is fine for a pilot.
+      const tileUrl = process.env.NEXT_PUBLIC_MAP_TILE_URL
+        || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      const tileAttr = process.env.NEXT_PUBLIC_MAP_ATTRIBUTION || "© OpenStreetMap";
+      L.tileLayer(tileUrl, { maxZoom: 19, attribution: tileAttr }).addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
       setTimeout(() => map.invalidateSize(), 120);
       draw(L);

@@ -7,8 +7,19 @@ export function usePoll(fn, ms = 15000, deps = []) {
   saved.current = fn;
   useEffect(() => {
     let alive = true;
+    let inflight = false;
     const tick = () => {
-      if (alive && typeof document !== "undefined" && !document.hidden) saved.current();
+      if (!alive || inflight) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      let r;
+      try { r = saved.current(); } catch { return; }
+      // If the poll fn returns a promise, hold the next tick until it settles so a
+      // slow response never lets polls overlap on a weak network. (Callers that
+      // don't return their promise are unaffected — no regression.)
+      if (r && typeof r.then === "function") {
+        inflight = true;
+        r.then(() => { inflight = false; }, () => { inflight = false; });
+      }
     };
     tick();
     const id = setInterval(tick, ms);

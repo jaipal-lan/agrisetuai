@@ -361,6 +361,7 @@ def _product_card(c: Commodity, rows: list[Listing], db: Session) -> dict:
         "commodity_te": c.name_te,
         "category": c.category,
         "image": image_key,
+        "unit": c.unit or "kg",
         "min_order_qty": str(qty(c.min_order_qty or 0)),
         "offering_count": len(live),
         "place_count": len(places),

@@ -66,7 +66,11 @@ export default function Register() {
   }, []);
 
   async function sendOtp() {
-    setErr(null); setBusy(true);
+    setErr(null);
+    // Strict 10-digit Indian mobile (6-9 start). Backend OTP also validates;
+    // this catches typos before an OTP is spent.
+    if (!/^[6-9]\d{9}$/.test((phone || "").trim())) { setErr(t("err_phone_invalid")); return; }
+    setBusy(true);
     try {
       const r = await api("/auth/otp/request", { method: "POST", body: { phone } });
       setSent(true);

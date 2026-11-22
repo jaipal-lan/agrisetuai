@@ -40,7 +40,7 @@ function ProductCard({ p, lang, t }) {
         {p.any_verified && <span className="badge">✓ {t("verified_badge")}</span>}
       </div>
       <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-        {p.category ? t("cat_" + p.category) : ""} · {t("moq")} {p.min_order_qty} kg
+        {p.category ? t("cat_" + p.category) : ""} · {t("moq")} {p.min_order_qty} {p.unit || "kg"}
       </div>
       {available ? (
         <>
