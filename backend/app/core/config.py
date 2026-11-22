@@ -105,18 +105,24 @@ class Settings(BaseSettings):
     brand_name: str = "KissanSetu"
     operator_name: str = "Lanciere Technologies"
     operator_tagline: str = "Developed, deployed & managed by Lanciere Technologies"
-    operator_address: str = ""          # e.g. "Plot 12, HiTec City"
-    operator_city: str = ""             # e.g. "Hyderabad, Telangana - 500081"
-    operator_pan: str = ""
-    operator_gstin: str = ""
-    support_phone: str = ""
-    support_email: str = ""
+    # Communication office (primary address printed on documents).
+    operator_address: str = "506, 5th Floor, Manjeera Majestic Commercial, Kukatpally"
+    operator_city: str = "Hyderabad, Telangana 500072"
+    # Registered office (printed as a compact single line).
+    operator_regd_address: str = ("Regd. Office: Sai Roopa Heights, 555, KPHB Phase 6, "
+                                  "Kukatpally, Hyderabad, Telangana 500085")
+    operator_pan: str = "AAFCL3936J"
+    operator_gstin: str = "36AAFCL3936J1Z9"
+    support_phone: str = "+919632229846"
+    support_email: str = "support@lancieretechnologies.com"
     # Invoice numbering: one continuous, gap-free series shared by every document
     # type. Number = "<prefix>/<FY>/<seq>", e.g. KS/LAN/2026-27/200000000001.
     invoice_number_prefix: str = "KS/LAN"
     invoice_seq_start: int = 200000000001
-    # GST rate on the platform/service fee (shown when GST mode is on). 0 = off.
-    service_gst_rate: float = 0.0
+    # Displayed GST rate on the platform/service-fee line (labelling only). The
+    # amount actually charged is PricingRule.tax_pct, set+approved in Admin, so
+    # keep this in step with the published pricing rule. 0 = show "Tax" generically.
+    service_gst_rate: float = 18.0
     # Public base URL of the API (e.g. https://api.kissansetu.in) used to build a
     # signed, tokenised invoice link for WhatsApp document delivery. Empty = no
     # link is sent (download stays in-app only).

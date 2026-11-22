@@ -59,6 +59,10 @@ def build_invoice_pdf(*, order, buyer_name: str, seller_name: str,
         pdf.cell(150, 5, _safe(settings.operator_address), new_x="LMARGIN", new_y="NEXT")
     if settings.operator_city:
         pdf.cell(150, 5, _safe(settings.operator_city), new_x="LMARGIN", new_y="NEXT")
+    if getattr(settings, "operator_regd_address", ""):
+        pdf.set_font("Helvetica", "", 8)
+        pdf.cell(150, 5, _safe(settings.operator_regd_address), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
     ids = []
     if settings.operator_pan:
         ids.append(f"PAN: {settings.operator_pan}")
@@ -131,12 +135,15 @@ def build_invoice_pdf(*, order, buyer_name: str, seller_name: str,
     if float(q.get("transport_charge", 0) or 0):
         row("Transport", q.get("transport_charge", 0))
     if float(q.get("service_fee", 0) or 0):
-        fee_label = "Service fee"
-        if settings.service_gst_rate:
-            fee_label = f"Service fee (incl. {settings.service_gst_rate:g}% GST)"
-        row(fee_label, q.get("service_fee", 0))
+        row("Service fee", q.get("service_fee", 0))
     if float(q.get("tax", 0) or 0):
-        row("Tax", q.get("tax", 0))
+        # GST is charged on platform services (not the exempt produce). Labelled
+        # GST when the operator is GST-registered; the amount is the quote's tax.
+        if settings.operator_gstin:
+            tax_label = f"GST ({settings.service_gst_rate:g}%)" if settings.service_gst_rate else "GST"
+        else:
+            tax_label = "Tax"
+        row(tax_label, q.get("tax", 0))
     pdf.ln(1)
     row("Buyer pays", q.get("buyer_total", order.buyer_total or 0), bold=True, big=True)
 
@@ -156,10 +163,14 @@ def build_invoice_pdf(*, order, buyer_name: str, seller_name: str,
     pdf.ln(8)
     pdf.set_text_color(120, 120, 120)
     pdf.set_font("Helvetica", "I", 8)
+    gst_line = ""
+    if settings.operator_gstin:
+        gst_line = (f"GST on platform services is charged by {settings.operator_name} "
+                    f"(GSTIN {settings.operator_gstin}); farm produce is an exempt supply "
+                    "of the farmer. ")
     pdf.multi_cell(0, 4,
         _safe(f"{settings.brand_name} is operated by {settings.operator_name}. "
-              f"{settings.operator_tagline}. This is a system-generated commercial "
-              "document for the above trade and is not a statutory tax invoice. Quality "
-              "figures, where shown, reflect field inspection, not laboratory testing. "
-              "Amounts in INR."))
+              f"{settings.operator_tagline}. {gst_line}This is a system-generated "
+              "consolidated receipt for the above trade. Quality figures, where shown, "
+              "reflect field inspection, not laboratory testing. Amounts in INR."))
     return bytes(pdf.output())
