@@ -242,6 +242,14 @@ def run():
           client.post("/api/listings", headers=hdr(farmer), json={
               "commodity_id": paddy["id"], "total_qty": 10, "min_order_qty": 1,
               "asking_price": 5, "defect_pct": 150, "mandal_id": mandal_id}).status_code == 422)
+    check("negative quantity is rejected (422)",
+          client.post("/api/listings", headers=hdr(farmer), json={
+              "commodity_id": paddy["id"], "total_qty": -5, "min_order_qty": 1,
+              "asking_price": 10, "mandal_id": mandal_id}).status_code == 422)
+    check("zero asking price is rejected (422)",
+          client.post("/api/listings", headers=hdr(farmer), json={
+              "commodity_id": paddy["id"], "total_qty": 10, "min_order_qty": 1,
+              "asking_price": 0, "mandal_id": mandal_id}).status_code == 422)
     # Location defaults to the farmer's own mandal when the form omits it, so the
     # listing still appears under "near you" and shows a place.
     dl = client.post("/api/listings", headers=hdr(farmer), json={
@@ -1347,6 +1355,10 @@ def run():
           any(n.get("object_type") == "announcement" and n["title"] == "Market holiday" for n in fnotes))
 
     print("\n== Order invoice / receipt PDF ==")
+    # BUY-05: a paid order carries a gap-free KS/LAN invoice number on its record.
+    od = client.get(f"/api/orders/{order_id}", headers=hdr(buyer)).json()
+    check("paid order carries a KS/LAN invoice number",
+          isinstance(od.get("invoice_number"), str) and od["invoice_number"].startswith("KS/LAN/"))
     r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(buyer))
     check("invoice PDF served to buyer", r.status_code == 200 and r.headers.get("content-type") == "application/pdf")
     check("invoice is a real PDF", r.content[:4] == b"%PDF")
