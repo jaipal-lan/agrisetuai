@@ -1,0 +1,38 @@
+name: Keep backend awake (daytime IST)
+
+# Mitigates "Render free instance sleeps after ~15 min idle -> 30-60s cold start
+# on the next user request". Pings the public health endpoint every 10 minutes
+# during Indian daytime, so the instance stays warm while users are active.
+#
+# This is a best-effort fallback: GitHub's scheduler can delay cron runs under
+# load, so for a launch an external uptime monitor (UptimeRobot / cron-job.org,
+# 5-min interval on /api/health) is more reliable — see LAUNCH_CHECKLIST.md.
+# Before scale, move off the free tier (an always-on instance needs none of this).
+#
+# Required repo secret: BACKEND_URL  e.g. https://agrisetuai-backend.onrender.com
+# No token needed — /api/health is public and side-effect-free.
+
+on:
+  schedule:
+    # Every 10 min from 00:30 UTC to 17:00 UTC (~06:00–22:30 IST).
+    - cron: "*/10 0-17 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health
+        run: |
+          if [ -z "${{ secrets.BACKEND_URL }}" ]; then
+            echo "BACKEND_URL secret not set — skipping (configure it to enable keep-awake)."
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "${{ secrets.BACKEND_URL }}/api/health")
+          echo "health -> HTTP $code"
+          # A cold start can momentarily 5xx; don't fail the workflow on a single miss.
+          if [ "$code" = "200" ]; then echo "awake"; else echo "non-200 (likely waking); not failing"; fi
