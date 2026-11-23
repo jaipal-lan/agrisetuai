@@ -211,6 +211,56 @@ def refresh_prices(db: Session, *, records: list[dict] | None = None,
     }
 
 
+import threading
+import time as _time
+
+# Single-flight guard + attempt-cooldown for the opportunistic page-load refresh.
+_refresh_lock = threading.Lock()
+_last_attempt_monotonic = 0.0
+# Don't re-attempt more than once per this window, success OR failure. is_refresh_due
+# is based on the last *successful* write, so without this a persistently failing
+# feed (e.g. data.gov.in geo-blocking the server) would spawn a slow fetch on every
+# single page load. 15 min is well under the default 12h success throttle.
+_ATTEMPT_COOLDOWN_SECONDS = 15 * 60
+
+
+def maybe_refresh_in_background() -> None:
+    """Fire-and-forget, throttled refresh — safe to call on every prices request.
+
+    No-ops unless the live feed is configured, a refresh is due (prices_refresh_hours),
+    no refresh is already in flight, and we haven't attempted one within the
+    attempt-cooldown. Opens its own session; never raises. Intended to be handed to
+    FastAPI BackgroundTasks so it runs after the response is sent — the user never
+    waits on the upstream fetch."""
+    global _last_attempt_monotonic
+    if not provider_configured():
+        return
+    if _time.monotonic() - _last_attempt_monotonic < _ATTEMPT_COOLDOWN_SECONDS:
+        return
+    if not _refresh_lock.acquire(blocking=False):
+        return  # a refresh is already running
+    try:
+        # Re-check under the lock (another thread may have just attempted).
+        if _time.monotonic() - _last_attempt_monotonic < _ATTEMPT_COOLDOWN_SECONDS:
+            return
+        from app.core.database import SessionLocal
+        db = SessionLocal()
+        try:
+            if not is_refresh_due(db):
+                return
+            _last_attempt_monotonic = _time.monotonic()  # count the attempt before the slow fetch
+            refresh_prices(db)
+            db.commit()
+            log.info("opportunistic price refresh: prices updated on page load")
+        except Exception:  # noqa: BLE001 - a transient/upstream failure must not surface
+            db.rollback()
+            log.exception("opportunistic price refresh failed")
+        finally:
+            db.close()
+    finally:
+        _refresh_lock.release()
+
+
 def status(db: Session) -> dict:
     """Feed health for the Admin console: configuration, row counts, freshness."""
     from datetime import datetime, timedelta, timezone

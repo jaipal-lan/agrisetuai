@@ -1,12 +1,13 @@
 """Today's government-declared mandi prices — a reference screen for farmers and
 buyers. No advisory, no schemes, no weather: just the official price for a
 commodity across markets in India."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.prices import MarketPrice
+from app.services import prices_feed
 
 router = APIRouter(tags=["prices"])
 
@@ -85,9 +86,10 @@ def _row(p: MarketPrice) -> dict:
 
 
 @router.get("/market-prices")
-def market_prices(commodity: str | None = None, state: str | None = None,
-                  db: Session = Depends(get_db)):
+def market_prices(background: BackgroundTasks, commodity: str | None = None,
+                  state: str | None = None, db: Session = Depends(get_db)):
     """Flat list of market prices, optionally filtered by commodity and/or state."""
+    background.add_task(prices_feed.maybe_refresh_in_background)
     stmt = select(MarketPrice)
     if commodity:
         stmt = stmt.where(MarketPrice.commodity == commodity)
@@ -97,9 +99,10 @@ def market_prices(commodity: str | None = None, state: str | None = None,
 
 
 @router.get("/market-prices/commodities")
-def priced_commodities(db: Session = Depends(get_db)):
+def priced_commodities(background: BackgroundTasks, db: Session = Depends(get_db)):
     """The commodities that have prices, each with how many markets report + the
     modal price range — the product picker for the prices screen."""
+    background.add_task(prices_feed.maybe_refresh_in_background)
     rows = list(db.scalars(select(MarketPrice)))
     by_c: dict[str, list[MarketPrice]] = {}
     for p in rows:

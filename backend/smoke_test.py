@@ -1159,6 +1159,16 @@ def run():
         check("live refresh not due when provider unconfigured", prices_feed.is_refresh_due(_db2) is False)
     finally:
         _db2.close()
+    # Opportunistic page-load refresh: safe no-op when the feed is unconfigured
+    # (must not raise and must not record an attempt), and the prices endpoints
+    # still serve normally with the BackgroundTasks hook wired in.
+    _before_attempt = prices_feed._last_attempt_monotonic
+    prices_feed.maybe_refresh_in_background()
+    check("background price refresh no-ops when feed unconfigured",
+          prices_feed._last_attempt_monotonic == _before_attempt)
+    check("prices endpoints serve with background-refresh hook wired",
+          isinstance(client.get("/api/market-prices/commodities").json(), list)
+          and isinstance(client.get("/api/market-prices").json(), list))
     sr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
     check("scheduler run reports prices + meeting-reminder keys",
           all(k in sr for k in ("digests_sent", "prices_refreshed", "meeting_reminders")))
