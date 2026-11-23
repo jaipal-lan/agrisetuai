@@ -17,6 +17,10 @@ def get_current_user(
     payload = decode_token(token)
     if payload is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+    # Purpose-scoped tokens (phone-ownership "pv", media "md", invoice "iv") are
+    # NOT auth tokens — reject them here so one can never authenticate a user.
+    if payload.get("pur") or "sub" not in payload:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
     user = db.get(User, int(payload["sub"]))
     if user is None or user.status != "active":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")

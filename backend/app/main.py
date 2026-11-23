@@ -33,6 +33,11 @@ app = FastAPI(
     title="KissanSetu",
     version="0.2.0",
     description="Door-to-door farm-to-buyer marketplace: list, agent-verify, pay, deliver.",
+    # Interactive API docs + schema are exposed only in dev, to reduce prod
+    # attack surface / endpoint-schema disclosure.
+    docs_url="/docs" if settings.dev_mode else None,
+    redoc_url="/redoc" if settings.dev_mode else None,
+    openapi_url="/openapi.json" if settings.dev_mode else None,
 )
 
 # Allow the web app from localhost and any private-LAN IP (so a phone/tablet on
@@ -51,11 +56,30 @@ _extra_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_extra_origins,
-    allow_origin_regex=_origin_regex,
+    # The permissive private-LAN regex is dev-only (lets a phone on the same
+    # Wi-Fi reach the dev server). In production only the exact CORS_ORIGINS
+    # are allowed, since credentials are sent with requests.
+    allow_origin_regex=_origin_regex if settings.dev_mode else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    """Baseline security response headers on every response."""
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+    if not settings.dev_mode:
+        # HTTPS is terminated at the platform (Render/Vercel) in production.
+        resp.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+        )
+    return resp
 
 API = "/api"
 for module in (

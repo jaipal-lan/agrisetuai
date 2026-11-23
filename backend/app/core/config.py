@@ -75,10 +75,15 @@ class Settings(BaseSettings):
     #   "razorpay"— live/live-sandbox: create a real Razorpay Order for checkout;
     #               confirm via Razorpay's webhook (X-Razorpay-Signature = HMAC-
     #               SHA256 hex of the raw body with payment_webhook_secret).
-    # The in-app /pay bypass is accepted ONLY for "mock" (or dev_mode); any other
-    # provider must be paid through the real checkout + webhook.
+    # The in-app /pay bypass is accepted ONLY when mock payments are allowed
+    # (dev_mode, or an explicit ALLOW_MOCK_PAYMENTS opt-in for a staging demo).
+    # In production it fails closed so a buyer can never mark an order paid for
+    # free, even if PAYMENT_PROVIDER is left at the default "mock".
     payment_provider: str = "mock"
     payment_webhook_secret: str = "dev-sandbox-webhook-secret"
+    # Opt-in escape hatch: allow the in-app mock capture even with DEV_MODE=false
+    # (e.g. a deliberate staging demo). Off by default — never set this in prod.
+    allow_mock_payments: bool = False
     # Razorpay keys (only used when payment_provider == "razorpay").
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
@@ -194,6 +199,19 @@ class Settings(BaseSettings):
         raise RuntimeError(
             "AUTH_SECRET must be set when DEV_MODE is false."
         )
+
+    @property
+    def mock_payments_allowed(self) -> bool:
+        """In-app mock payment capture is allowed only in dev, or when a staging
+        deploy explicitly opts in. Fail-closed in production."""
+        return self.dev_mode or self.allow_mock_payments
+
+    @property
+    def webhook_secret_secure(self) -> bool:
+        """True only when a real, non-default webhook secret is configured, so the
+        signed-webhook path can fail closed in production until it is set."""
+        s = (self.payment_webhook_secret or "").strip()
+        return bool(s) and s != "dev-sandbox-webhook-secret"
 
 
 @lru_cache

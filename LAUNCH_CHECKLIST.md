@@ -22,6 +22,9 @@ Operated by **Lanciere Technologies**. App: **KissanSetu** (AgriSetuAI).
 | Database | Neon Postgres | `DATABASE_URL` (Render, `sync:false`) | Health ok; migrations applied on boot (`AUTO_MIGRATE=true`) |
 | CORS locked down | Render `CORS_ORIGINS` | set to the exact Vercel URL | Cross-origin call from the site works; a random origin is blocked |
 | Auth secret | Render `AUTH_SECRET` | `generateValue` (auto) | Login issues a token; it survives a redeploy only if pinned |
+| **SMS / OTP gateway** | Render `SMS_PROVIDER` (`fast2sms`/`2factor`) + its key | default is `console` (logs the code, sends nothing) | Request OTP on a real phone → SMS arrives; **not** in server logs |
+| **Payment webhook secret** | Render `PAYMENT_WEBHOOK_SECRET` | a strong random value (**not** the default) | Webhooks fail closed until set; see §4 |
+| **Payment provider** | Render `PAYMENT_PROVIDER` | `razorpay` (not the default `mock`) | In-app mock `/pay` returns 409 in prod; checkout + webhook is the only path |
 
 See **DEPLOYMENT.md**.
 

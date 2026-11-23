@@ -79,6 +79,10 @@ def sign(payload: bytes) -> str:
 def verify_webhook(payload: bytes, signature: str | None) -> bool:
     if not signature:
         return False
+    # Fail closed in production: refuse all webhooks until a real, non-default
+    # secret is set, so no one can forge a "paid" event using the public default.
+    if not settings.dev_mode and not settings.webhook_secret_secure:
+        return False
     return hmac.compare_digest(sign(payload), signature)
 
 

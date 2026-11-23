@@ -805,6 +805,56 @@ def run():
           client.post("/api/payments/webhook", content=rz,
                       headers={"x-razorpay-signature": "nope"}).status_code == 401)
 
+    print("\n== Security hardening (fail-closed money paths + headers) ==")
+    from app.core.config import Settings
+    import app.services.payments as _paymod
+    # Mock in-app pay must be disabled in production, even if PAYMENT_PROVIDER is
+    # left at the default "mock" — so a buyer can never self-capture for free.
+    check("mock payments disabled in prod by default",
+          Settings(dev_mode=False, auth_secret="x").mock_payments_allowed is False)
+    check("mock payments allowed in dev",
+          Settings(dev_mode=True).mock_payments_allowed is True)
+    check("mock payments opt-in works for a deliberate staging demo",
+          Settings(dev_mode=False, auth_secret="x",
+                   allow_mock_payments=True).mock_payments_allowed is True)
+    # The public default webhook secret must be treated as insecure.
+    check("default webhook secret flagged insecure",
+          Settings(payment_webhook_secret="dev-sandbox-webhook-secret").webhook_secret_secure is False)
+    check("a real webhook secret is accepted as secure",
+          Settings(payment_webhook_secret="a-strong-random-secret").webhook_secret_secure is True)
+    # verify_webhook must fail closed in prod while the secret is still the default,
+    # even when the signature matches that default (an attacker knows it).
+    _orig_settings = _paymod.settings
+    try:
+        _paymod.settings = Settings(dev_mode=False, auth_secret="x",
+                                    payment_webhook_secret="dev-sandbox-webhook-secret")
+        _b = b'{"type":"payment.succeeded","data":{"order_public_id":"NOPE"}}'
+        check("webhook fails closed in prod with the default secret",
+              _paymod.verify_webhook(_b, _paymod.sign(_b)) is False)
+        _paymod.settings = Settings(dev_mode=False, auth_secret="x",
+                                    payment_webhook_secret="a-strong-random-secret")
+        check("webhook verifies in prod once a real secret is set",
+              _paymod.verify_webhook(_b, _paymod.sign(_b)) is True)
+    finally:
+        _paymod.settings = _orig_settings
+    # Purpose-scoped tokens (phone / media / invoice links) must never act as an
+    # auth bearer token — they are rejected with 401, not mistaken for a session.
+    from app.core import security as _sec
+    _ph_tok = _sec.issue_phone_token("919000000001")
+    check("a phone-ownership token cannot authenticate (401)",
+          client.get("/api/auth/me", headers=hdr(_ph_tok)).status_code == 401)
+    _iv_tok = _sec.issue_invoice_token("KS/LAN/TEST/1")
+    check("an invoice-link token cannot authenticate (401)",
+          client.get("/api/auth/me", headers=hdr(_iv_tok)).status_code == 401)
+    # Baseline security response headers on every response.
+    _h = client.get("/api/health")
+    check("security header: X-Content-Type-Options nosniff",
+          _h.headers.get("x-content-type-options") == "nosniff")
+    check("security header: X-Frame-Options DENY",
+          _h.headers.get("x-frame-options") == "DENY")
+    check("security header: Referrer-Policy no-referrer",
+          _h.headers.get("referrer-policy") == "no-referrer")
+
     print("\n== Reorder + admin KYC queue ==")
     r = client.post(f"/api/orders/{order_id}/reorder", headers=hdr(buyer))
     check("buyer reorders -> new offer", r.json().get("reorderable") is True and r.json().get("offer_id"))

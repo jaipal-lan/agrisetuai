@@ -726,12 +726,14 @@ def pay(
 ):
     """Mock payment capture (in-app). Posts the full double-entry ledger.
 
-    Accepted ONLY in the mock provider (or dev_mode). With a real provider
-    configured, payment must flow through the provider checkout + signed webhook —
-    otherwise this endpoint would let a buyer mark an order paid for free.
+    Fail-closed: accepted ONLY when mock payments are allowed (dev_mode, or an
+    explicit ALLOW_MOCK_PAYMENTS staging opt-in). In production — regardless of
+    PAYMENT_PROVIDER, including the default "mock" — this is refused, so a buyer
+    can never mark an order paid for free; payment must flow through the provider
+    checkout + signed webhook (or COD).
     """
     from app.core.config import settings
-    if settings.payment_provider != "mock" and not settings.dev_mode:
+    if not settings.mock_payments_allowed:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "In-app pay is disabled — complete payment through the checkout.",
