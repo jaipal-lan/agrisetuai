@@ -1354,6 +1354,13 @@ def run():
     check("seller can fetch invoice", r.status_code == 200)
     r = client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(transport))
     check("non-party cannot fetch invoice", r.status_code == 403)
+    # "Buyer sees another buyer's data" (Critical) — a second, unrelated buyer must
+    # be denied this order's detail AND its invoice.
+    other_buyer = login(client, "919000000777", role="buyer_household", name="Other Buyer")
+    check("another buyer cannot read this order's detail",
+          client.get(f"/api/orders/{order_id}", headers=hdr(other_buyer)).status_code in (403, 404))
+    check("another buyer cannot fetch this order's invoice",
+          client.get(f"/api/orders/{order_id}/invoice.pdf", headers=hdr(other_buyer)).status_code in (403, 404))
 
     print("\n== Scheduled payout batches (accrue -> disburse) ==")
     po = client.get("/api/admin/payouts", headers=hdr(superadmin)).json()
