@@ -1,0 +1,9 @@
+# Fly.io config for the KissanSetu price auto-importer.
+# Runs in the Mumbai (bom) region so it has an Indian IP that data.gov.in accepts.
+# This is NOT a web server — it runs as a scheduled Machine that executes the
+# script once and exits (see README.md). No [http_service] block on purpose.
+app = "kissansetu-price-importer"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"

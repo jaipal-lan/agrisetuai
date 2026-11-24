@@ -1995,6 +1995,19 @@ def run():
         r = client.get("/api/cron/run?token=secret123")
         check("cron runs scheduled jobs with the right token",
               r.status_code == 200 and "prices_refreshed" in r.json())
+        # Token-protected price import (India-region auto-importer path).
+        check("cron import-prices rejects a wrong token (403)",
+              client.post("/api/cron/import-prices?token=nope", json={"records": []}).status_code == 403)
+        imp = client.post("/api/cron/import-prices?token=secret123", json={"records": [
+            {"state": "Telangana", "market": "Bowenpally", "commodity": "Tomato",
+             "variety": "Local", "min_price": "800", "max_price": "1400",
+             "modal_price": "1100", "arrival_date": "24/11/2026"},
+        ]})
+        check("cron import-prices upserts pushed records",
+              imp.status_code == 200 and imp.json().get("ok") is True
+              and imp.json().get("upserted") == 1)
+        pushed = client.get("/api/market-prices", params={"commodity": "Tomato"}).json()
+        check("imported price is served", any(p["market"] == "Bowenpally" for p in pushed))
     finally:
         _st2.cron_token = ""
 
