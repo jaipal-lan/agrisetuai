@@ -25,14 +25,17 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    env:
+      BACKEND_URL: ${{ secrets.BACKEND_URL }}
     steps:
       - name: Ping health
         run: |
-          if [ -z "${{ secrets.BACKEND_URL }}" ]; then
+          if [ -z "$BACKEND_URL" ]; then
             echo "BACKEND_URL secret not set — skipping (configure it to enable keep-awake)."
             exit 0
           fi
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "${{ secrets.BACKEND_URL }}/api/health")
+          base="${BACKEND_URL%/}"
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "${base}/api/health" || echo "000")
           echo "health -> HTTP $code"
           # A cold start can momentarily 5xx; don't fail the workflow on a single miss.
           if [ "$code" = "200" ]; then echo "awake"; else echo "non-200 (likely waking); not failing"; fi

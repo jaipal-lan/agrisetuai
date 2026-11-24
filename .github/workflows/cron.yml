@@ -20,16 +20,47 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    env:
+      BACKEND_URL: ${{ secrets.BACKEND_URL }}
+      CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
     steps:
+      - name: Check required secrets
+        run: |
+          missing=0
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::BACKEND_URL secret is not set. Add it under Settings -> Secrets and variables -> Actions (a full URL, e.g. https://agrisetuai-backend.onrender.com)."
+            missing=1
+          fi
+          if [ -z "$CRON_TOKEN" ]; then
+            echo "::error::CRON_TOKEN secret is not set. It must match CRON_TOKEN set on the backend (Render env)."
+            missing=1
+          fi
+          if [ "$missing" = "1" ]; then exit 1; fi
+          case "$BACKEND_URL" in
+            http://*|https://*) : ;;
+            *) echo "::error::BACKEND_URL must start with https:// (got '${BACKEND_URL}')."; exit 1 ;;
+          esac
+
       - name: Wake the backend
-        run: curl -s -o /dev/null --max-time 90 "${{ secrets.BACKEND_URL }}/api/health" || true
+        run: |
+          base="${BACKEND_URL%/}"
+          curl -s -o /dev/null --max-time 90 "${base}/api/health" || true
 
       - name: Wait for cold start
         run: sleep 25
 
       - name: Force today's price refresh
         run: |
-          code=$(curl -s -o /tmp/out -w "%{http_code}" --max-time 180 \
-            "${{ secrets.BACKEND_URL }}/api/cron/run?token=${{ secrets.CRON_TOKEN }}&force_prices=1")
-          echo "HTTP $code"; cat /tmp/out || true
-          if [ "$code" != "200" ]; then exit 1; fi
+          base="${BACKEND_URL%/}"   # tolerate a trailing slash in the secret
+          if ! code=$(curl -s -o /tmp/out -w "%{http_code}" --max-time 180 \
+                "${base}/api/cron/run?token=${CRON_TOKEN}&force_prices=1"); then
+            echo "::error::Could not reach ${base}/api/cron/run — check BACKEND_URL points at the live backend."
+            exit 1
+          fi
+          echo "HTTP $code"; cat /tmp/out 2>/dev/null; echo
+          case "$code" in
+            200) echo "Price refresh triggered." ;;
+            404) echo "::error::404 — the cron endpoint is disabled: set CRON_TOKEN on the backend (Render) and redeploy."; exit 1 ;;
+            403) echo "::error::403 — token mismatch: the CRON_TOKEN secret must equal CRON_TOKEN on the backend."; exit 1 ;;
+            *)   echo "::error::Unexpected HTTP $code from the cron endpoint."; exit 1 ;;
+          esac
