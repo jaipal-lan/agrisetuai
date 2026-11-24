@@ -61,6 +61,7 @@ export default function Admin() {
   const [priceStatus, setPriceStatus] = useState(null);
   const [priceDiag, setPriceDiag] = useState(null);
   const [diagBusy, setDiagBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
   const [payoutAccts, setPayoutAccts] = useState(null);
@@ -292,6 +293,50 @@ export default function Admin() {
       setErr(e.message);
     } finally {
       setDiagBusy(false);
+    }
+  }
+
+  // Fetch the mandi feed from THIS browser (an Indian IP can reach data.gov.in,
+  // which refuses the backend's datacenter) and push it to the server to upsert.
+  async function importFromDevice() {
+    setErr(null);
+    setPriceMsg(null);
+    setImportBusy(true);
+    try {
+      const cfg = await api("/admin/prices/feed-config");
+      if (!cfg.configured || !cfg.api_key) {
+        setErr(t("adm_feed_not_configured"));
+        return;
+      }
+      const pageSize = 1000;
+      let offset = 0, all = [], guard = 0;
+      for (;;) {
+        const u = new URL(cfg.resource_url);
+        u.searchParams.set("api-key", cfg.api_key);
+        u.searchParams.set("format", "json");
+        u.searchParams.set("limit", String(pageSize));
+        u.searchParams.set("offset", String(offset));
+        const resp = await fetch(u.toString());
+        if (!resp.ok) throw new Error(`data.gov.in HTTP ${resp.status}`);
+        const data = await resp.json();
+        const recs = data.records || [];
+        all = all.concat(recs);
+        setPriceMsg(`${t("adm_import_fetching")} ${all.length}…`);
+        if (recs.length < pageSize) break;
+        offset += pageSize;
+        if (++guard > 50) break; // safety cap (~50k rows)
+      }
+      if (!all.length) {
+        setErr(t("adm_import_none"));
+        return;
+      }
+      const r = await api("/admin/prices/import", { method: "POST", body: { records: all } });
+      setPriceMsg(`${t("adm_import_done")} ${r.upserted} (${r.new} ${t("adm_new_word")})${r.as_of ? `, ${t("adm_as_of")} ${r.as_of}` : ""}.`);
+      loadPriceStatus();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setImportBusy(false);
     }
   }
 
@@ -752,14 +797,18 @@ export default function Admin() {
           </div>
         )}
         {priceMsg && <div className="ok" style={{ marginBottom: 10 }}>{priceMsg}</div>}
-        <div className="row" style={{ gap: 8 }}>
-          <button disabled={priceBusy} onClick={refreshPrices}>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button disabled={importBusy} onClick={importFromDevice}>
+            {importBusy ? t("adm_importing") : t("adm_import_device")}
+          </button>
+          <button className="ghost" disabled={priceBusy} onClick={refreshPrices}>
             {priceBusy ? t("adm_refreshing") : t("adm_refresh_now")}
           </button>
           <button className="ghost" disabled={diagBusy} onClick={diagnosePrices}>
             {diagBusy ? t("adm_diagnosing") : t("adm_diagnose_feed")}
           </button>
         </div>
+        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>{t("adm_import_help")}</p>
         {priceDiag && (
           <div style={{ marginTop: 10 }}>
             <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>{t("adm_diag_result")}</div>

@@ -1176,6 +1176,12 @@ def run():
     check("price-feed status reports config + counts",
           "configured" in st and st["row_count"] >= 1 and "feed_is_stale" in st
           and "stale_rows" in st)
+    # feed-config (for the browser "import from this device" path) is superadmin-only.
+    fc = client.get("/api/admin/prices/feed-config", headers=hdr(superadmin))
+    check("feed-config returns fetch params to superadmin",
+          fc.status_code == 200 and "resource_url" in fc.json() and "api_key" in fc.json())
+    check("feed-config is superadmin-only",
+          client.get("/api/admin/prices/feed-config", headers=hdr(farmer)).status_code in (401, 403))
 
     print("\n== Team console (field leader / manager) ==")
     ov = client.get("/api/team/overview", headers=hdr(manager)).json()

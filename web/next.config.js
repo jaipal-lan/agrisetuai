@@ -36,7 +36,10 @@ const csp = [
   `img-src 'self' data: blob: ${API_ORIGIN} https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com https://res.cloudinary.com`,
   // Uploaded videos (product/packing clips) are served from the Cloudinary CDN.
   "media-src 'self' blob: https://res.cloudinary.com",
-  `connect-src 'self' ${API_ORIGIN} https://nominatim.openstreetmap.org`,
+  // api.data.gov.in: the superadmin "import from this device" button fetches the
+  // mandi feed from the browser (an Indian IP) because the backend's datacenter is
+  // geo-blocked (connection refused) by data.gov.in.
+  `connect-src 'self' ${API_ORIGIN} https://nominatim.openstreetmap.org https://api.data.gov.in`,
   "frame-src 'self' https://www.openstreetmap.org",
   "font-src 'self' data:",
 ].join("; ");

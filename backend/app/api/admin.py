@@ -887,6 +887,29 @@ def prices_diagnose(user=Depends(require_roles(Role.SUPERADMIN))):
     return out
 
 
+@router.get("/prices/feed-config")
+def prices_feed_config(user=Depends(require_roles(Role.SUPERADMIN))):
+    """Superadmin-only: the data.gov.in fetch parameters so an India-based browser
+    can pull the mandi feed directly and POST it to /prices/import. Needed because
+    the backend's datacenter is geo-blocked by data.gov.in (connection refused), so
+    a server-side fetch can't work — but the superadmin's browser (Indian IP) can.
+    Returns the API key; it only ever reaches a superadmin's own session."""
+    from app.core.config import settings
+    from app.services import prices_feed as pf
+
+    def _csv(raw):
+        return [s.strip() for s in (raw or "").split(",") if s.strip()]
+
+    return {
+        "configured": pf.provider_configured(),
+        "resource_url": pf.DATA_GOV_URL,
+        "api_key": settings.data_gov_in_api_key,
+        "limit": settings.prices_feed_limit,
+        "commodities": _csv(settings.prices_feed_commodities),
+        "states": _csv(settings.prices_feed_states),
+    }
+
+
 @router.post("/prices/refresh")
 def refresh_market_prices(user=Depends(require_roles(Role.SUPERADMIN)), db: Session = Depends(get_db)):
     """Pull the latest government-declared mandi prices from the live feed
