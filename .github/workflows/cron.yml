@@ -59,7 +59,15 @@ jobs:
           fi
           echo "HTTP $code"; cat /tmp/out 2>/dev/null; echo
           case "$code" in
-            200) echo "Price refresh triggered." ;;
+            200)
+              refreshed=$(grep -o '"prices_refreshed":[0-9]*' /tmp/out | grep -o '[0-9]*' | head -1)
+              echo "prices_refreshed=${refreshed:-unknown}"
+              if [ "$refreshed" = "0" ]; then
+                echo "::warning::Cron reached the backend but refreshed 0 prices. The live feed is likely not configured on the backend (set PRICES_PROVIDER=data_gov_in and DATA_GOV_IN_API_KEY on Render), or the server can't reach data.gov.in (check GET /api/admin/prices/diagnose)."
+              else
+                echo "Price refresh triggered (${refreshed} rows)."
+              fi
+              ;;
             404) echo "::error::404 — the cron endpoint is disabled: set CRON_TOKEN on the backend (Render) and redeploy."; exit 1 ;;
             403) echo "::error::403 — token mismatch: the CRON_TOKEN secret must equal CRON_TOKEN on the backend."; exit 1 ;;
             *)   echo "::error::Unexpected HTTP $code from the cron endpoint."; exit 1 ;;
