@@ -86,6 +86,132 @@ function DisputeBox({ orderId, onDone }) {
   );
 }
 
+function useCountdown(deadlineIso) {
+  const [left, setLeft] = useState(() =>
+    deadlineIso ? Math.max(0, Math.floor((new Date(deadlineIso) - Date.now()) / 1000)) : 0
+  );
+  useEffect(() => {
+    if (!deadlineIso) return;
+    const tick = () => setLeft(Math.max(0, Math.floor((new Date(deadlineIso) - Date.now()) / 1000)));
+    tick();
+    const h = setInterval(tick, 1000);
+    return () => clearInterval(h);
+  }, [deadlineIso]);
+  return left;
+}
+
+function fmtCountdown(s) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
+function LiveCountdown({ deadline }) {
+  const left = useCountdown(deadline);
+  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCountdown(left)}</span>;
+}
+
+// Shown at checkout so the buyer sees the inspect-on-delivery return policy BEFORE paying.
+function ReturnPolicyNote() {
+  const { t } = useI18n();
+  return (
+    <div className="card" style={{ marginTop: 12, borderLeft: "4px solid var(--green-600)" }}>
+      <b>🛡 {t("rp_policy_title")}</b>
+      <ul className="muted" style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 13 }}>
+        <li>{t("rp_policy_p1")}</li>
+        <li>{t("rp_policy_p2")}</li>
+        <li>{t("rp_policy_p3")}</li>
+      </ul>
+    </div>
+  );
+}
+
+// Buyer reports a defect found at unboxing. Recorded evidence (photo/video) is
+// mandatory — the submit button stays disabled until at least one file is attached.
+function DefectReportBox({ orderId, onDone }) {
+  const { t } = useI18n();
+  const [issueType, setIssueType] = useState("defect_on_delivery");
+  const [description, setDescription] = useState("");
+  const [media, setMedia] = useState([]); // { key, isVideo }
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function addFiles(fileList) {
+    setErr(null);
+    const files = Array.from(fileList || []).slice(0, 5);
+    for (const f of files) {
+      try {
+        const r = await uploadMedia(f);
+        setMedia((m) => [...m, { key: r.object_key, isVideo: (r.content_type || "").startsWith("video/") }]);
+      } catch (e) {
+        setErr(e.message);
+      }
+    }
+  }
+
+  async function submit() {
+    if (!description.trim() || media.length === 0) {
+      setErr(t("rp_need_evidence"));
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api(`/orders/${orderId}/report-defect`, {
+        method: "POST",
+        body: {
+          issue_type: issueType,
+          description: description.trim(),
+          evidence: { media: media.map((m) => m.key) },
+        },
+      });
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16, borderLeft: "4px solid #dc2626" }}>
+      <h3>{t("rp_report_defect")}</h3>
+      <p className="muted" style={{ fontSize: 13, marginTop: -4 }}>{t("rp_defect_help")}</p>
+      {err && <div className="error">{err}</div>}
+      <label>{t("sp_issue_type")}</label>
+      <select value={issueType} onChange={(e) => setIssueType(e.target.value)}>
+        <option value="defect_on_delivery">{t("it_quality")}</option>
+        <option value="quantity">{t("od_quantity_weight")}</option>
+        <option value="delivery">{t("it_delivery")}</option>
+        <option value="other">{t("od_other")}</option>
+      </select>
+      <label>{t("od_what_wrong")}</label>
+      <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
+                placeholder={t("od_describe_ph")} />
+      <label>{t("rp_evidence_label")}</label>
+      <input type="file" accept="image/*,video/*" capture="environment" multiple
+             onChange={(e) => addFiles(e.target.files)} />
+      {media.length > 0 && (
+        <div className="thumb-row" style={{ marginTop: 8 }}>
+          {media.map((m) =>
+            m.isVideo ? (
+              <video key={m.key} src={mediaUrl(m.key)} muted
+                     style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6, marginRight: 6 }} />
+            ) : (
+              <img key={m.key} src={mediaUrl(m.key)} alt="evidence"
+                   style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6, marginRight: 6 }} />
+            )
+          )}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <button className="danger" disabled={busy || !description.trim() || media.length === 0} onClick={submit}>
+          {t("rp_submit_defect")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Quote({ q }) {
   const { t } = useI18n();
   if (!q) return null;
@@ -341,6 +467,7 @@ export default function OrderDetail() {
   const [carriers, setCarriers] = useState([]);
   const [courierId, setCourierId] = useState("");
   const [showDispute, setShowDispute] = useState(false);
+  const [showDefect, setShowDefect] = useState(false);
   const [addresses, setAddresses] = useState([]);
   const [addrId, setAddrId] = useState("");
   const [newAddr, setNewAddr] = useState(null);     // from AddressPicker ("deliver elsewhere")
@@ -659,6 +786,7 @@ export default function OrderDetail() {
                     onClick={() => act(`/orders/${id}/cod-confirm`, undefined, { "Idempotency-Key": order.public_id })}>
               {t("cod_confirm")}
             </button>
+            <ReturnPolicyNote />
           </Action>
         ) : (
           <Action>
@@ -667,6 +795,7 @@ export default function OrderDetail() {
             <button disabled={busy} onClick={() => act(`/orders/${id}/pay`, undefined, { "Idempotency-Key": order.public_id })}>
               {t("od_pay_now")}
             </button>
+            <ReturnPolicyNote />
           </Action>
         )
       )}
@@ -807,12 +936,33 @@ export default function OrderDetail() {
         </Action>
       )}
 
-      {/* Buyer: acceptance */}
+      {/* Buyer: inspect-at-unboxing — accept, or report a defect with evidence */}
       {isBuyer && s === "delivered_pending_acceptance" && (
         <Action>
-          <h3>{t("od_confirm_delivery")}</h3>
-          <button disabled={busy} onClick={() => act(`/orders/${id}/acceptance`)}>{t("od_accept_delivery")}</button>
+          <h3>{t("rp_inspect_title")}</h3>
+          <p className="muted" style={{ fontSize: 13, marginTop: -4 }}>{t("rp_inspect_sub")}</p>
+          {order.return_window?.deadline && order.return_window?.can_report_defect && (
+            <div className="eta" style={{ marginTop: 6 }}>
+              ⏱ {t("rp_time_left")}: <b><LiveCountdown deadline={order.return_window.deadline} /></b>
+            </div>
+          )}
+          {order.return_window && !order.return_window.can_report_defect && (
+            <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>{t("rp_window_closed")}</div>
+          )}
+          <div className="row" style={{ gap: 8, marginTop: 12 }}>
+            <button disabled={busy} onClick={() => act(`/orders/${id}/acceptance`)}>
+              {t("rp_everything_fine")}
+            </button>
+            {order.return_window?.can_report_defect && (
+              <button className="danger" disabled={busy} onClick={() => setShowDefect((v) => !v)}>
+                {showDefect ? t("od_close") : t("rp_report_defect")}
+              </button>
+            )}
+          </div>
         </Action>
+      )}
+      {isBuyer && s === "delivered_pending_acceptance" && showDefect && (
+        <DefectReportBox orderId={id} onDone={() => { setShowDefect(false); load(); }} />
       )}
 
       {s === "settled" && <div className="ok" style={{ marginTop: 16 }}>{t("od_order_complete")}</div>}

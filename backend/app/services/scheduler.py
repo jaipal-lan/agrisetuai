@@ -168,6 +168,40 @@ def escalate_stale_rfqs(db: Session) -> int:
     return sent
 
 
+def auto_accept_delivered_orders(db: Session) -> int:
+    """Auto-accept (complete + settle) orders whose inspect-at-unboxing window has
+    elapsed with no defect reported, so sellers aren't left waiting on silent buyers.
+
+    An order that is DISPUTED (a defect was reported) is never here — the report
+    moved it out of DELIVERED_PENDING_ACCEPTANCE — so a pending claim is safe.
+    Returns the number of orders auto-accepted. Never raises on a single bad order."""
+    from datetime import timedelta
+
+    from app.core.config import settings
+    from app.models.common import OrderStatus as S
+    from app.models.common import ensure_aware, utcnow
+    from app.models.order import Order
+    from app.services.order_acceptance import accept_and_settle, delivered_at
+
+    now = utcnow()
+    window = timedelta(hours=settings.defect_report_window_hours)
+    accepted = 0
+    for order in db.scalars(select(Order).where(Order.status == str(S.DELIVERED_PENDING_ACCEPTANCE))):
+        da = delivered_at(db, order)
+        if da is None:
+            continue
+        if now - ensure_aware(da) < window:
+            continue  # still inside the buyer's inspection window
+        try:
+            accept_and_settle(db, order, actor_id=None, reason_code="auto_accepted_window_elapsed")
+            db.commit()
+            accepted += 1
+        except Exception:
+            db.rollback()
+            log.exception("auto-accept failed for order %s", order.public_id)
+    return accepted
+
+
 def run_scheduled_jobs(db: Session, *, force_prices: bool = False) -> dict:
     """Run every scheduled job once and return a report."""
     from app.models.common import utcnow
@@ -175,9 +209,10 @@ def run_scheduled_jobs(db: Session, *, force_prices: bool = False) -> dict:
     prices = refresh_market_prices(db, force=force_prices)
     meeting_reminders = raise_meeting_reminders(db)
     rfq_escalations = escalate_stale_rfqs(db)
+    auto_accepts = auto_accept_delivered_orders(db)
     return {"ran_at": utcnow().isoformat(), "digests_sent": digests,
             "prices_refreshed": prices, "meeting_reminders": meeting_reminders,
-            "rfq_escalations": rfq_escalations}
+            "rfq_escalations": rfq_escalations, "auto_accepted_orders": auto_accepts}
 
 
 async def _loop(interval: int) -> None:

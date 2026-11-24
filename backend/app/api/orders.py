@@ -121,6 +121,29 @@ def _order_json(order: Order, db: Session, viewer=None, invoice_number=None) -> 
         staff = viewer.role in (Role.SUPERADMIN, Role.FIELD_MANAGER, Role.FIELD_LEADER, Role.TRANSPORT)
         if staff or viewer.id == order.buyer_id:
             out["delivery_otp"] = shipment.proof_of_delivery.get("otp")
+
+    # Inspect-at-unboxing return window (only meaningful while awaiting acceptance),
+    # so the buyer's screen can show a live countdown and gate the defect report.
+    if order.status == S.DELIVERED_PENDING_ACCEPTANCE:
+        from datetime import timedelta
+
+        from app.core.config import settings
+        from app.models.common import ensure_aware
+        from app.services.order_acceptance import delivered_at
+
+        da = delivered_at(db, order)
+        wh = settings.defect_report_window_hours
+        if da is not None:
+            da = ensure_aware(da)
+            deadline = da + timedelta(hours=wh)
+            seconds_left = int((deadline - utcnow()).total_seconds())
+            out["return_window"] = {
+                "delivered_at": da.isoformat(),
+                "window_hours": wh,
+                "deadline": deadline.isoformat(),
+                "seconds_left": max(0, seconds_left),
+                "can_report_defect": seconds_left > 0,
+            }
     return out
 
 
@@ -1218,71 +1241,103 @@ def warehouse_pickup(
 
 @router.post("/{order_id}/acceptance")
 def acceptance(order_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services.order_acceptance import accept_and_settle
+
     order = _get_order(order_id, db)
     _require_party(order, user, buyer=True)
     if order.status != S.DELIVERED_PENDING_ACCEPTANCE:
         raise HTTPException(status.HTTP_409_CONFLICT, "Order not awaiting acceptance")
 
-    _safe_transition(db, order, S.COMPLETED, actor_id=user.id, reason_code="buyer_accepted")
-
-    # Release reserved -> sold on the listing(s).
-    for line in order.lines:
-        if line.listing_id:
-            listing = db.get(Listing, line.listing_id, with_for_update=True)
-            if listing:
-                dq = D(line.quantity)
-                listing.reserved_qty = max(D("0"), D(listing.reserved_qty) - dq)
-                listing.sold_qty = D(listing.sold_qty) + dq
-        line.allocation_status = "delivered"
-
-    # Settle the seller: reclassify the seller_payable liability to a clearing
-    # account and accrue a PENDING payout. Actual disbursement happens later when
-    # finance runs a scheduled payout batch (/admin/payouts/run), which moves
-    # seller_clearing -> cash_clearing and marks the payout processed.
-    payable = money(order.seller_payable or 0)
-    if payable > money(0):
-        idem = f"payout:{order.public_id}"
-        if not db.scalar(select(Payout).where(Payout.idempotency_key == idem)):
-            ledger.post(
-                db,
-                txn_group=f"settle:{order.public_id}",
-                order_id=order.id,
-                currency=(order.quote or {}).get("currency", "INR"),
-                legs=[
-                    Leg("seller_payable", LedgerDirection.DEBIT, payable, "accrue seller payout"),
-                    Leg("seller_clearing", LedgerDirection.CREDIT, payable, "payout awaiting disbursement"),
-                ],
-            )
-            db.add(Payout(order_id=order.id, seller_id=order.seller_id, amount=payable,
-                          status="pending", idempotency_key=idem))
-
-    # Accrue the transport partner's payout the same way: reclassify the
-    # transport_payable liability to a clearing account and record a pending
-    # payout for the courier user who handled the shipment.
-    q = order.quote or {}
-    charge = money(q.get("transport_charge", 0))
-    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id))
-    transport_user = shipment.carrier_id if shipment else None
-    if charge > money(0) and transport_user:
-        tidem = f"tpayout:{order.public_id}"
-        if not db.scalar(select(Payout).where(Payout.idempotency_key == tidem)):
-            ledger.post(
-                db,
-                txn_group=f"settle-transport:{order.public_id}",
-                order_id=order.id,
-                currency=q.get("currency", "INR"),
-                legs=[
-                    Leg("transport_payable", LedgerDirection.DEBIT, charge, "accrue transport payout"),
-                    Leg("transport_clearing", LedgerDirection.CREDIT, charge, "transport payout awaiting disbursement"),
-                ],
-            )
-            db.add(Payout(order_id=order.id, seller_id=transport_user, payee_type="transport",
-                          amount=charge, status="pending", idempotency_key=tidem))
-    _safe_transition(db, order, S.SETTLED, actor_id=user.id, reason_code="settled")
-    audit.record(db, actor_id=user.id, action="order.settle", object_type="order",
-                 object_id=order.public_id, new_values={"seller_payout": str(payable)})
+    accept_and_settle(db, order, actor_id=user.id, reason_code="buyer_accepted")
     db.commit()
     return _order_json(order, db, user)
+
+
+# --- Inspect-at-unboxing: report a defect on delivery ---------------------
+
+class DefectReportBody(BaseModel):
+    issue_type: str = "defect_on_delivery"
+    description: str
+    # Must carry a non-empty {"media": [<object_key>, ...]} list of unboxing
+    # photos/videos — recorded evidence is mandatory to open a defect claim.
+    evidence: dict | None = None
+
+
+@router.post("/{order_id}/report-defect")
+def report_defect(order_id: int, body: DefectReportBody,
+                  user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Buyer reports a defect found while opening the package, within the inspect-at-
+    unboxing window. Requires recorded evidence. Opens a dispute and freezes the
+    order at DISPUTED (so the seller payout is NOT released) until staff review the
+    evidence and decide a refund."""
+    from datetime import timedelta
+
+    from app.core.config import settings
+    from app.core.ids import dispute_id
+    from app.models.common import ensure_aware
+    from app.models.support import Dispute
+    from app.services.order_acceptance import delivered_at
+
+    order = _get_order(order_id, db)
+    _require_party(order, user, buyer=True)
+    if order.status != S.DELIVERED_PENDING_ACCEPTANCE:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A defect can only be reported right after delivery, before the order is accepted.",
+        )
+
+    # Recorded evidence is mandatory.
+    media = (body.evidence or {}).get("media")
+    if not isinstance(media, list) or len(media) == 0:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Recorded evidence is required: attach at least one unboxing photo or video of the defect.",
+        )
+    if not (body.description or "").strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Please describe the defect.")
+
+    # Enforce the inspect-at-unboxing window.
+    window_h = settings.defect_report_window_hours
+    dvat = delivered_at(db, order)
+    now = utcnow()
+    if dvat is not None:
+        dvat = ensure_aware(dvat)
+        if now - dvat > timedelta(hours=window_h):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"The {window_h}-hour inspection window has passed, so this order can no longer "
+                "be reported as defective. Please contact support if there is an issue.",
+            )
+
+    evidence = dict(body.evidence or {})
+    evidence["media"] = media
+    evidence["channel"] = "unboxing_defect_report"
+    evidence["reported_at"] = now.isoformat()
+    evidence["delivered_at"] = dvat.isoformat() if dvat else None
+    evidence["window_hours"] = window_h
+    evidence["policy_version"] = settings.return_policy_version
+
+    d = Dispute(
+        public_id=dispute_id(),
+        order_id=order.id,
+        opener_id=user.id,
+        issue_type=body.issue_type or "defect_on_delivery",
+        description=body.description.strip(),
+        evidence=evidence,
+    )
+    db.add(d)
+    # DISPUTED freezes the order: the acceptance/auto-accept path requires
+    # DELIVERED_PENDING_ACCEPTANCE, so the seller payout cannot release while the
+    # claim is open. (The transition alerts both parties; staff see it in the queue.)
+    _safe_transition(db, order, S.DISPUTED, actor_id=user.id, reason_code="defect_on_delivery")
+    audit.record(db, actor_id=user.id, action="order.report_defect", object_type="order",
+                 object_id=order.public_id, reason=body.issue_type,
+                 new_values={"dispute": d.public_id, "media_count": len(media)})
+    db.commit()
+    db.refresh(d)
+    out = _order_json(order, db, user)
+    out["dispute"] = {"public_id": d.public_id, "status": d.status}
+    return out
 
 
 # --- Cancellation ---------------------------------------------------------

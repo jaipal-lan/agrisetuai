@@ -1832,6 +1832,96 @@ def run():
     check("ledger balanced after warehouse-pickup settlement",
           client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()["balanced"] is True)
 
+    print("\n== Return policy: inspect-at-unboxing defect report -> dispute -> refund ==")
+    df = client.post("/api/offers/buy-now", headers=hdr(buyer),
+                     json={"listing_id": listing["id"], "quantity": 100})
+    df_order = df.json()["order"]["id"]
+    client.post(f"/api/orders/{df_order}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
+    client.post(f"/api/agent/orders/{df_order}/inspection", headers=hdr(agent),
+                json={"client_draft_id": "draft-df-1", "gross_weight": 100, "tare_weight": 0, "outcome": "pass"})
+    client.post(f"/api/orders/{df_order}/buyer-approve", headers=hdr(buyer))
+    client.post(f"/api/orders/{df_order}/confirm-quote", headers=hdr(buyer), json={"route_km": 40})
+    client.post(f"/api/orders/{df_order}/pay", headers=hdr(buyer))
+    client.post(f"/api/orders/{df_order}/packing-complete", headers=hdr(agent), json={})
+    client.post(f"/api/orders/{df_order}/assign-courier", headers=hdr(buyer), json={"courier_id": carrier_id})
+    for ev in ("picked_up", "in_transit", "out_for_delivery", "delivered"):
+        client.post(f"/api/orders/{df_order}/shipment/event", headers=hdr(transport), json={"event": ev})
+    oj = client.get(f"/api/orders/{df_order}", headers=hdr(buyer)).json()
+    check("delivered order exposes an inspect-at-unboxing return window",
+          oj["status"] == "delivered_pending_acceptance"
+          and oj.get("return_window", {}).get("can_report_defect") is True
+          and oj["return_window"]["window_hours"] == 2)
+    # Recorded evidence is mandatory.
+    r = client.post(f"/api/orders/{df_order}/report-defect", headers=hdr(buyer),
+                    json={"description": "Rotten produce at the bottom layer"})
+    check("defect report without evidence rejected (422)", r.status_code == 422)
+    r = client.post(f"/api/orders/{df_order}/report-defect", headers=hdr(buyer),
+                    json={"description": "", "evidence": {"media": ["sample/x.jpg"]}})
+    check("defect report without a description rejected (422)", r.status_code == 422)
+    # Only the buyer may report a defect on their order.
+    r = client.post(f"/api/orders/{df_order}/report-defect", headers=hdr(farmer),
+                    json={"description": "x", "evidence": {"media": ["sample/x.jpg"]}})
+    check("a non-buyer cannot report a defect", r.status_code in (403, 404))
+    # Upload real recorded evidence, then file the defect claim.
+    up = client.post("/api/media/upload", headers=hdr(buyer),
+                     files={"file": ("unboxing.jpg", b"\xff\xd8\xff\xe0defect-photo", "image/jpeg")})
+    check("buyer uploads unboxing evidence", up.status_code == 200 and bool(up.json().get("object_key")))
+    ev_key = up.json()["object_key"]
+    r = client.post(f"/api/orders/{df_order}/report-defect", headers=hdr(buyer),
+                    json={"issue_type": "defect_on_delivery",
+                          "description": "Rotten produce at the bottom, recorded while opening the package",
+                          "evidence": {"media": [ev_key]}})
+    check("defect report with evidence -> order disputed (payout frozen)",
+          r.status_code == 200 and r.json()["status"] == "disputed"
+          and bool(r.json().get("dispute", {}).get("public_id")))
+    check("a disputed order can no longer be accepted/settled",
+          client.post(f"/api/orders/{df_order}/acceptance", headers=hdr(buyer)).status_code == 409)
+    dl = client.get("/api/disputes", headers=hdr(superadmin)).json()
+    dd = next(d for d in dl if d["order_id"] == df_order and d["issue_type"] == "defect_on_delivery")
+    check("defect claim carries the recorded evidence + unboxing channel",
+          ev_key in (dd["evidence"].get("media") or [])
+          and dd["evidence"].get("channel") == "unboxing_defect_report")
+    r = client.post(f"/api/disputes/{dd['id']}/decision", headers=hdr(superadmin),
+                    json={"decision": "full_refund", "note": "Produce confirmed rotten from unboxing evidence"})
+    check("staff resolve the defect claim with a full refund", r.json()["decision"] == "full_refund")
+    oj = client.get(f"/api/orders/{df_order}", headers=hdr(buyer)).json()
+    check("defective order refunded", oj["status"] == "refunded")
+    check("ledger balanced after defect refund",
+          client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()["balanced"] is True)
+
+    print("\n== Return policy: auto-accept + settle after the inspection window elapses ==")
+    aa = client.post("/api/offers/buy-now", headers=hdr(buyer),
+                     json={"listing_id": listing["id"], "quantity": 100})
+    aa_order = aa.json()["order"]["id"]
+    client.post(f"/api/orders/{aa_order}/assign-inspection", headers=hdr(manager), json={"agent_id": 3})
+    client.post(f"/api/agent/orders/{aa_order}/inspection", headers=hdr(agent),
+                json={"client_draft_id": "draft-aa-1", "gross_weight": 100, "tare_weight": 0, "outcome": "pass"})
+    client.post(f"/api/orders/{aa_order}/buyer-approve", headers=hdr(buyer))
+    client.post(f"/api/orders/{aa_order}/confirm-quote", headers=hdr(buyer), json={"route_km": 40})
+    client.post(f"/api/orders/{aa_order}/pay", headers=hdr(buyer))
+    client.post(f"/api/orders/{aa_order}/packing-complete", headers=hdr(agent), json={})
+    client.post(f"/api/orders/{aa_order}/assign-courier", headers=hdr(buyer), json={"courier_id": carrier_id})
+    for ev in ("picked_up", "in_transit", "out_for_delivery", "delivered"):
+        client.post(f"/api/orders/{aa_order}/shipment/event", headers=hdr(transport), json={"event": ev})
+    # Inside the window, the scheduler must NOT auto-accept.
+    client.post("/api/admin/scheduler/run", headers=hdr(superadmin))
+    oj = client.get(f"/api/orders/{aa_order}", headers=hdr(buyer)).json()
+    check("order not auto-accepted while inside the inspection window",
+          oj["status"] == "delivered_pending_acceptance")
+    # Elapse the window and run the scheduler: it auto-accepts + settles.
+    from app.core.config import settings as _cfg
+    _orig_win = _cfg.defect_report_window_hours
+    _cfg.defect_report_window_hours = 0
+    try:
+        sr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
+    finally:
+        _cfg.defect_report_window_hours = _orig_win
+    check("scheduler reports auto-accepted orders", sr.get("auto_accepted_orders", 0) >= 1)
+    oj = client.get(f"/api/orders/{aa_order}", headers=hdr(buyer)).json()
+    check("order auto-accepted + settled after the window elapses", oj["status"] == "settled")
+    check("ledger balanced after auto-accept settlement",
+          client.get("/api/admin/ledger/accounts", headers=hdr(superadmin)).json()["balanced"] is True)
+
     print("\n== Superadmin pricing (km+weight transport, seller commission) ==")
     draft = client.post("/api/admin/pricing-rules/draft", headers=hdr(superadmin), json={
         "rate_per_km": 5, "rate_per_kg": 2, "fixed_pickup_fee": 50,

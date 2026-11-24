@@ -168,6 +168,17 @@ class Settings(BaseSettings):
     prices_stale_hours: int = 48
     # Remind meeting attendees this many hours before a scheduled team meeting.
     meeting_reminder_hours: int = 24
+
+    # --- Delivery return policy (inspect-at-unboxing) ---
+    # After delivery an order sits at DELIVERED_PENDING_ACCEPTANCE. The buyer must
+    # inspect the goods and report any defect — with recorded photo/video evidence —
+    # within this many hours. After the window, with no defect reported, the order
+    # auto-accepts and the seller is paid (see the scheduler). Keep this short for
+    # perishable produce: the buyer records the defect while opening the package.
+    defect_report_window_hours: int = 2
+    # Bumped whenever the return policy's terms change; stamped on each order so the
+    # policy that applied at purchase is auditable.
+    return_policy_version: int = 1
     # Escalate an open buyer request (RFQ) to field agents if no farmer has
     # accepted within this many hours (the "agents source it like a PO" flow).
     rfq_escalation_hours: int = 24
