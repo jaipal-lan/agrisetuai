@@ -59,6 +59,8 @@ export default function Admin() {
   const [priceMsg, setPriceMsg] = useState(null);
   const [priceBusy, setPriceBusy] = useState(false);
   const [priceStatus, setPriceStatus] = useState(null);
+  const [priceDiag, setPriceDiag] = useState(null);
+  const [diagBusy, setDiagBusy] = useState(false);
   const [payouts, setPayouts] = useState(null);
   const [payoutMsg, setPayoutMsg] = useState(null);
   const [payoutAccts, setPayoutAccts] = useState(null);
@@ -278,6 +280,19 @@ export default function Admin() {
 
   function loadPriceStatus() {
     api("/admin/prices/status").then(setPriceStatus).catch(() => {});
+  }
+
+  async function diagnosePrices() {
+    setErr(null);
+    setPriceDiag(null);
+    setDiagBusy(true);
+    try {
+      setPriceDiag(await api("/admin/prices/diagnose"));
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDiagBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -737,9 +752,22 @@ export default function Admin() {
           </div>
         )}
         {priceMsg && <div className="ok" style={{ marginBottom: 10 }}>{priceMsg}</div>}
-        <button disabled={priceBusy} onClick={refreshPrices}>
-          {priceBusy ? t("adm_refreshing") : t("adm_refresh_now")}
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button disabled={priceBusy} onClick={refreshPrices}>
+            {priceBusy ? t("adm_refreshing") : t("adm_refresh_now")}
+          </button>
+          <button className="ghost" disabled={diagBusy} onClick={diagnosePrices}>
+            {diagBusy ? t("adm_diagnosing") : t("adm_diagnose_feed")}
+          </button>
+        </div>
+        {priceDiag && (
+          <div style={{ marginTop: 10 }}>
+            <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>{t("adm_diag_result")}</div>
+            <pre style={{ fontSize: 12, background: "var(--line)", padding: 10, borderRadius: 6, overflowX: "auto" }}>
+{JSON.stringify(priceDiag, null, 2)}
+            </pre>
+          </div>
+        )}
       </div>
 
       <h2>{t("adm_scheduled_jobs")}</h2>
