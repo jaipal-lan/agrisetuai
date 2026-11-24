@@ -13,14 +13,65 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.money import D, money
+from app.models.catalog import Commodity
 from app.models.common import LedgerDirection
 from app.models.common import OrderStatus as S
 from app.models.finance import Payout
 from app.models.marketplace import Listing
-from app.models.order import Order, OrderStatusEvent, Shipment
+from app.models.order import Lot, Order, OrderStatusEvent, Shipment
 from app.services import audit, ledger
 from app.services.ledger import Leg
 from app.services.state_machine import transition
+
+# Perishability drives the inspect-at-unboxing window. A commodity is "perishable"
+# (short window) if its handling class or category points to fresh/cold-chain goods;
+# otherwise it's a dry staple (longer window). Matched case-insensitively.
+_PERISHABLE_HANDLING = ("perishable", "cold_chain", "cold chain", "cold", "fresh",
+                        "refrigerat", "frozen", "chilled", "dairy", "floric")
+_PERISHABLE_CATEGORIES = {
+    "vegetables", "vegetable", "fruits", "fruit", "leafy", "greens", "flowers",
+    "flower", "dairy", "dairy_meat", "meat", "fish", "seafood", "poultry",
+    "eggs", "egg", "milk", "perishable", "fresh", "herbs",
+}
+
+
+def _is_perishable(commodity: Commodity | None) -> bool:
+    if commodity is None:
+        return False
+    hc = (getattr(commodity, "handling_class", None) or "").lower()
+    cat = (getattr(commodity, "category", None) or "").lower()
+    if any(k in hc for k in _PERISHABLE_HANDLING):
+        return True
+    return cat in _PERISHABLE_CATEGORIES
+
+
+def window_hours_for_order(db: Session, order: Order) -> int:
+    """The inspect-at-unboxing window (hours) that applies to this order: the SHORTEST
+    across its line items, so a mixed box is governed by its most perishable item.
+    Items whose commodity can't be resolved fall back to the (longer) staple window,
+    so an unknown item never silently shortens the buyer's window."""
+    from app.core.config import settings
+
+    perishable_h = settings.defect_report_window_hours
+    staple_h = settings.defect_report_window_hours_staple
+
+    commodity_ids: set[int] = set()
+    for line in order.lines:
+        cid = None
+        if line.listing_id:
+            lst = db.get(Listing, line.listing_id)
+            cid = lst.commodity_id if lst else None
+        if cid is None and line.lot_id:
+            lot = db.get(Lot, line.lot_id)
+            cid = lot.commodity_id if lot else None
+        if cid:
+            commodity_ids.add(cid)
+
+    if not commodity_ids:
+        return staple_h
+    hours = [perishable_h if _is_perishable(db.get(Commodity, cid)) else staple_h
+             for cid in commodity_ids]
+    return min(hours)
 
 
 def delivered_at(db: Session, order: Order) -> datetime | None:

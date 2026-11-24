@@ -177,21 +177,23 @@ def auto_accept_delivered_orders(db: Session) -> int:
     Returns the number of orders auto-accepted. Never raises on a single bad order."""
     from datetime import timedelta
 
-    from app.core.config import settings
     from app.models.common import OrderStatus as S
     from app.models.common import ensure_aware, utcnow
     from app.models.order import Order
-    from app.services.order_acceptance import accept_and_settle, delivered_at
+    from app.services.order_acceptance import (
+        accept_and_settle,
+        delivered_at,
+        window_hours_for_order,
+    )
 
     now = utcnow()
-    window = timedelta(hours=settings.defect_report_window_hours)
     accepted = 0
     for order in db.scalars(select(Order).where(Order.status == str(S.DELIVERED_PENDING_ACCEPTANCE))):
         da = delivered_at(db, order)
         if da is None:
             continue
-        if now - ensure_aware(da) < window:
-            continue  # still inside the buyer's inspection window
+        if now - ensure_aware(da) < timedelta(hours=window_hours_for_order(db, order)):
+            continue  # still inside the buyer's (per-commodity) inspection window
         try:
             accept_and_settle(db, order, actor_id=None, reason_code="auto_accepted_window_elapsed")
             db.commit()

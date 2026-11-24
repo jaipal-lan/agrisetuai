@@ -1849,8 +1849,19 @@ def run():
     oj = client.get(f"/api/orders/{df_order}", headers=hdr(buyer)).json()
     check("delivered order exposes an inspect-at-unboxing return window",
           oj["status"] == "delivered_pending_acceptance"
-          and oj.get("return_window", {}).get("can_report_defect") is True
-          and oj["return_window"]["window_hours"] == 2)
+          and oj.get("return_window", {}).get("can_report_defect") is True)
+    # Paddy is a dry staple -> it gets the longer (staple) window, not the 2h perishable one.
+    check("staple commodity gets the longer return window (per-commodity)",
+          oj["return_window"]["window_hours"] == 24)
+    # Classifier: perishables -> short window, dry staples -> long window.
+    from app.services.order_acceptance import _is_perishable as _isp  # noqa: E402
+    _Stub = type("C", (), {})
+    def _c(cat, hc):
+        o = _Stub(); o.category = cat; o.handling_class = hc; return o
+    check("vegetables/fruit classed perishable; grains/spices not",
+          _isp(_c("vegetables", "perishable")) and _isp(_c("fruits", "fresh"))
+          and _isp(_c("dairy_meat", "cold_chain"))
+          and not _isp(_c("cereals", "dry_grain")) and not _isp(_c("spices", "dry_spice")))
     # Recorded evidence is mandatory.
     r = client.post(f"/api/orders/{df_order}/report-defect", headers=hdr(buyer),
                     json={"description": "Rotten produce at the bottom layer"})
@@ -1910,12 +1921,13 @@ def run():
           oj["status"] == "delivered_pending_acceptance")
     # Elapse the window and run the scheduler: it auto-accepts + settles.
     from app.core.config import settings as _cfg
-    _orig_win = _cfg.defect_report_window_hours
+    _orig_win = (_cfg.defect_report_window_hours, _cfg.defect_report_window_hours_staple)
     _cfg.defect_report_window_hours = 0
+    _cfg.defect_report_window_hours_staple = 0  # paddy is a staple
     try:
         sr = client.post("/api/admin/scheduler/run", headers=hdr(superadmin)).json()
     finally:
-        _cfg.defect_report_window_hours = _orig_win
+        _cfg.defect_report_window_hours, _cfg.defect_report_window_hours_staple = _orig_win
     check("scheduler reports auto-accepted orders", sr.get("auto_accepted_orders", 0) >= 1)
     oj = client.get(f"/api/orders/{aa_order}", headers=hdr(buyer)).json()
     check("order auto-accepted + settled after the window elapses", oj["status"] == "settled")

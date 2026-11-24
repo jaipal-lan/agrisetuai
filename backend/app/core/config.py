@@ -172,10 +172,12 @@ class Settings(BaseSettings):
     # --- Delivery return policy (inspect-at-unboxing) ---
     # After delivery an order sits at DELIVERED_PENDING_ACCEPTANCE. The buyer must
     # inspect the goods and report any defect — with recorded photo/video evidence —
-    # within this many hours. After the window, with no defect reported, the order
-    # auto-accepts and the seller is paid (see the scheduler). Keep this short for
-    # perishable produce: the buyer records the defect while opening the package.
-    defect_report_window_hours: int = 2
+    # within the applicable window. After it, with no defect reported, the order
+    # auto-accepts and the seller is paid (see the scheduler). The window is
+    # per-commodity: short for perishable produce (inspect while opening), longer for
+    # dry staples. A mixed order uses the SHORTEST (most perishable) item's window.
+    defect_report_window_hours: int = 2            # perishable produce (veg/fruit/dairy/meat/fresh)
+    defect_report_window_hours_staple: int = 24    # dry staples (grains, pulses, oilseeds, spices)
     # Bumped whenever the return policy's terms change; stamped on each order so the
     # policy that applied at purchase is auditable.
     return_policy_version: int = 1

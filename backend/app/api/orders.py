@@ -127,12 +127,11 @@ def _order_json(order: Order, db: Session, viewer=None, invoice_number=None) -> 
     if order.status == S.DELIVERED_PENDING_ACCEPTANCE:
         from datetime import timedelta
 
-        from app.core.config import settings
         from app.models.common import ensure_aware
-        from app.services.order_acceptance import delivered_at
+        from app.services.order_acceptance import delivered_at, window_hours_for_order
 
         da = delivered_at(db, order)
-        wh = settings.defect_report_window_hours
+        wh = window_hours_for_order(db, order)
         if da is not None:
             da = ensure_aware(da)
             deadline = da + timedelta(hours=wh)
@@ -1276,7 +1275,7 @@ def report_defect(order_id: int, body: DefectReportBody,
     from app.core.ids import dispute_id
     from app.models.common import ensure_aware
     from app.models.support import Dispute
-    from app.services.order_acceptance import delivered_at
+    from app.services.order_acceptance import delivered_at, window_hours_for_order
 
     order = _get_order(order_id, db)
     _require_party(order, user, buyer=True)
@@ -1296,8 +1295,8 @@ def report_defect(order_id: int, body: DefectReportBody,
     if not (body.description or "").strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Please describe the defect.")
 
-    # Enforce the inspect-at-unboxing window.
-    window_h = settings.defect_report_window_hours
+    # Enforce the inspect-at-unboxing window (per-commodity).
+    window_h = window_hours_for_order(db, order)
     dvat = delivered_at(db, order)
     now = utcnow()
     if dvat is not None:
